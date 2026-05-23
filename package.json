@@ -1,0 +1,28 @@
+{
+  "name": "workflow-system",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "dev": "npm run dev -w web",
+    "dev:web": "npm run dev -w web",
+    "dev:api": "npm run dev -w api",
+    "build": "npm run build -w web",
+    "build:api": "npm run build -w api",
+    "start": "npm run start -w web",
+    "start:api": "npm run start -w api",
+    "test:calendar": "npm run test:calendar -w web",
+    "lint": "npm run lint -w web",
+    "typecheck": "npm run typecheck -w web && npm run typecheck -w api",
+    "db:migrate:dev": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate:status": "prisma migrate status",
+    "db:migrate:resolve": "prisma migrate resolve",
+    "db:push": "prisma db push",
+    "db:seed": "node prisma/seed.mjs",
+    "postinstall": "prisma generate"
+  },
+  "devDependencies": {
+    "prisma": "6.19.3"
+  }
+}

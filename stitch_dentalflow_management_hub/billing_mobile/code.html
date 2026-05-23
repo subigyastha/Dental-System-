@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Billing Workspace | ClinicFlow</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body {
+            font-family: 'Hanken+Grotesk', sans-serif;
+            background-color: #f9f9fc;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .zebra-stripe:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-fixed-dim": "#a6c9f8",
+                        "on-secondary-fixed-variant": "#5f3b59",
+                        "secondary-fixed-dim": "#e8b8dd",
+                        "on-secondary-fixed": "#2f0f2b",
+                        "on-primary": "#ffffff",
+                        "surface-container-lowest": "#ffffff",
+                        "error": "#ba1a1a",
+                        "primary-fixed-dim": "#3bdccc",
+                        "on-primary-container": "#004d46",
+                        "on-error": "#ffffff",
+                        "surface-container-low": "#f3f3f6",
+                        "on-background": "#1a1c1e",
+                        "background": "#f9f9fc",
+                        "error-container": "#ffdad6",
+                        "on-surface-variant": "#3c4a47",
+                        "surface-tint": "#006a61",
+                        "secondary": "#795271",
+                        "primary": "#006a61",
+                        "inverse-on-surface": "#f0f0f3",
+                        "secondary-container": "#fdcbf1",
+                        "on-tertiary-fixed-variant": "#234970",
+                        "on-primary-fixed": "#00201d",
+                        "on-tertiary-fixed": "#001c37",
+                        "surface-container-highest": "#e2e2e5",
+                        "inverse-surface": "#2f3133",
+                        "tertiary-fixed": "#d2e4ff",
+                        "on-secondary-container": "#7a5272",
+                        "surface-bright": "#f9f9fc",
+                        "outline": "#6b7a77",
+                        "surface-dim": "#dadadc",
+                        "on-surface": "#1a1c1e",
+                        "inverse-primary": "#3bdccc",
+                        "on-secondary": "#ffffff",
+                        "surface": "#f9f9fc",
+                        "secondary-fixed": "#ffd7f4",
+                        "primary-fixed": "#62f9e8",
+                        "primary-container": "#00c6b6",
+                        "on-error-container": "#93000a",
+                        "surface-variant": "#e2e2e5",
+                        "surface-container": "#eeeef0",
+                        "tertiary-container": "#90b3e1",
+                        "on-tertiary": "#ffffff",
+                        "on-primary-fixed-variant": "#005049",
+                        "on-tertiary-container": "#1f456d",
+                        "outline-variant": "#bacac6",
+                        "surface-container-high": "#e8e8ea",
+                        "tertiary": "#3d608a"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "lg": "24px",
+                        "margin-desktop": "32px",
+                        "margin-mobile": "16px",
+                        "sm": "12px",
+                        "base": "8px",
+                        "xs": "4px",
+                        "xl": "32px",
+                        "gutter": "16px",
+                        "md": "16px"
+                    },
+                    "fontFamily": {
+                        "title-lg": ["Hanken Grotesk"],
+                        "label-md": ["Hanken Grotesk"],
+                        "title-md": ["Hanken Grotesk"],
+                        "headline-lg": ["Hanken Grotesk"],
+                        "headline-md": ["Hanken Grotesk"],
+                        "body-md": ["Hanken Grotesk"],
+                        "headline-lg-mobile": ["Hanken Grotesk"],
+                        "headline-xl": ["Hanken Grotesk"],
+                        "body-lg": ["Hanken Grotesk"]
+                    },
+                    "fontSize": {
+                        "title-lg": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                        "label-md": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500"}],
+                        "title-md": ["16px", {"lineHeight": "24px", "fontWeight": "600"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                        "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "headline-lg-mobile": ["28px", {"lineHeight": "36px", "fontWeight": "600"}],
+                        "headline-xl": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface">
+<!-- TopNavBar -->
+<header class="bg-surface-container-lowest dark:bg-surface-dim border-b border-outline-variant dark:border-outline docked full-width top-0 z-50 h-16 flex justify-between items-center px-gutter w-full sticky">
+<div class="flex items-center gap-base">
+<span class="font-headline-md text-headline-md font-bold text-primary dark:text-primary-fixed-dim">ClinicFlow</span>
+</div>
+<div class="flex items-center gap-sm">
+<button class="p-base hover:bg-surface-container-low dark:hover:bg-surface-container-high transition-colors duration-200 rounded-full">
+<span class="material-symbols-outlined text-on-surface-variant">notifications</span>
+</button>
+<div class="w-8 h-8 rounded-full overflow-hidden border border-outline-variant">
+<img alt="Clinic Administrator Avatar" data-alt="A professional headshot of a female clinic administrator with a warm, confident smile. She is wearing a modern teal medical scrub, set against a clean, softly lit dental clinic background with minimalist furniture and high-key lighting. The overall mood is professional, approachable, and organized, reflecting a systematic healthcare environment." src="https://lh3.googleusercontent.com/aida-public/AB6AXuA-SAPH5QbEKMJ3v-66NirzhIVRl7EgCyBq2jY5ykNBbR87V5YY3awN69v6RbrUe3QaZBRdrCydvBX2r2j-Fz5y0cFDfl7zDcKQaPhylUhfB9W2sCVp9RhHsHYUTSxVtGH3T0aWYiwQD9uCfybo4yqWMpRhVDJZeQwM1ZaqBpzH3oi1ZidUyUIzR2EVbjEKVSyjSuIUhJ0gispade4XcJlnqO9lyoNOaFSDmVagefCi798-K10cqrZdg3bHJU2AB6jNMDxpTzIlZ4w"/>
+</div>
+</div>
+</header>
+<main class="p-margin-mobile pb-32 space-y-lg">
+<!-- Header Section -->
+<section>
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">Billing Workspace</h1>
+<p class="font-body-md text-body-md text-on-surface-variant">Central Dental • Management Portal</p>
+</section>
+<!-- Summary Bento Grid (Mobile Stack) -->
+<div class="grid grid-cols-1 gap-md">
+<!-- Total Outstanding Card -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-lg shadow-sm">
+<div class="flex justify-between items-start mb-base">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Total Outstanding</span>
+<span class="material-symbols-outlined text-primary">account_balance_wallet</span>
+</div>
+<div class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">$24,850.00</div>
+<div class="mt-xs flex items-center gap-xs">
+<span class="material-symbols-outlined text-error text-sm">trending_up</span>
+<span class="font-label-md text-label-md text-error">+12% from last month</span>
+</div>
+</div>
+<!-- Pending Reminders Card -->
+<div class="bg-secondary-container text-on-secondary-container border border-outline-variant rounded-xl p-lg shadow-sm">
+<div class="flex justify-between items-start mb-base">
+<span class="font-label-md text-label-md text-on-secondary-container opacity-80 uppercase tracking-wider">Overdue Invoices</span>
+<span class="material-symbols-outlined">event_busy</span>
+</div>
+<div class="font-headline-lg-mobile text-headline-lg-mobile">18 Invoices</div>
+<button class="mt-md w-full bg-on-secondary-container text-secondary-container py-base px-md rounded-lg font-title-md text-title-md flex items-center justify-center gap-xs active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[20px]">send</span>
+                    Send All Reminders
+                </button>
+</div>
+</div>
+<!-- Recent Invoices List -->
+<section class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden shadow-sm">
+<div class="p-md border-b border-outline-variant flex justify-between items-center">
+<h2 class="font-title-lg text-title-lg text-on-surface">Recent Invoices</h2>
+<button class="text-primary font-title-md text-title-md">View All</button>
+</div>
+<div class="divide-y divide-outline-variant">
+<!-- Invoice Row 1 -->
+<div class="p-md zebra-stripe flex items-center justify-between">
+<div class="flex items-center gap-md">
+<div class="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">person</span>
+</div>
+<div>
+<p class="font-title-md text-title-md text-on-surface">Eleanor Shellstrop</p>
+<p class="font-label-md text-label-md text-on-surface-variant">#INV-8802 • Root Canal</p>
+</div>
+</div>
+<div class="text-right">
+<p class="font-title-md text-title-md text-on-surface">$1,200.00</p>
+<span class="inline-flex items-center rounded-full bg-error-container px-base py-[2px] text-on-error-container font-label-md text-[10px]">Overdue</span>
+</div>
+</div>
+<!-- Invoice Row 2 -->
+<div class="p-md zebra-stripe flex items-center justify-between">
+<div class="flex items-center gap-md">
+<div class="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">person</span>
+</div>
+<div>
+<p class="font-title-md text-title-md text-on-surface">Chidi Anagonye</p>
+<p class="font-label-md text-label-md text-on-surface-variant">#INV-8801 • Cleaning</p>
+</div>
+</div>
+<div class="text-right">
+<p class="font-title-md text-title-md text-on-surface">$150.00</p>
+<span class="inline-flex items-center rounded-full bg-primary-container px-base py-[2px] text-on-primary-container font-label-md text-[10px]">Paid</span>
+</div>
+</div>
+<!-- Invoice Row 3 -->
+<div class="p-md zebra-stripe flex items-center justify-between">
+<div class="flex items-center gap-md">
+<div class="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">person</span>
+</div>
+<div>
+<p class="font-title-md text-title-md text-on-surface">Tahani Al-Jamil</p>
+<p class="font-label-md text-label-md text-on-surface-variant">#INV-8799 • Whitening</p>
+</div>
+</div>
+<div class="text-right">
+<p class="font-title-md text-title-md text-on-surface">$450.00</p>
+<span class="inline-flex items-center rounded-full bg-surface-container-highest px-base py-[2px] text-on-surface-variant font-label-md text-[10px]">Pending</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Quick Action Grid -->
+<section class="grid grid-cols-2 gap-sm">
+<button class="bg-surface-container-lowest border border-outline-variant p-md rounded-xl flex flex-col items-center gap-base transition-all active:bg-surface-container-low">
+<span class="material-symbols-outlined text-primary text-headline-md">receipt_long</span>
+<span class="font-label-md text-label-md">New Invoice</span>
+</button>
+<button class="bg-surface-container-lowest border border-outline-variant p-md rounded-xl flex flex-col items-center gap-base transition-all active:bg-surface-container-low">
+<span class="material-symbols-outlined text-primary text-headline-md">payments</span>
+<span class="font-label-md text-label-md">Add Payment</span>
+</button>
+</section>
+</main>
+<!-- BottomNavBar -->
+<nav class="md:hidden fixed bottom-0 left-0 right-0 bg-surface-container border-t border-outline-variant h-20 flex justify-around items-center px-md z-50">
+<div class="flex flex-col items-center text-on-surface-variant hover:text-primary transition-all duration-150">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-label-md text-label-md">Dashboard</span>
+</div>
+<div class="flex flex-col items-center text-on-surface-variant hover:text-primary transition-all duration-150">
+<span class="material-symbols-outlined">group</span>
+<span class="font-label-md text-label-md">Patients</span>
+</div>
+<div class="flex flex-col items-center text-on-surface-variant hover:text-primary transition-all duration-150">
+<span class="material-symbols-outlined">calendar_today</span>
+<span class="font-label-md text-label-md">Schedule</span>
+</div>
+<div class="flex flex-col items-center bg-secondary-container text-on-secondary-container rounded-full px-lg py-xs">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">payments</span>
+<span class="font-label-md text-label-md font-semibold">Billing</span>
+</div>
+<div class="flex flex-col items-center text-on-surface-variant hover:text-primary transition-all duration-150">
+<span class="material-symbols-outlined">badge</span>
+<span class="font-label-md text-label-md">Staff</span>
+</div>
+</nav>
+<!-- Floating Action Button -->
+<button class="fixed bottom-24 right-6 bg-primary-container text-on-primary-container w-14 h-14 rounded-full shadow-lg flex items-center justify-center active:scale-90 transition-transform">
+<span class="material-symbols-outlined text-3xl">add</span>
+</button>
+</body></html>

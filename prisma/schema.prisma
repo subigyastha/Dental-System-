@@ -1,0 +1,663 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SuperAdmin
+  Owner
+  Admin
+  Manager
+  Receptionist
+  Scheduler
+  Provider
+  Assistant
+  Client
+}
+
+enum RecordStatus {
+  Active
+  Inactive
+  Invited
+  Suspended
+}
+
+enum ProviderStatus {
+  Available
+  Busy
+  Away
+  Inactive
+}
+
+enum AppointmentStatus {
+  Scheduled
+  Confirmed
+  CheckedIn
+  InProgress
+  Completed
+  Cancelled
+  NoShow
+  Rescheduled
+  FollowUpRequired
+}
+
+enum Priority {
+  Low
+  Normal
+  High
+  Urgent
+}
+
+enum FollowUpType {
+  Reminder
+  NoShowRecovery
+  Recall
+  IncompleteWorkflow
+  TreatmentContinuation
+}
+
+enum FollowUpStatus {
+  Open
+  InProgress
+  Waiting
+  Done
+  Blocked
+}
+
+enum NotificationChannel {
+  SMS
+  WhatsApp
+  Email
+  Push
+}
+
+enum NotificationStatus {
+  Queued
+  Sending
+  Delivered
+  Failed
+  Cancelled
+}
+
+enum InvoiceStatus {
+  Draft
+  Issued
+  PartiallyPaid
+  Paid
+  Cancelled
+  Void
+}
+
+enum PaymentMethod {
+  Cash
+  Card
+  BankTransfer
+  MobileWallet
+  Insurance
+  Other
+}
+
+enum PaymentStatus {
+  Pending
+  Completed
+  Failed
+  Refunded
+  Voided
+}
+
+model Organization {
+  id              String            @id @default(cuid())
+  name            String
+  businessType    String            @default("dental_clinic")
+  email           String?
+  phone           String?
+  address         String?
+  status          RecordStatus      @default(Active)
+  timezone        String            @default("Asia/Kathmandu")
+  primaryCalendar String            @default("BS")
+  locations       Location[]
+  users           User[]
+  providers       Provider[]
+  customers       Customer[]
+  services        Service[]
+  resources       Resource[]
+  appointments    Appointment[]
+  followUpTasks   FollowUpTask[]
+  notifications   Notification[]
+  invoices        Invoice[]
+  payments        Payment[]
+  workflowEvents  WorkflowEvent[]
+  auditLogs       AuditLog[]
+  settings        OrganizationSetting?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([status])
+  @@index([businessType])
+}
+
+model Location {
+  id             String                 @id @default(cuid())
+  organizationId String
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  address        String?
+  phone          String?
+  timezone       String                 @default("Asia/Kathmandu")
+  isActive       Boolean                @default(true)
+  resources      Resource[]
+  appointments   Appointment[]
+  availability   ProviderAvailability[]
+  recurringBlocks ProviderRecurringBlock[]
+  blockedTimes   BlockedTime[]
+  providerServices ProviderService[]
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  @@index([organizationId])
+  @@index([organizationId, isActive])
+}
+
+model OrganizationSetting {
+  id                    String       @id @default(cuid())
+  organizationId        String       @unique
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  defaultBufferMinutes  Int          @default(10)
+  reminderLeadMinutes   Int          @default(1440)
+  allowOverlaps         Boolean      @default(false)
+  businessDayStartsAt   String       @default("08:00")
+  businessDayEndsAt     String       @default("18:00")
+}
+
+model User {
+  id             String       @id @default(cuid())
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  email          String
+  passwordHash   String?
+  phone          String?
+  staffLabel     String?
+  department     String?
+  employeeCode   String?
+  licenseNumber  String?
+  employmentType String?
+  startDate      DateTime?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  notes          String?
+  isSchedulable  Boolean      @default(false)
+  lastLoginAt    DateTime?
+  status         RecordStatus @default(Active)
+  role           UserRole
+  provider       Provider?
+  clientProfiles Customer[]
+  auditLogs      AuditLog[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, email])
+  @@index([organizationId, role])
+  @@index([email])
+  @@index([status])
+}
+
+model Provider {
+  id             String               @id @default(cuid())
+  organizationId String
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String?              @unique
+  user           User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  displayName    String
+  roleLabel      String
+  specialty      String?
+  status         ProviderStatus       @default(Available)
+  color          String               @default("#0f766e")
+  appointments   Appointment[]
+  providerServices ProviderService[]
+  availability   ProviderAvailability[]
+  recurringBlocks ProviderRecurringBlock[]
+  blockedTimes   BlockedTime[]
+  followUpTasks  FollowUpTask[]       @relation("FollowUpOwner")
+  updatedDentalCharts  PatientDentalChart[]     @relation("PatientDentalChartUpdatedBy")
+  dentalChartRevisions DentalChartRevision[]    @relation("DentalChartRevisionCreatedBy")
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@index([organizationId, status])
+}
+
+model Customer {
+  id             String          @id @default(cuid())
+  organizationId String
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  fullName       String
+  phone          String
+  email          String?
+  userId         String?
+  user           User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  gender         String?
+  dateOfBirth    DateTime?
+  address        String?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  medicalNotes   String?
+  allergies      String?
+  riskLabel      String          @default("Routine")
+  patientCode    String?
+  lastVisitAt    DateTime?
+  appointments   Appointment[]
+  followUpTasks  FollowUpTask[]
+  communications CommunicationLog[]
+  appointmentSessions AppointmentSession[]
+  dentalChart    PatientDentalChart?
+  dentalChartRevisions DentalChartRevision[]
+  invoices       Invoice[]
+  payments       Payment[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@unique([organizationId, phone])
+  @@unique([organizationId, patientCode])
+  @@index([organizationId, fullName])
+  @@index([organizationId, email])
+  @@index([userId])
+}
+
+model Service {
+  id              String               @id @default(cuid())
+  organizationId  String
+  organization    Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name            String
+  category        String
+  description     String?
+  durationMinutes Int
+  bufferMinutes   Int                  @default(10)
+  price           Decimal?
+  isActive        Boolean              @default(true)
+  appointments    AppointmentService[]
+  providerServices ProviderService[]
+  appointmentSessions AppointmentSession[]
+  invoiceLineItems InvoiceLineItem[]
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  @@index([organizationId, isActive])
+}
+
+model ProviderService {
+  id                    String    @id @default(cuid())
+  providerId            String
+  provider              Provider  @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  serviceId             String
+  service               Service   @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  locationId            String?
+  location              Location? @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  customDurationMinutes Int?
+  customPrice           Decimal?
+  isActive              Boolean   @default(true)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([providerId, serviceId, locationId])
+  @@index([providerId])
+  @@index([serviceId])
+  @@index([locationId])
+}
+
+model Resource {
+  id             String        @id @default(cuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  locationId     String?
+  location       Location?     @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  name           String
+  type           String
+  appointments   Appointment[]
+  blockedTimes   BlockedTime[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([organizationId, type])
+}
+
+model Appointment {
+  id                  String               @id @default(cuid())
+  organizationId      String
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  locationId          String?
+  location            Location?            @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  customerId          String
+  customer            Customer             @relation(fields: [customerId], references: [id])
+  providerId          String
+  provider            Provider             @relation(fields: [providerId], references: [id])
+  resourceId          String?
+  resource            Resource?            @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  services            AppointmentService[]
+  startsAt            DateTime
+  endsAt              DateTime
+  durationMinutes     Int
+  bufferMinutes       Int                  @default(10)
+  status              AppointmentStatus    @default(Scheduled)
+  priority            Priority             @default(Normal)
+  communicationState  String               @default("Unconfirmed")
+  notes               String?
+  cancellationReason  String?
+  recurrenceRule      String?
+  sourceAppointmentId String?
+  sourceAppointment   Appointment?         @relation("AppointmentRecurrence", fields: [sourceAppointmentId], references: [id], onDelete: SetNull)
+  childAppointments   Appointment[]        @relation("AppointmentRecurrence")
+  followUpTasks       FollowUpTask[]
+  communications      CommunicationLog[]
+  workflowEvents      WorkflowEvent[]
+  session             AppointmentSession?
+  notifications       Notification[]
+  invoices            Invoice[]
+  payments            Payment[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  @@index([organizationId, startsAt])
+  @@index([locationId, startsAt])
+  @@index([organizationId, providerId, startsAt])
+  @@index([organizationId, status, priority])
+}
+
+model AppointmentService {
+  appointmentId String
+  serviceId     String
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  service       Service     @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@id([appointmentId, serviceId])
+}
+
+model ProviderAvailability {
+  id             String   @id @default(cuid())
+  organizationId String
+  providerId     String
+  provider       Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  locationId     String?
+  location       Location? @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  dayOfWeek      Int
+  startsAtLocal  String
+  endsAtLocal    String
+  slotDurationMinutes Int    @default(60)
+  bufferMinutes  Int     @default(0)
+  isActive       Boolean @default(true)
+  effectiveFrom  DateTime
+  effectiveTo    DateTime?
+  recurrenceRule String?
+
+  @@index([organizationId, providerId, dayOfWeek])
+  @@index([locationId])
+}
+
+model ProviderRecurringBlock {
+  id             String    @id @default(cuid())
+  organizationId String
+  providerId     String
+  provider       Provider  @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  locationId     String?
+  location       Location? @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  dayOfWeek      Int
+  startsAtLocal  String
+  endsAtLocal    String
+  reason         String
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([organizationId, providerId, dayOfWeek, isActive])
+  @@index([locationId])
+}
+
+model BlockedTime {
+  id             String    @id @default(cuid())
+  organizationId String
+  providerId     String?
+  provider       Provider? @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  locationId     String?
+  location       Location? @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  resourceId     String?
+  resource       Resource? @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  startsAt       DateTime
+  endsAt         DateTime
+  reason         String
+
+  @@index([organizationId, startsAt, endsAt])
+}
+
+model AppointmentSession {
+  id                String      @id @default(cuid())
+  appointmentId     String      @unique
+  appointment       Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  customerId        String
+  customer          Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  providerId        String
+  serviceId         String
+  service           Service     @relation(fields: [serviceId], references: [id])
+  visitSummary      String?
+  symptoms          String?
+  clinicalNotes     String?
+  doctorNotes       String?
+  followUpRequired  Boolean     @default(false)
+  followUpDate      DateTime?
+  dentalChartUpdated Boolean    @default(false)
+  chartNote         String?
+  dentalChartRevision DentalChartRevision?
+  sourceDentalCharts PatientDentalChart[] @relation("PatientDentalChartSourceSession")
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@index([appointmentId])
+  @@index([customerId])
+  @@index([providerId])
+}
+
+model PatientDentalChart {
+  id                        String               @id @default(cuid())
+  customerId                String               @unique
+  customer                  Customer             @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  chartData                 Json
+  version                   Int                  @default(1)
+  updatedByProviderId       String?
+  updatedByProvider         Provider?            @relation("PatientDentalChartUpdatedBy", fields: [updatedByProviderId], references: [id], onDelete: SetNull)
+  sourceAppointmentSessionId String?
+  sourceAppointmentSession  AppointmentSession?  @relation("PatientDentalChartSourceSession", fields: [sourceAppointmentSessionId], references: [id], onDelete: SetNull)
+  createdAt                 DateTime             @default(now())
+  updatedAt                 DateTime             @updatedAt
+
+  @@index([updatedByProviderId])
+  @@index([sourceAppointmentSessionId])
+}
+
+model DentalChartRevision {
+  id                   String              @id @default(cuid())
+  customerId           String
+  customer             Customer            @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  appointmentSessionId String?             @unique
+  appointmentSession   AppointmentSession? @relation(fields: [appointmentSessionId], references: [id], onDelete: SetNull)
+  createdByProviderId  String?
+  createdByProvider    Provider?           @relation("DentalChartRevisionCreatedBy", fields: [createdByProviderId], references: [id], onDelete: SetNull)
+  chartData            Json
+  note                 String?
+  createdAt            DateTime            @default(now())
+
+  @@index([customerId, createdAt])
+  @@index([createdByProviderId])
+}
+
+model FollowUpTask {
+  id             String          @id @default(cuid())
+  organizationId String
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customerId     String
+  customer       Customer        @relation(fields: [customerId], references: [id])
+  appointmentId  String?
+  appointment    Appointment?    @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  ownerId        String?
+  owner          Provider?       @relation("FollowUpOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  type           FollowUpType
+  status         FollowUpStatus  @default(Open)
+  priority       Priority        @default(Normal)
+  dueAt          DateTime
+  summary        String
+  nextAction     String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([organizationId, status, priority, dueAt])
+  @@index([organizationId, customerId])
+}
+
+model Notification {
+  id             String              @id @default(cuid())
+  organizationId String
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  appointmentId  String?
+  appointment    Appointment?        @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  channel        NotificationChannel
+  status         NotificationStatus  @default(Queued)
+  templateKey    String
+  recipient      String
+  scheduledFor   DateTime
+  sentAt         DateTime?
+  payload        Json
+  error          String?
+  createdAt      DateTime            @default(now())
+
+  @@index([organizationId, status, scheduledFor])
+}
+
+model Invoice {
+  id             String        @id @default(cuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customerId     String
+  customer       Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  appointmentId  String?
+  appointment    Appointment?  @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  invoiceNumber  String
+  status         InvoiceStatus @default(Draft)
+  issuedAt       DateTime      @default(now())
+  dueAt          DateTime?
+  subtotal       Decimal       @default(0)
+  discountAmount Decimal       @default(0)
+  taxAmount      Decimal       @default(0)
+  totalAmount    Decimal       @default(0)
+  balanceAmount  Decimal       @default(0)
+  notes          String?
+  lineItems      InvoiceLineItem[]
+  payments       Payment[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([organizationId, invoiceNumber])
+  @@index([organizationId, status, issuedAt])
+  @@index([customerId])
+  @@index([appointmentId])
+}
+
+model InvoiceLineItem {
+  id             String   @id @default(cuid())
+  invoiceId      String
+  invoice        Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  serviceId      String?
+  service        Service? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  description    String
+  quantity       Int      @default(1)
+  unitPrice      Decimal  @default(0)
+  discountAmount Decimal  @default(0)
+  taxAmount      Decimal  @default(0)
+  lineTotal      Decimal  @default(0)
+  sortOrder      Int      @default(0)
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([invoiceId, sortOrder])
+  @@index([serviceId])
+}
+
+model Payment {
+  id              String        @id @default(cuid())
+  organizationId  String
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invoiceId       String
+  invoice         Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  customerId      String
+  customer        Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  appointmentId   String?
+  appointment     Appointment?  @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  amount          Decimal
+  method          PaymentMethod
+  status          PaymentStatus @default(Completed)
+  referenceNumber String?
+  paidAt          DateTime      @default(now())
+  notes           String?
+  metadata        Json?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([organizationId, paidAt])
+  @@index([invoiceId])
+  @@index([customerId])
+  @@index([appointmentId])
+}
+
+model CommunicationLog {
+  id             String       @id @default(cuid())
+  organizationId String
+  customerId     String
+  customer       Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  appointmentId  String?
+  appointment    Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  channel        String
+  direction      String
+  summary        String
+  occurredAt     DateTime     @default(now())
+  metadata       Json?
+
+  @@index([organizationId, customerId, occurredAt])
+}
+
+model WorkflowEvent {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  appointmentId  String
+  appointment    Appointment  @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  fromStatus     String?
+  toStatus       String
+  actorUserId    String?
+  note           String?
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, appointmentId, createdAt])
+}
+
+model AuditLog {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actorId        String?
+  actor          User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  entityType     String
+  entityId       String
+  action         String
+  oldValue       Json?
+  newValue       Json?
+  description    String?
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId])
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@index([organizationId, createdAt])
+}

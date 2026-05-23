@@ -1,0 +1,210 @@
+[31m[Nest] 9028  - [39m05/11/2026, 12:30:18 AM [31m  ERROR[39m [38;5;3m[ExceptionsHandler] [39mTypeError: Cannot read properties of undefined (reading 'getOperationalData')
+    at OperationalDataController.getOperationalData [90m(D:\PROJECTS\Koi Tech Company\Workflow System\[39mapps\api\src\modules\operational-data\operational-data.controller.ts:11:33[90m)[39m
+    at [90mD:\PROJECTS\Koi Tech Company\Workflow System\[39mnode_modules\[4m@nestjs\core[24m\router\router-execution-context.js:38:29
+    at InterceptorsConsumer.intercept [90m(D:\PROJECTS\Koi Tech Company\Workflow System\[39mnode_modules\[4m@nestjs\core[24m\interceptors\interceptors-consumer.js:12:20[90m)[39m
+    at [90mD:\PROJECTS\Koi Tech Company\Workflow System\[39mnode_modules\[4m@nestjs\core[24m\router\router-execution-context.js:46:60
+    at [90mD:\PROJECTS\Koi Tech Company\Workflow System\[39mnode_modules\[4m@nestjs\core[24m\router\router-proxy.js:9:23
+    at Layer.handleRequest [90m(D:\PROJECTS\Koi Tech Company\Workflow System\[39mnode_modules\[4mrouter[24m\lib\layer.js:152:17[90m)[39m
+    at next [90m(D:\PROJECTS\Koi Tech[31m[Nest] 17276  - [39m05/11/2026, 12:30:46 AM [31m  ERROR[39m [38;5;3m[NestApplication] [39m[31mError: listen EADDRINUSE: address already in use :::4000[39m[38;5;3m +3ms[39m
+node:net:1940
+    const ex = new UVExceptionWithHostPort(err, 'listen', address, port);
+               ^
+
+Error: listen EADDRINUSE: address already in use :::4000
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:21[31m[Nest] 12004  - [39m05/11/2026, 12:31:00 AM [31m  ERROR[39m [38;5;3m[NestApplication] [39m[31mError: listen EADDRINUSE: address already in use :::4000[39m[38;5;3m +17ms[39m
+node:net:1940
+    const ex = new UVExceptionWithHostPort(err, 'listen', address, port);
+               ^
+
+Error: listen EADDRINUSE: address already in use :::4000
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at ExpressAdapter.listen (D:\PROJECTS\Koi Tech Company\Workflow System\node_modules\@nestjs\platform-express\adapters\express-adapter.js:115:32)
+    at D:\PROJECTS\Koi Tech Company\Workflow System\node_modules\@nestjs\core\nest-application.js:188:30
+    at new Promise (<anonymous>)
+    at NestApplication.listen (D:\PROJECTS\Koi Tech Company\Workflow System\node_modules\@nestjs\core\nest-application.js:178:16)
+    at async bootstrap (D:\PROJECTS\Koi Tech Company\Workflow System\apps\api\src\main.ts:19:3) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 4000
+}
+
+Node.js v24.9.0
+[31m[Nest] 10884  - [39m05/11/2026, 12:31:17 AM [31m  ERROR[39m [38;5;3m[NestApplication] [39m[31mError: listen EADDRINUSE: address already in use :::4000[39m[38;5;3m +16ms[39m
+node:net:1940
+    const ex = new UVExceptionWithHostPort(err, 'listen', address, port);
+               ^
+
+Error: listen EADDRINUSE: address already in use :::4000
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at ExpressAdapter.listen (D:\PROJECTS\Koi Tech Company\Workflow System\node_modules\@nestjs\platform-express\adapters\express-adapter.js:115:32)
+    at D:\PROJECTS\Koi Tech Company\Workflow System\node_modules\@nestjs\core\nest-application.js:188:30
+    at new Promise (<anonymous>)
+    at NestApplication.listen (D:\PROJECTS\Koi Tech Company\Workflow System\node_modules\@nestjs\core\nest-application.js:178:16)
+    at async bootstrap (D:\PROJECTS\Koi Tech Company\Workflow System\apps\api\src\main.ts:19:3) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 4000
+}
+
+Node.js v24.9.0
+[31m[Nest] 32668  - [39m05/11/2026, 12:31:25 AM [31m  ERROR[39m [38;5;3m[NestApplication] [39m[31mError: listen EADDRINUSE: address already in use :::4000[39m[38;5;3m +5ms[39m
+node:net:1940
+    const ex = new UVExceptionWithHostPort(err, 'listen', address, port);
+               ^
+
+Error: listen EADDRINUSE: address already in use :::4000
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at ExpressAdapter.listen (D:\PROJECTS\Koi Tech Company\Workflow System\node_modules\@nestjs\platform-express\adapters\express-adapter.js[31m[Nest] 28760  - [39m05/11/2026, 12:31:34 AM [31m  ERROR[39m [38;5;3m[NestApplication] [39m[31mError: listen EADDRINUSE: address already in use :::4000[39m[38;5;3m +4ms[39m
+node:net:1940
+    const ex = new UVExceptionWithHostPort(err, 'listen', address, port);
+               ^
+
+Error: listen EADDRINUSE: address already in use :::4000
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:21[31m[Nest] 31136  - [39m05/11/2026, 12:31:59 AM [31m  ERROR[39m [38;5;3m[NestApplication] [39m[31mError: listen EADDRINUSE: address already in use :::4000[39m[38;5;3m +19ms[39m
+node:net:1940
+    const ex = new UVExceptionWithHostPort(err, 'listen', address, port);
+               ^
+
+Error: listen EADDRINUSE: address already in use :::4000
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at ExpressAdapter.listen (D:\PROJECTS\Koi Tech Company\Workflow System\node_modules\@nestjs\platform-express\adapters\express-adapter.js:115:32)
+    at D:\PROJECTS\Koi Tech Company\Workflow System\node_modules\@nestjs\core\nest-application.js:188:30
+    at new Promise (<anonymous>)
+    at NestApplication.listen (D:\PROJECTS\Koi Tech Company\Workflow System\node_modules\@nestjs\core\nest-application.js:178:16)
+    at async bootstrap (D:\PROJECTS\Koi Tech Company\Workflow System\apps\api\src\main.ts:19:3) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 4000
+}
+
+Node.js v24.9.0
+[31m[Nest] 31868  - [39m05/11/2026, 12:43:50 AM [31m  ERROR[39m [38;5;3m[ExceptionsHandler] [39mPrismaClientKnownRequestError: 
+Invalid `this.prisma.organization.findFirst()` invocation in
+D:\PROJECTS\Koi Tech Company\Workflow System\apps\api\src\modules\operational-data\operational-data.service.ts:13:57
+
+  10 ) {}
+  11 
+  12 async getOperationalData() {
+→ 13   const organization = await this.prisma.organization.findFirst(
+Timed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 10, connection limit: 13)
+    at ei.handleRequestError [90m(D:\PROJECTS\Koi Tech Company\Workflow System\[39mnode_modules\[4m@prisma\client[24m\src\runtime\RequestHandler.ts:228:13[90m)[39m
+    at ei.handleAndLogRequestError [90m(D:\PROJECTS\Koi Tech Company\Workflow System\[39mnode_modules\[4m@prisma\client[24m\src\runtime\RequestHandler.ts:174:12[90m)[39m
+    at ei.request [90m(D:\PROJECTS\Koi Tech Company\Workflow System\[39mnode_modules\[4m@prisma\client[24m\src\runtime\RequestHandler.ts:143:12[90m)[39m
+    at async a [90m(D:\PROJECTS\Koi Tech Company\Workflow System\[39mnode_modules\[4m@prisma\client[24m\src\runtime\getPrismaClient.ts:833:24[90m)[39m
+    at async OperationalDataService.getOperationalData [90m(D:\PROJECTS\Koi Tech Company\Workflow System\[39mapps\api\src\modules\operational-data\operational-data.service.ts:13:26[90m)[39m
+    at async [90mD:\PROJECTS\Koi Tech Company\Workflow System\[39mnode_modules\[4m@nestjs\core[24m\router\router-execution-context.js:46:28
+    at async [90mD:\PROJECTS\Koi Tech Company\Workflow System\[39mnode_modules\[4m@nestjs\core[24m\router\router-proxy.js:9:17 {
+  code: [32m'P2024'[39m,
+  meta: {
+    modelName: [32m'Organization'[39m,
+    connection_limit: [33m13[39m,
+    timeout: [33m10[39m
+  },
+  clientVersion: [32m'6.19.3'[39m
+}
+[31m[Nest] 12492  - [39m05/11/2026, 12:56:42 AM [31m  ERROR[39m [38;5;3m[NestApplication] [39m[31mError: listen EADDRINUSE: address already in use :::4000[39m[38;5;3m +17ms[39m
+node:net:1940
+    const ex = new UVExceptionWithHostPort(err, 'listen', address, port);
+               ^
+
+Error: listen EADDRINUSE: address already in use :::4000
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at ExpressAdapter.listen (D:\PROJECTS\Koi Tech Company\Workflow System\node_modules\@nestjs\platform-express\adapters\express-adapter.js:115:32)
+    at D:\PROJECTS\Koi Tech Company\Workflow System\node_modules\@nestjs\core\nest-application.js:188:30
+    at new Promise (<anonymous>)
+    at NestApplication.listen (D:\PROJECTS\Koi Tech Company\Workflow System\node_modules\@nestjs\core\nest-application.js:178:16)
+    at async bootstrap (D:\PROJECTS\Koi Tech Company\Workflow System\apps\api\src\main.ts:19:3) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 4000
+}
+
+Node.js v24.9.0
+[31m[Nest] 28044  - [39m05/11/2026, 12:59:43 AM [31m  ERROR[39m [38;5;3m[NestApplication] [39m[31mError: listen EADDRINUSE: address already in use :::4000[39m[38;5;3m +3ms[39m
+node:net:1940
+    const ex = new UVExceptionWithHostPort(err, 'listen', address, port);
+               ^
+
+Error: listen EADDRINUSE: address already in use :::4000
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at ExpressAdapter.listen (D:\PROJECTS\Koi Tech Company\Workflow System\node_modules\@nestjs\platform-express\adapters\express-adapter.js:115:32)
+    at D:\PROJECTS\Koi Tech Company\Workflow System\node_modules\@nestjs\core\nest-application.js:188:30
+    at new Promise (<anonymous>)
+    at NestApplication.listen (D:\PROJECTS\Koi Tech Company\Workflow System\node_modules\@nestjs\core\nest-application.js:178:16)
+    at async bootstrap (D:\PROJECTS\Koi Tech Company\Workflow System\apps\api\src\main.ts:19:3) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 4000
+}
+
+Node.js v24.9.0
+[31m[Nest] 33052  - [39m05/11/2026, 1:05:23 AM [31m  ERROR[39m [38;5;3m[NestApplication] [39m[31mError: listen EADDRINUSE: address already in use :::4000[39m[38;5;3m +4ms[39m
+node:net:1940
+    const ex = new UVExceptionWithHostPort(err, 'listen', address, port);
+               ^
+
+Error: listen EADDRINUSE: address already in use :::4000
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at ExpressAdapter.listen (D:\PROJECTS\Koi Tech Company\Workflow System\node_modules\@nestjs\platform-express\adapters\express-adapter.js:115:32)
+    at D:\PROJECTS\Koi Tech Company\Workflow System\node_modules\@nestjs\core\nest-application.js:188:30
+    at new Promise (<anonymous>)
+    at NestApplication.listen (D:\PROJECTS\Koi Tech Company\Workflow System\node_modules\@nestjs\core\nest-application.js:178:16)
+    at async bootstrap (D:\PROJECTS\Koi Tech Company\Workflow System\apps\api\src\main.ts:19:3) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 4000
+}
+
+Node.js v24.9.0
+ress already in use :::4000[39m[38;5;3m +3ms[39m
+node:net:1940
+    const ex = new UVExceptionWithHostPort(err, 'listen', address, port);
+               ^
+
+Error: listen EADDRINUSE: address already in use :::4000
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at ExpressAdapter.listen (D:\PROJECTS\Koi Tech Company\Workflow System\node_modules\@nestjs\platform-express\adapters\express-adapter.js:115:32)
+    at D:\PROJECTS\Koi Tech Company\Workflow System\node_modules\@nestjs\core\nest-application.js:188:30
+    at new Promise (<anonymous>)
+    at NestApplication.listen (D:\PROJECTS\Koi Tech Company\Workflow System\node_modules\@nestjs\core\nest-application.js:178:16)
+    at async bootstrap (D:\PROJECTS\Koi Tech Company\Workflow System\apps\api\src\main.ts:19:3) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 4000
+}
+
+Node.js v24.9.0

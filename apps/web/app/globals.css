@@ -1,0 +1,292 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f7f8fa;
+  --foreground: #1f2328;
+  --surface: #ffffff;
+  --surface-container-lowest: #ffffff;
+  --surface-container-low: #f4f5f7;
+  --surface-container: #eef1f3;
+  --surface-container-high: #e7ebee;
+  --surface-muted: #f4f5f7;
+  --surface-subtle: #eef1f3;
+  --surface-strong: #e7ebee;
+  --border: #dde3e8;
+  --text-muted: #66707a;
+  --accent: #0ea5a4;
+  --accent-strong: #0b8a89;
+  --accent-soft: #d8f6f3;
+  --brand: #006a61;
+  --brand-strong: #004d46;
+  --secondary-accent: #7c3f91;
+  --secondary-surface: #f6e8fb;
+  --secondary-text: #7c3f91;
+  --attention: #ffa000;
+  --danger: #ba1a1a;
+  --danger-soft: #ffdad6;
+  --success: #006a61;
+  --ink: #1f2328;
+  --sidebar: #1c1f24;
+  --sidebar-elevated: #23272f;
+  --sidebar-active: #f6e8fb;
+  --sidebar-active-text: #38153f;
+  --shell-muted: #f7f8fa;
+  --card-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.1);
+  --popover-shadow: 0 18px 48px rgba(15, 23, 42, 0.16);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Hanken Grotesk", "Segoe UI", "Aptos", ui-sans-serif, system-ui,
+    -apple-system, BlinkMacSystemFont, sans-serif;
+  letter-spacing: 0;
+}
+
+body {
+  min-height: 100vh;
+  line-height: 1.4;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: "Hanken Grotesk", "Aptos Display", "Segoe UI", ui-sans-serif,
+    system-ui, sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+input,
+select,
+textarea {
+  color: var(--ink);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: color-mix(in srgb, var(--text-muted) 72%, white);
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid rgba(0, 198, 182, 0.28);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(0, 198, 182, 0.18);
+}
+
+.scrollbar-quiet {
+  scrollbar-width: thin;
+  scrollbar-color: #b9c6bc transparent;
+}
+
+.scrollbar-quiet::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.scrollbar-quiet::-webkit-scrollbar-thumb {
+  background: rgba(111, 121, 122, 0.34);
+  border-radius: 999px;
+}
+
+.scrollbar-quiet::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.status-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.koi-loader-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.koi-loader-pool {
+  position: relative;
+  width: 8.5rem;
+  height: 8.5rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0) 42%),
+    linear-gradient(180deg, #f8fbff 0%, #e2efff 52%, #c4dcff 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(14, 165, 164, 0.08),
+    0 24px 48px rgba(15, 23, 42, 0.08);
+}
+
+.koi-loader-waterline {
+  position: absolute;
+  inset: 50% 0 auto;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(14, 165, 164, 0.14), rgba(14, 165, 164, 0.6), rgba(14, 165, 164, 0.14));
+}
+
+.koi-loader-fish {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5rem;
+  height: 2.4rem;
+  transform-origin: 50% 50%;
+  animation: koi-orbit 2.8s linear infinite;
+}
+
+.koi-loader-fish-body,
+.koi-button-loader-fish-body {
+  position: absolute;
+  left: 0;
+  top: 0.35rem;
+  width: 3.4rem;
+  height: 1.7rem;
+  border-radius: 999px 1.25rem 1.25rem 999px;
+  background:
+    radial-gradient(circle at 68% 36%, rgba(255, 255, 255, 0.92) 0 0.2rem, transparent 0.22rem),
+    radial-gradient(circle at 58% 52%, #ffffff 0 0.2rem, transparent 0.21rem),
+    linear-gradient(135deg, #ffffff 0%, #f6fbff 24%, #16a7a6 52%, #0e7f8b 100%);
+  box-shadow:
+    inset 0 -0.14rem 0.28rem rgba(0, 71, 94, 0.18),
+    0 0.25rem 0.6rem rgba(14, 165, 164, 0.24);
+}
+
+.koi-loader-fish-body::after,
+.koi-button-loader-fish-body::after {
+  content: "";
+  position: absolute;
+  right: 0.62rem;
+  top: 0.62rem;
+  width: 0.16rem;
+  height: 0.16rem;
+  border-radius: 999px;
+  background: #0f172a;
+}
+
+.koi-loader-fish-tail,
+.koi-button-loader-fish-tail {
+  position: absolute;
+  left: 2.85rem;
+  top: 0.05rem;
+  width: 1.6rem;
+  height: 2.25rem;
+  clip-path: polygon(0 50%, 100% 0, 72% 50%, 100% 100%);
+  background: linear-gradient(180deg, #0fb6b5 0%, #0d8e9b 100%);
+  transform-origin: 0.35rem 50%;
+  animation: koi-tail 0.78s ease-in-out infinite;
+}
+
+.koi-button-loader {
+  position: relative;
+  display: inline-flex;
+  width: 4.25rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+
+.koi-button-loader-water {
+  position: absolute;
+  inset: auto 0 0;
+  height: 56%;
+  background:
+    linear-gradient(180deg, rgba(230, 244, 255, 0.9) 0%, rgba(177, 218, 255, 0.92) 100%);
+}
+
+.koi-button-loader::after {
+  content: "";
+  position: absolute;
+  inset: 44% 0 auto;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.koi-button-loader-fish {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 2.9rem;
+  height: 1.5rem;
+  transform-origin: 50% 50%;
+  animation: koi-button-orbit 1.9s linear infinite;
+}
+
+.koi-button-loader-fish-body {
+  top: 0.2rem;
+  width: 2rem;
+  height: 1rem;
+}
+
+.koi-button-loader-fish-tail {
+  left: 1.62rem;
+  top: 0.02rem;
+  width: 1rem;
+  height: 1.35rem;
+}
+
+@keyframes koi-orbit {
+  0% {
+    transform: rotate(0deg) translateX(1.95rem) rotate(18deg);
+  }
+  100% {
+    transform: rotate(360deg) translateX(1.95rem) rotate(378deg);
+  }
+}
+
+@keyframes koi-button-orbit {
+  0% {
+    transform: rotate(0deg) translateX(1rem) rotate(26deg);
+  }
+  100% {
+    transform: rotate(360deg) translateX(1rem) rotate(386deg);
+  }
+}
+
+@keyframes koi-tail {
+  0%, 100% {
+    transform: rotate(-10deg);
+  }
+  50% {
+    transform: rotate(12deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .koi-loader-fish,
+  .koi-loader-fish-tail,
+  .koi-button-loader-fish,
+  .koi-button-loader-fish-tail {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

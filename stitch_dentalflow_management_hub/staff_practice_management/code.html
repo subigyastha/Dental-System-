@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Hanken+Grotesk:wght@600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "secondary-fixed-dim": "#69d8d2",
+            "surface-container-lowest": "#ffffff",
+            "on-secondary-fixed": "#00201f",
+            "on-error-container": "#93000a",
+            "on-secondary-container": "#006f6b",
+            "tertiary-fixed": "#a9eef3",
+            "surface": "#f8f9ff",
+            "surface-container-low": "#eff4ff",
+            "on-tertiary": "#ffffff",
+            "on-primary-fixed-variant": "#004f55",
+            "inverse-primary": "#8fd1d9",
+            "surface-dim": "#cbdbf5",
+            "surface-tint": "#20686f",
+            "background": "#f8f9ff",
+            "on-primary": "#ffffff",
+            "primary-container": "#0d5c63",
+            "tertiary": "#004347",
+            "on-surface-variant": "#3f484a",
+            "surface-container": "#e5eeff",
+            "on-primary-container": "#90d2da",
+            "secondary": "#006a66",
+            "on-tertiary-fixed-variant": "#004f53",
+            "outline-variant": "#bfc8c9",
+            "on-surface": "#0b1c30",
+            "on-background": "#0b1c30",
+            "on-error": "#ffffff",
+            "primary-fixed-dim": "#8fd1d9",
+            "on-tertiary-fixed": "#002022",
+            "surface-container-highest": "#d3e4fe",
+            "outline": "#6f797a",
+            "on-tertiary-container": "#8ed2d7",
+            "secondary-fixed": "#87f4ee",
+            "error-container": "#ffdad6",
+            "error": "#ba1a1a",
+            "on-secondary": "#ffffff",
+            "surface-bright": "#f8f9ff",
+            "inverse-surface": "#213145",
+            "surface-container-high": "#dce9ff",
+            "primary-fixed": "#abeef6",
+            "on-primary-fixed": "#002023",
+            "primary": "#004349",
+            "surface-variant": "#d3e4fe",
+            "inverse-on-surface": "#eaf1ff",
+            "secondary-container": "#84f2ec",
+            "tertiary-container": "#065c61",
+            "on-secondary-fixed-variant": "#00504d",
+            "tertiary-fixed-dim": "#8ed2d7"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "gutter": "1.5rem",
+            "stack-sm": "8px",
+            "container-max": "1440px",
+            "sidebar-width": "260px",
+            "stack-md": "16px",
+            "unit-base": "4px",
+            "stack-lg": "24px"
+          },
+          "fontFamily": {
+            "label-md": ["Inter"],
+            "body-md": ["Inter"],
+            "headline-md": ["Hanken Grotesk"],
+            "display-lg": ["Hanken Grotesk"],
+            "data-mono": ["Inter"],
+            "body-lg": ["Inter"],
+            "headline-sm": ["Hanken Grotesk"]
+          },
+          "fontSize": {
+            "label-md": ["12px", {"lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "600"}],
+            "body-md": ["14px", {"lineHeight": "1.5", "fontWeight": "400"}],
+            "headline-md": ["24px", {"lineHeight": "1.3", "fontWeight": "600"}],
+            "display-lg": ["36px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+            "data-mono": ["13px", {"lineHeight": "1.4", "fontWeight": "500"}],
+            "body-lg": ["16px", {"lineHeight": "1.6", "fontWeight": "400"}],
+            "headline-sm": ["18px", {"lineHeight": "1.4", "fontWeight": "600"}]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+    body { background-color: #f1f5f9; }
+  </style>
+</head>
+<body class="font-body-md text-on-background">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full w-[260px] border-r border-outline-variant dark:border-outline bg-surface-container-low dark:bg-surface-dim z-50">
+<div class="flex flex-col h-full p-4 gap-stack-md">
+<div class="flex items-center gap-3 px-2 py-4">
+<div class="w-10 h-10 rounded-lg bg-primary flex items-center justify-center text-on-primary">
+<span class="material-symbols-outlined" data-icon="clinical_notes">clinical_notes</span>
+</div>
+<div>
+<h1 class="font-headline-sm text-headline-sm font-bold text-primary dark:text-primary-fixed">ClinicFlow</h1>
+<p class="font-label-md text-label-md text-outline">Dental Management</p>
+</div>
+</div>
+<nav class="flex flex-col gap-1 grow">
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="font-body-md text-body-md">Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="person">person</span>
+<span class="font-body-md text-body-md">Patients</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="calendar_month">calendar_month</span>
+<span class="font-body-md text-body-md">Schedule</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="payments">payments</span>
+<span class="font-body-md text-body-md">Billing</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 bg-secondary-container dark:bg-secondary text-on-secondary-container dark:text-on-secondary rounded-lg font-bold" href="#">
+<span class="material-symbols-outlined" data-icon="badge" style="font-variation-settings: 'FILL' 1;">badge</span>
+<span class="font-body-md text-body-md">Staff</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant dark:text-surface-variant hover:bg-surface-container-high transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-body-md text-body-md">Settings</span>
+</a>
+</nav>
+<div class="mt-auto pt-4 border-t border-outline-variant">
+<button class="w-full py-3 bg-secondary text-on-secondary rounded-lg font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined" data-icon="add">add</span>
+          New Patient
+        </button>
+</div>
+</div>
+</aside>
+<!-- Main Content Stage -->
+<main class="ml-[260px] min-h-screen">
+<!-- TopNavBar -->
+<header class="fixed top-0 right-0 w-[calc(100%-260px)] h-16 border-b border-outline-variant dark:border-outline bg-surface dark:bg-surface-container-lowest z-40 flex justify-between items-center px-gutter">
+<div class="flex items-center gap-stack-lg w-1/3">
+<div class="relative w-full max-w-md">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">search</span>
+<input class="w-full bg-surface-container-low border-none rounded-full pl-10 pr-4 py-2 text-body-md focus:ring-2 focus:ring-secondary" placeholder="Search staff or schedules..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 text-outline hover:bg-surface-container-low rounded-full transition-colors">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="p-2 text-outline hover:bg-surface-container-low rounded-full transition-colors">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+</button>
+<div class="flex items-center gap-3 pl-4 border-l border-outline-variant">
+<div class="text-right hidden md:block">
+<p class="font-label-md text-on-surface leading-none">Dr. Smith</p>
+<p class="text-[10px] text-outline uppercase font-bold tracking-wider">Practice Lead</p>
+</div>
+<img alt="Dr. Smith Profile" class="w-8 h-8 rounded-full border border-outline-variant" data-alt="A professional headshot of a middle-aged male dentist with a kind smile, wearing a clean white clinical coat. The background is a soft-focus modern dental office with subtle teal accents. High-key lighting provides a bright, sterile, and professional atmosphere consistent with a premium medical software interface." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAb14xEHBcm6AcPYWZDUtvZnoB0bAZNyCr7s0GRo5r50-jO32VJ7nZYZISEaKZIk7C1X92R7cIdr_l5QW6yNYIpuzS_wMtLHVZBCL4jZaxZlD-jmEuDNKf2BBGdSEaUx8QraMjaxsS1lsG_718_QMrS3yz8JMpFnbQp7-aVynV8SaQVp9qHAEUjDER_ZPO9MvhUItsiV5VntO33BCo-FYPz03uXiIsSRmgRlIcdllkvf9CPyKxjvVsXyWmuIGJ-kUw2Z-rKDSJsslo"/>
+</div>
+</div>
+</header>
+<!-- Page Body -->
+<div class="pt-24 px-gutter pb-stack-lg max-w-container-max mx-auto">
+<!-- Header Section -->
+<div class="flex justify-between items-end mb-stack-lg">
+<div>
+<h2 class="font-display-lg text-display-lg text-on-surface">Staff &amp; Practice Management</h2>
+<p class="font-body-lg text-body-lg text-on-surface-variant">Manage your clinical team, operational hours, and facility logistics.</p>
+</div>
+<div class="flex gap-stack-sm">
+<button class="px-4 py-2 border border-outline text-secondary font-bold rounded-lg flex items-center gap-2 hover:bg-surface-container-low transition-colors">
+<span class="material-symbols-outlined text-[20px]" data-icon="file_upload">file_upload</span>
+            Export Directory
+          </button>
+<button class="px-4 py-2 bg-secondary text-on-secondary font-bold rounded-lg flex items-center gap-2 hover:opacity-90 transition-opacity shadow-sm">
+<span class="material-symbols-outlined text-[20px]" data-icon="person_add">person_add</span>
+            Add Staff Member
+          </button>
+</div>
+</div>
+<!-- Bento Grid Layout -->
+<div class="grid grid-cols-12 gap-stack-lg">
+<!-- Left Column: Staff Directory (Asymmetric Weight) -->
+<div class="col-span-12 lg:col-span-8 space-y-stack-lg">
+<!-- Staff Cards Grid -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-stack-md">
+<!-- Staff Card 1 -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-stack-md hover:border-secondary transition-colors group">
+<div class="flex items-start gap-4">
+<img alt="Sarah Jenkins" class="w-16 h-16 rounded-xl object-cover" data-alt="A close-up portrait of a professional female dental hygienist in light blue scrubs, smiling warmly. The lighting is bright and even, highlighting her approachable and competent expression. The photo is set against a clean, white medical background with soft teal highlights, fitting the corporate clinical aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDc7m5tfiNphFjR6_22tE2Cc3LkmhI4TMT9umlRPONhtHPyKZo-0ucpjqBm9Nl-jdo8nZVCKPnnPCmYmRSqD0uoyfN3-J2IUiFU6P0o11bf-bRn-pcz1E9rQs0eTk8lI4xbZowkIgP22PeUZYK2Uy5o6P0Q2bik5NIEMMwvuMsQkK2sEaZmYGnPAxxNjxbHSnHzEI33CMCORLoPUnB5xF1KNkd2V-Ki55DEW9GwFSQS5KM1ZqxVJnazY5y9CkypYtp80OQStt2gbus"/>
+<div class="flex-1">
+<div class="flex justify-between items-start">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Sarah Jenkins</h3>
+<span class="px-2 py-1 bg-secondary-container text-on-secondary-container text-[10px] font-bold rounded-full uppercase">Hygienist</span>
+</div>
+<p class="text-body-md text-outline mt-1">s.jenkins@clinicflow.com</p>
+<div class="flex items-center gap-3 mt-4">
+<span class="flex items-center gap-1 text-[12px] font-bold text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px]" data-icon="schedule">schedule</span>
+                      Mon - Fri
+                    </span>
+<span class="flex items-center gap-1 text-[12px] font-bold text-secondary">
+<span class="material-symbols-outlined text-[16px]" data-icon="check_circle" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+                      On Shift
+                    </span>
+</div>
+</div>
+</div>
+</div>
+<!-- Staff Card 2 -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-stack-md hover:border-secondary transition-colors group">
+<div class="flex items-start gap-4">
+<img alt="Dr. Marcus Thorne" class="w-16 h-16 rounded-xl object-cover" data-alt="A professional headshot of a male orthodontist wearing a navy blue lab coat. He has a confident and welcoming demeanor, set in a brightly lit, modern medical environment. The image uses a clean, corporate photography style with high clarity and a palette of whites, greys, and medical teals." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDlJXn1p-eqPUEYlRKrnmnYhe81Tvc5OSNw6tDixVu6gkPVp3qJXBnL3J_oYxRet0mJzyyVRcAtg40yMAWUyAurFN70TVTW45Rrd4itJ4TX2V1wkmxdC4PC8Gqa-4rI1AlNFva50iEK6BfExfC5joggYwQSqKkifMwO5BWo9JANsocPIzgRj1uLaUOel9A983Y4pK0g_tqKn5vOBw9vR6XGOtU-6PtgEQXyODwD7igf-x76bhoowFR1zG8bbbIH3AKIiLg-2K8ai18"/>
+<div class="flex-1">
+<div class="flex justify-between items-start">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Dr. Marcus Thorne</h3>
+<span class="px-2 py-1 bg-primary-container text-on-primary-container text-[10px] font-bold rounded-full uppercase">Orthodontist</span>
+</div>
+<p class="text-body-md text-outline mt-1">m.thorne@clinicflow.com</p>
+<div class="flex items-center gap-3 mt-4">
+<span class="flex items-center gap-1 text-[12px] font-bold text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px]" data-icon="schedule">schedule</span>
+                      Tue, Thu, Sat
+                    </span>
+<span class="flex items-center gap-1 text-[12px] font-bold text-outline">
+<span class="material-symbols-outlined text-[16px]" data-icon="history">history</span>
+                      Off Today
+                    </span>
+</div>
+</div>
+</div>
+</div>
+<!-- Staff Card 3 -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-stack-md hover:border-secondary transition-colors group">
+<div class="flex items-start gap-4">
+<img alt="Elena Rodriguez" class="w-16 h-16 rounded-xl object-cover" data-alt="A portrait of a female office administrator in professional business attire, smiling at a modern reception desk. The lighting is soft and professional, highlighting a sterile yet welcoming environment. The background shows blurred clinical elements, maintaining a focus on her friendly and organized persona within a corporate medical context." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCLkuauZLYXSj3WEwG29AJrtHyBtwITi4g_S6pfLnX8DE5O5YO049dy_8pLWegkvY2C3XkaI0N2FmAFNQQKm4iRwLqAn_gOVDX4qmW6YakNFkfuvj5dCQp2pDvZirP-zZuRFL06crKawhJTXYs5icOrlQCHneZiy0wxlYTO5_ljG30s8EjFpW6JZggW1QH45Q2uW8NyA1o4YoVr611_POLMVleTwB7uXJ8K2DgjLHrEbb5aeSvDnxJt3IMSnp3b03flHZQtnH69EQE"/>
+<div class="flex-1">
+<div class="flex justify-between items-start">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Elena Rodriguez</h3>
+<span class="px-2 py-1 bg-surface-container-highest text-on-surface-variant text-[10px] font-bold rounded-full uppercase">Front Desk</span>
+</div>
+<p class="text-body-md text-outline mt-1">e.rodriguez@clinicflow.com</p>
+<div class="flex items-center gap-3 mt-4">
+<span class="flex items-center gap-1 text-[12px] font-bold text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px]" data-icon="schedule">schedule</span>
+                      Mon - Sat
+                    </span>
+<span class="flex items-center gap-1 text-[12px] font-bold text-secondary">
+<span class="material-symbols-outlined text-[16px]" data-icon="check_circle" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+                      On Shift
+                    </span>
+</div>
+</div>
+</div>
+</div>
+<!-- Staff Card 4 -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-stack-md hover:border-secondary transition-colors group">
+<div class="flex items-start gap-4">
+<img alt="David Kim" class="w-16 h-16 rounded-xl object-cover" data-alt="A clean-shaven male dental assistant wearing professional surgical scrubs, looking directly at the camera with a friendly expression. The background is a crisp, bright dental operatory with high-end equipment. The visual style is sharp and modern, utilizing a medical color scheme of white, teal, and soft blue." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBwjg625eaeQybxUVb6p8U05E8uaUQtDarAh8DUB7cor5jXarAsA1MEC3K7PZ5_JR6n8QgHi5rHKSLeqyjhjmAE7L2XLO3m_lYWisfCJ5MI2EwsJ8lIJNONSsRfRR1tXiV2ypRt6wrqMmw-M8liIj11uiPU9OK3zYqSwmKyaUo1z9fkMzhNbg1qNJNz4tzzAn2EqArvwWgwFX3QRH3qLz_G8gzQsJLmyvnDJaN2-chryfTd1c-h1Nx0qBXAXpWMroFTYyjNEW-XZA0"/>
+<div class="flex-1">
+<div class="flex justify-between items-start">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">David Kim</h3>
+<span class="px-2 py-1 bg-secondary-container text-on-secondary-container text-[10px] font-bold rounded-full uppercase">Assistant</span>
+</div>
+<p class="text-body-md text-outline mt-1">d.kim@clinicflow.com</p>
+<div class="flex items-center gap-3 mt-4">
+<span class="flex items-center gap-1 text-[12px] font-bold text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px]" data-icon="schedule">schedule</span>
+                      Wed - Sun
+                    </span>
+<span class="flex items-center gap-1 text-[12px] font-bold text-secondary">
+<span class="material-symbols-outlined text-[16px]" data-icon="check_circle" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+                      On Shift
+                    </span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Practice Locations (Horizontal Card) -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden">
+<div class="bg-surface-container-low px-stack-md py-3 flex justify-between items-center border-b border-outline-variant">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Office Locations</h3>
+<button class="text-secondary font-bold text-label-md flex items-center gap-1">
+<span class="material-symbols-outlined text-[18px]" data-icon="add_location">add_location</span>
+                Add Branch
+              </button>
+</div>
+<div class="p-stack-md grid grid-cols-1 md:grid-cols-2 gap-stack-lg">
+<div class="flex gap-4">
+<div class="w-24 h-24 rounded-lg overflow-hidden bg-surface-container">
+<img alt="Downtown Office" class="w-full h-full object-cover" data-alt="An interior shot of a minimalist, high-end dental office reception area in a downtown location. Large windows reveal a city skyline, and the space features light wood accents, white marble floors, and modern furniture. The lighting is natural and bright, conveying a premium and sterile clinical environment." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAoyggOXLktmTK5WLLs0pk__Q3F5wmjZeBL51ZCiHtg6TTPo8ksXwzZC8NhrHdycJIvP8syq8eSz_dw0oUc87o9dfsENtKQtsNOhUqtllaZlpC4R2WCxZDLMfWFwFYeEGIwFtGjOi75twkmazvOcXQdYoQgOlT3hOi2w3_nHRRlFjMKmYYAmCq_se_tf-vYEO1fwT9mcO3pNcAEe2jHARfw8hlWwUUQ4NibxS6Rh_9hIb7BoyBMRhJ7OrrPkNdU1vfSpPaRWJxemE4"/>
+</div>
+<div>
+<h4 class="font-bold text-on-surface">Downtown Central</h4>
+<p class="text-body-md text-outline">122 Primary Ave, Suite 400</p>
+<div class="mt-2 flex items-center gap-2">
+<span class="px-2 py-0.5 bg-secondary-container text-on-secondary-container text-[10px] font-bold rounded uppercase">Main HQ</span>
+</div>
+</div>
+</div>
+<div class="flex gap-4">
+<div class="w-24 h-24 rounded-lg overflow-hidden bg-surface-container">
+<img alt="Northside Clinic" class="w-full h-full object-cover" data-alt="Exterior shot of a contemporary glass and steel medical building on a sunny day. The architecture is sharp and professional, reflecting a high-tech healthcare facility. The lighting is crisp with deep blue skies, providing a sense of stability and modern excellence in practice management." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBmocC7PPcsQXcb3aqGz1epNEKFwz9ZMHU3xnxviSjOwJlIKO6fuKXCg3C99zrjjMJkfwjlnJBcq4UKEP474ewWm3WTKcmjXROfsT2uZ-jHBJMojoZuv4RlBAXwEYBmYRoJC45A8pZ78ctG-Uf2t15UtDoXQfp7LVb7Zq56ICCsiL8O8oPx92wDhgrk8Wmt21cv6g-cyqlnh7EuSuu1qYaZo4ANPOMd6tEf8ecvP6j3Zb9xu0UylFRQVxELOWp6Wa4ROolsg9XiF0Y"/>
+</div>
+<div>
+<h4 class="font-bold text-on-surface">Northside Satellite</h4>
+<p class="text-body-md text-outline">8920 Oak St, Building B</p>
+<div class="mt-2 flex items-center gap-2">
+<span class="px-2 py-0.5 bg-surface-container-highest text-on-surface-variant text-[10px] font-bold rounded uppercase">Satellite</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Column: Settings & Schedules -->
+<div class="col-span-12 lg:col-span-4 space-y-stack-lg">
+<!-- Practice Hours Card -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden">
+<div class="bg-surface-container-low px-stack-md py-3 border-b border-outline-variant">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Practice Hours</h3>
+</div>
+<div class="p-stack-md space-y-3">
+<div class="flex justify-between items-center">
+<span class="text-body-md font-bold text-on-surface">Monday</span>
+<span class="text-body-md text-on-surface-variant">08:00 AM - 05:00 PM</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-body-md font-bold text-on-surface">Tuesday</span>
+<span class="text-body-md text-on-surface-variant">08:00 AM - 05:00 PM</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-body-md font-bold text-on-surface">Wednesday</span>
+<span class="text-body-md text-on-surface-variant">08:00 AM - 05:00 PM</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-body-md font-bold text-on-surface">Thursday</span>
+<span class="text-body-md text-on-surface-variant">08:00 AM - 07:00 PM</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-body-md font-bold text-on-surface">Friday</span>
+<span class="text-body-md text-on-surface-variant">08:00 AM - 04:00 PM</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-body-md font-bold text-on-surface">Saturday</span>
+<span class="text-body-md text-secondary">09:00 AM - 02:00 PM</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-body-md font-bold text-outline">Sunday</span>
+<span class="text-body-md text-error">Closed</span>
+</div>
+<button class="w-full mt-4 py-2 text-secondary border border-secondary rounded-lg text-label-md font-bold hover:bg-surface-container-low transition-colors">
+                Modify Schedule
+              </button>
+</div>
+</div>
+<!-- Quick Actions / Quick Link Feed -->
+<div class="bg-primary text-on-primary rounded-xl p-stack-md">
+<h3 class="font-headline-sm text-headline-sm mb-stack-sm">Staff Announcements</h3>
+<div class="space-y-4">
+<div class="bg-primary-container p-3 rounded-lg">
+<p class="text-body-md font-bold">New Policy Update</p>
+<p class="text-[12px] opacity-80 mb-2">Patient data handling v2.1</p>
+<a class="text-[12px] font-bold underline" href="#">Review Document</a>
+</div>
+<div class="bg-primary-container p-3 rounded-lg">
+<p class="text-body-md font-bold">Annual Staff Retreat</p>
+<p class="text-[12px] opacity-80 mb-2">October 15th - RSVP Required</p>
+<a class="text-[12px] font-bold underline" href="#">RSVP Now</a>
+</div>
+</div>
+</div>
+<!-- Shift Status Slack-style Feed -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden">
+<div class="bg-surface-container-low px-stack-md py-3 border-b border-outline-variant">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Live Shift Activity</h3>
+</div>
+<div class="p-stack-md space-y-4 max-h-[300px] overflow-y-auto">
+<!-- Item 1 -->
+<div class="flex gap-3">
+<div class="w-8 h-8 rounded-full bg-secondary-container flex-shrink-0 flex items-center justify-center text-on-secondary-container font-bold text-[10px]">SJ</div>
+<div>
+<div class="flex items-baseline gap-2">
+<span class="font-bold text-on-surface text-[13px]">Sarah Jenkins</span>
+<span class="text-[10px] text-outline uppercase">08:02 AM</span>
+</div>
+<p class="text-body-md text-on-surface-variant">Clocked in at Downtown Central.</p>
+</div>
+</div>
+<!-- Item 2 -->
+<div class="flex gap-3">
+<div class="w-8 h-8 rounded-full bg-surface-container-highest flex-shrink-0 flex items-center justify-center text-on-surface-variant font-bold text-[10px]">ER</div>
+<div>
+<div class="flex items-baseline gap-2">
+<span class="font-bold text-on-surface text-[13px]">Elena Rodriguez</span>
+<span class="text-[10px] text-outline uppercase">07:55 AM</span>
+</div>
+<p class="text-body-md text-on-surface-variant">Clocked in at Northside Satellite.</p>
+</div>
+</div>
+<!-- Item 3 -->
+<div class="flex gap-3">
+<div class="w-8 h-8 rounded-full bg-primary-container flex-shrink-0 flex items-center justify-center text-on-primary-container font-bold text-[10px]">MT</div>
+<div>
+<div class="flex items-baseline gap-2">
+<span class="font-bold text-on-surface text-[13px]">Dr. Marcus Thorne</span>
+<span class="text-[10px] text-outline uppercase">Yesterday</span>
+</div>
+<p class="text-body-md text-on-surface-variant">Shift completion: 14 patients treated.</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Mobile Bottom Navigation (Hidden on desktop) -->
+<div class="md:hidden fixed bottom-0 left-0 w-full bg-surface border-t border-outline-variant flex justify-around py-3 z-50">
+<button class="flex flex-col items-center gap-1 text-outline">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="text-[10px] font-bold uppercase">Home</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-outline">
+<span class="material-symbols-outlined" data-icon="person">person</span>
+<span class="text-[10px] font-bold uppercase">Patients</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-secondary">
+<span class="material-symbols-outlined" data-icon="badge" style="font-variation-settings: 'FILL' 1;">badge</span>
+<span class="text-[10px] font-bold uppercase">Staff</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-outline">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="text-[10px] font-bold uppercase">Settings</span>
+</button>
+</div>
+</body></html>
