@@ -1,11 +1,89 @@
-node_modules
-**/.next
-out
-dist
-apps/api/dist
+# -----------------------------------------------------------------------------
+# Dependencies
+# -----------------------------------------------------------------------------
+node_modules/
+**/node_modules/
+
+# -----------------------------------------------------------------------------
+# Environment files and secrets
+# Keep examples committed, ignore real local/runtime secrets.
+# -----------------------------------------------------------------------------
 .env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+apps/*/.env
+apps/*/.env.local
+apps/*/.env.development.local
+apps/*/.env.test.local
+apps/*/.env.production.local
+
+# -----------------------------------------------------------------------------
+# Build outputs
+# -----------------------------------------------------------------------------
+.next/
+**/.next/
+out/
+dist/
+apps/api/dist/
+coverage/
+.turbo/
+
+# -----------------------------------------------------------------------------
+# TypeScript / tool caches
+# -----------------------------------------------------------------------------
 *.tsbuildinfo
+**/*.tsbuildinfo
+.eslintcache
+
+# -----------------------------------------------------------------------------
+# Logs
+# -----------------------------------------------------------------------------
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+lerna-debug.log*
+
+# Local runtime logs checked into workspace during dev
+nest-api.out.log
+nest-api.err.log
+web-dev.out.log
+web-dev.err.log
+
+# -----------------------------------------------------------------------------
+# OS / editor junk
+# -----------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# -----------------------------------------------------------------------------
+# Deployment / platform metadata
+# -----------------------------------------------------------------------------
+.vercel/
+.render/
+
+# -----------------------------------------------------------------------------
+# Test and temporary artifacts
+# -----------------------------------------------------------------------------
+tmp/
+temp/
+*.tmp
+*.bak
+
+# -----------------------------------------------------------------------------
+# Future mobile / Expo support
+# Safe to keep now, useful later if mobile app is added to this repo.
+# -----------------------------------------------------------------------------
+android/
+ios/
+.expo/
+.expo-shared/
+
