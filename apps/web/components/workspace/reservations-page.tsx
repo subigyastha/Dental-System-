@@ -47,6 +47,13 @@ import type {
 
 type CalendarView = "day" | "month";
 const selfBookingRestrictedRoles = new Set(["Provider", "Assistant"]);
+const crossProviderBookingRoles = new Set([
+  "Owner",
+  "Admin",
+  "Manager",
+  "Receptionist",
+  "Scheduler",
+]);
 
 export function ReservationsPage({
   providerScope,
@@ -65,6 +72,7 @@ export function ReservationsPage({
     fetchAppointmentsRange,
     fetchScheduleGridForDay,
     logout,
+    planningRevision,
     selectedDate,
     sessionUser,
     setCalendarMode,
@@ -92,11 +100,16 @@ export function ReservationsPage({
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
 
   const activeDate = calendarView === "month" ? selectedDayDetailsDate : selectedDate;
+  const canBookAcrossProviders = sessionUser
+    ? crossProviderBookingRoles.has(sessionUser.role)
+    : false;
   const sessionBookingScope =
-    sessionUser?.providerId && selfBookingRestrictedRoles.has(sessionUser.role)
+    sessionUser?.providerId &&
+    selfBookingRestrictedRoles.has(sessionUser.role) &&
+    !canBookAcrossProviders
       ? sessionUser.providerId
       : undefined;
-  const bookingProviderLimit = visibleProviderScope ?? providerScope ?? sessionBookingScope;
+  const bookingProviderLimit = visibleProviderScope ?? sessionBookingScope ?? providerScope;
   const title = visibleProviderScope ? "My schedule" : "Reservations";
   const subtitle = visibleProviderScope
     ? "Your board shows only your own schedule and availability."
@@ -212,6 +225,7 @@ export function ReservationsPage({
     data.locations,
     fetchAppointmentsRange,
     monthAnchorDate,
+    planningRevision,
     selectedDate,
     selectedProviderId,
   ]);
@@ -247,6 +261,7 @@ export function ReservationsPage({
     data.locations,
     fetchAppointmentDaySummaries,
     monthGrid.cells,
+    planningRevision,
     selectedProviderId,
   ]);
 
@@ -257,24 +272,15 @@ export function ReservationsPage({
     }
     let cancelled = false;
     setDayGridLoading(true);
-    void Promise.all(
-      visibleProviders.map((provider) =>
-        fetchScheduleGridForDay({
-          providerId: provider.id,
-          date: selectedDate,
-          locationId: data.locations[0]?.id,
-        }),
-      ),
-    )
-      .then((grids) => {
-        if (cancelled) {
-          return;
+    void fetchScheduleGridForDay({
+      providerIds: visibleProviders.map((provider) => provider.id),
+      date: selectedDate,
+      locationId: data.locations[0]?.id,
+    })
+      .then((grid) => {
+        if (!cancelled) {
+          setDayScheduleGrid(grid);
         }
-        setDayScheduleGrid({
-          date: selectedDate,
-          timezone: "Asia/Kathmandu",
-          providers: grids.flatMap((grid) => grid.providers),
-        });
       })
       .finally(() => {
         if (!cancelled) {
@@ -284,7 +290,14 @@ export function ReservationsPage({
     return () => {
       cancelled = true;
     };
-  }, [calendarView, data.locations, fetchScheduleGridForDay, selectedDate, visibleProviders]);
+  }, [
+    calendarView,
+    data.locations,
+    fetchScheduleGridForDay,
+    planningRevision,
+    selectedDate,
+    visibleProviders,
+  ]);
 
   const summaryByDate = useMemo(
     () => new Map(monthSummaries.map((summary) => [summary.dateKey, summary])),

@@ -15,6 +15,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { SchedulingService } from "../scheduling/scheduling.service";
 import { CreateProviderDto } from "./dto/create-provider.dto";
 import { ListProviderScheduleGridDto } from "./dto/list-provider-schedule-grid.dto";
+import { ListProviderScheduleGridsDto } from "./dto/list-provider-schedule-grids.dto";
 import { ListProviderSlotsDto } from "./dto/list-provider-slots.dto";
 import { UpdateProviderDto } from "./dto/update-provider.dto";
 import {
@@ -104,6 +105,11 @@ export class ProvidersService {
       },
     });
 
+    this.scheduling.invalidateProviderSchedulePlanning({
+      organizationId: dto.organizationId,
+      providerId: provider.id,
+    });
+
     return mapProviderToClient(provider);
   }
 
@@ -140,6 +146,11 @@ export class ProvidersService {
           description:
             "Provider has appointments; marked inactive instead of deleting",
         },
+      });
+
+      this.scheduling.invalidateProviderSchedulePlanning({
+        organizationId: existing.organizationId,
+        providerId: id,
       });
 
       return mapProviderToClient(updated);
@@ -186,6 +197,11 @@ export class ProvidersService {
         newValue: { ...dto },
         description: "Provider profile updated",
       },
+    });
+
+    this.scheduling.invalidateProviderSchedulePlanning({
+      organizationId: provider.organizationId,
+      providerId: provider.id,
     });
 
     return { id: provider.id };
@@ -257,6 +273,29 @@ export class ProvidersService {
       locationId: query.locationId,
       serviceId: query.serviceId,
       excludeAppointmentId: query.excludeAppointmentId,
+    });
+  }
+
+  async listScheduleGrids(
+    query: ListProviderScheduleGridsDto,
+    authorization?: string,
+  ) {
+    const providerIds = query.providerIds
+      ?.split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    await this.requireScheduleGridViewAccess(
+      query.organizationId,
+      providerIds,
+      authorization,
+    );
+
+    return this.scheduling.listScheduleGridForDay({
+      organizationId: query.organizationId,
+      providerIds,
+      dateKey: query.dateIso,
+      locationId: query.locationId,
     });
   }
 
@@ -343,6 +382,11 @@ export class ProvidersService {
       });
     });
 
+    this.scheduling.invalidateProviderSchedulePlanning({
+      organizationId: dto.organizationId,
+      providerId: id,
+    });
+
     return { ok: true };
   }
 
@@ -385,6 +429,12 @@ export class ProvidersService {
       });
 
       return entry;
+    });
+
+    this.scheduling.invalidateProviderSchedulePlanning({
+      organizationId,
+      providerId,
+      locationId: dto.locationId,
     });
 
     return created;
@@ -445,6 +495,12 @@ export class ProvidersService {
       return entry;
     });
 
+    this.scheduling.invalidateProviderSchedulePlanning({
+      organizationId,
+      providerId,
+      locationId: dto.locationId,
+    });
+
     return updated;
   }
 
@@ -477,6 +533,11 @@ export class ProvidersService {
       });
 
       await tx.providerAvailability.delete({ where: { id: entryId } });
+    });
+
+    this.scheduling.invalidateProviderSchedulePlanning({
+      organizationId,
+      providerId,
     });
 
     return { ok: true };
@@ -518,6 +579,12 @@ export class ProvidersService {
       return entry;
     });
 
+    this.scheduling.invalidateProviderSchedulePlanning({
+      organizationId,
+      providerId,
+      locationId: dto.locationId,
+    });
+
     return created;
   }
 
@@ -557,6 +624,12 @@ export class ProvidersService {
       });
 
       return entry;
+    });
+
+    this.scheduling.invalidateProviderSchedulePlanning({
+      organizationId,
+      providerId,
+      locationId: dto.locationId,
     });
 
     return created;
@@ -609,6 +682,12 @@ export class ProvidersService {
       return entry;
     });
 
+    this.scheduling.invalidateProviderSchedulePlanning({
+      organizationId,
+      providerId,
+      locationId: dto.locationId,
+    });
+
     return updated;
   }
 
@@ -641,6 +720,11 @@ export class ProvidersService {
       });
 
       await tx.providerRecurringBlock.delete({ where: { id: entryId } });
+    });
+
+    this.scheduling.invalidateProviderSchedulePlanning({
+      organizationId,
+      providerId,
     });
 
     return { ok: true };
@@ -691,6 +775,12 @@ export class ProvidersService {
       return entry;
     });
 
+    this.scheduling.invalidateProviderSchedulePlanning({
+      organizationId,
+      providerId,
+      locationId: dto.locationId,
+    });
+
     return updated;
   }
 
@@ -723,6 +813,11 @@ export class ProvidersService {
       });
 
       await tx.blockedTime.delete({ where: { id: entryId } });
+    });
+
+    this.scheduling.invalidateProviderSchedulePlanning({
+      organizationId,
+      providerId,
     });
 
     return { ok: true };
@@ -774,6 +869,36 @@ export class ProvidersService {
 
     if (!provider) {
       throw new NotFoundException("Provider not found");
+    }
+
+    return session;
+  }
+
+  private async requireScheduleGridViewAccess(
+    organizationId: string,
+    providerIds: string[] | undefined,
+    authorization?: string,
+  ) {
+    const session = await this.auth.requireSession(authorization);
+    assertClinicOperator(session.role);
+
+    if (session.organizationId !== organizationId) {
+      throw new BadRequestException("Cross-organization schedule access is not allowed");
+    }
+
+    if (!providerIds?.length) {
+      return session;
+    }
+
+    const count = await this.prisma.provider.count({
+      where: {
+        organizationId,
+        id: { in: providerIds },
+      },
+    });
+
+    if (count !== providerIds.length) {
+      throw new NotFoundException("One or more providers were not found");
     }
 
     return session;

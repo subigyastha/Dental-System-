@@ -7,7 +7,7 @@ import {
 } from "@nestjs/common";
 import { AppointmentStatus, Priority, Prisma } from "@prisma/client";
 
-import { getNepalDayOfWeekFromIso } from "../../lib/nepal-time";
+import { getNepalAdDateKeyFromIso, getNepalDayOfWeekFromIso } from "../../lib/nepal-time";
 import { AuthService } from "../auth/auth.service";
 import { assertClinicOperator } from "../auth/authz";
 import { PrismaService } from "../prisma/prisma.service";
@@ -162,6 +162,13 @@ export class AppointmentsService {
       return created;
     });
 
+    this.scheduling.invalidateAppointmentPlanning({
+      organizationId: dto.organizationId,
+      providerIds: [dto.providerId],
+      dateKeys: [getNepalAdDateKeyFromIso(dto.startsAtIso)],
+      locationId: dto.locationId,
+    });
+
     return { id: appointment.id };
   }
 
@@ -256,6 +263,16 @@ export class AppointmentsService {
       return appointment;
     });
 
+    this.scheduling.invalidateAppointmentPlanning({
+      organizationId: dto.organizationId,
+      providerIds: [...new Set([existing.providerId, dto.providerId])],
+      dateKeys: [
+        getNepalAdDateKeyFromIso(existing.startsAt.toISOString()),
+        getNepalAdDateKeyFromIso(dto.startsAtIso),
+      ],
+      locationId: dto.locationId ?? existing.locationId ?? undefined,
+    });
+
     return { id: updated.id };
   }
 
@@ -266,6 +283,9 @@ export class AppointmentsService {
       select: {
         organizationId: true,
         id: true,
+        providerId: true,
+        locationId: true,
+        startsAt: true,
         status: true,
       },
     });
@@ -306,6 +326,13 @@ export class AppointmentsService {
       await tx.appointment.delete({ where: { id } });
     });
 
+    this.scheduling.invalidateAppointmentPlanning({
+      organizationId: appointment.organizationId,
+      providerIds: [appointment.providerId],
+      dateKeys: [getNepalAdDateKeyFromIso(appointment.startsAt.toISOString())],
+      locationId: appointment.locationId ?? undefined,
+    });
+
     return { ok: true };
   }
 
@@ -318,8 +345,10 @@ export class AppointmentsService {
         organizationId: true,
         customerId: true,
         providerId: true,
+        locationId: true,
         priority: true,
         status: true,
+        startsAt: true,
       },
     });
 
@@ -405,6 +434,13 @@ export class AppointmentsService {
         });
       }
     }
+
+    this.scheduling.invalidateAppointmentPlanning({
+      organizationId: existing.organizationId,
+      providerIds: [existing.providerId],
+      dateKeys: [getNepalAdDateKeyFromIso(existing.startsAt.toISOString())],
+      locationId: existing.locationId ?? undefined,
+    });
 
     return { ok: true };
   }

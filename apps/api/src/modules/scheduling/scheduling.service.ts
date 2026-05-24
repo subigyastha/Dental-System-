@@ -68,8 +68,72 @@ type ScheduleGridParams = {
   locationId?: string;
 };
 
+type DaySummaryResult = Array<{
+  dateKey: string;
+  appointmentCount: number;
+  providerMarkers: Array<{ providerId: string; color: string; count: number }>;
+  hasAvailability: boolean;
+}>;
+
+type WeekSummaryResult = {
+  days: Array<{
+    dateKey: string;
+    totalAppointments: number;
+    statusCounts: Record<string, number>;
+    providers: Array<{
+      providerId: string;
+      name: string;
+      color: string;
+      appointmentCount: number;
+      loadPercent: number;
+      hasOpenCapacity: boolean;
+    }>;
+    hasAvailability: boolean;
+  }>;
+};
+
+type ScheduleGridResult = {
+  date: string;
+  timezone: string;
+  providers: Array<{
+    providerId: string;
+    providerName: string;
+    providerColor: string;
+    specialty: string | null;
+    slots: Array<{
+      startTime: string;
+      endTime: string;
+      state: "AVAILABLE" | "BOOKED" | "BLOCKED" | "UNAVAILABLE";
+      appointmentId?: string;
+      appointmentSummary?: {
+        customerName: string;
+        serviceName: string;
+        status: AppointmentStatus;
+      };
+    }>;
+  }>;
+};
+
+type ProviderSlotsResult = {
+  providerId: string;
+  dateKey: string;
+  durationMinutes: number;
+  bufferMinutes: number;
+  slots: Array<{
+    startsAtIso: string;
+    time: string;
+    timeLabel: string;
+    dateKey: string;
+  }>;
+};
+
 @Injectable()
 export class SchedulingService {
+  private readonly providerSlotsCache = new Map<string, ProviderSlotsResult>();
+  private readonly daySummariesCache = new Map<string, DaySummaryResult>();
+  private readonly weekSummariesCache = new Map<string, WeekSummaryResult>();
+  private readonly scheduleGridCache = new Map<string, ScheduleGridResult>();
+
   constructor(
     @Inject(PrismaService)
     private readonly prisma: PrismaService,
@@ -111,8 +175,12 @@ export class SchedulingService {
       throw new BadRequestException("One or more requested services are invalid or inactive");
     }
 
+    const hasExplicitProviderServiceScope = providerServices.length > 0;
     const supportedServiceIds = new Set(providerServices.map((item) => item.serviceId));
-    if (params.serviceIds.some((serviceId) => !supportedServiceIds.has(serviceId))) {
+    if (
+      hasExplicitProviderServiceScope &&
+      params.serviceIds.some((serviceId) => !supportedServiceIds.has(serviceId))
+    ) {
       throw new ConflictException(
         "The selected provider is not configured to perform all requested services",
       );
@@ -167,7 +235,13 @@ export class SchedulingService {
     );
   }
 
-  async listProviderSlots(params: ProviderSlotParams) {
+  async listProviderSlots(params: ProviderSlotParams): Promise<ProviderSlotsResult> {
+    const cacheKey = this.buildProviderSlotsCacheKey(params);
+    const cached = this.providerSlotsCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const timing = params.serviceId
       ? await this.getServiceTiming({
           organizationId: params.organizationId,
@@ -245,16 +319,25 @@ export class SchedulingService {
       }
     }
 
-    return {
+    const response: ProviderSlotsResult = {
       providerId: params.providerId,
       dateKey: params.dateKey,
       durationMinutes: timing?.durationMinutes ?? 0,
       bufferMinutes: timing?.serviceBufferMinutes ?? 0,
       slots,
     };
+
+    this.providerSlotsCache.set(cacheKey, response);
+    return response;
   }
 
   async listDaySummaries(params: DaySummaryParams) {
+    const cacheKey = this.buildDaySummariesCacheKey(params);
+    const cached = this.daySummariesCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const rangeStart = getNepalDayRangeFromDateKey(params.fromDateKey).startsAt;
     const rangeEnd = getNepalDayRangeFromDateKey(params.toDateKey).endsAt;
 
@@ -386,10 +469,17 @@ export class SchedulingService {
       });
     }
 
+    this.daySummariesCache.set(cacheKey, summaries);
     return summaries;
   }
 
   async listWeekSummaries(params: DaySummaryParams) {
+    const cacheKey = this.buildWeekSummariesCacheKey(params);
+    const cached = this.weekSummariesCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const rangeStart = getNepalDayRangeFromDateKey(params.fromDateKey).startsAt;
     const rangeEnd = getNepalDayRangeFromDateKey(params.toDateKey).endsAt;
 
@@ -556,10 +646,18 @@ export class SchedulingService {
       };
     });
 
-    return { days };
+    const response = { days };
+    this.weekSummariesCache.set(cacheKey, response);
+    return response;
   }
 
   async listScheduleGridForDay(params: ScheduleGridParams) {
+    const cacheKey = this.buildScheduleGridCacheKey(params);
+    const cached = this.scheduleGridCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const providerIds =
       params.providerIds && params.providerIds.length
         ? params.providerIds
@@ -709,11 +807,47 @@ export class SchedulingService {
       }),
     );
 
-    return {
+    const response: ScheduleGridResult = {
       date: params.dateKey,
       timezone: "Asia/Kathmandu",
-      providers: providers.filter(Boolean),
+      providers: providers.filter(
+        (
+          provider,
+        ): provider is ScheduleGridResult["providers"][number] => provider !== null,
+      ),
     };
+
+    this.scheduleGridCache.set(cacheKey, response);
+    return response;
+  }
+
+  invalidateAppointmentPlanning(params: {
+    organizationId: string;
+    providerIds: string[];
+    dateKeys: string[];
+    locationId?: string;
+  }) {
+    this.invalidatePlanningCaches({
+      organizationId: params.organizationId,
+      providerIds: params.providerIds,
+      dateKeys: params.dateKeys,
+      locationId: params.locationId,
+      clearSummaries: true,
+    });
+  }
+
+  invalidateProviderSchedulePlanning(params: {
+    organizationId: string;
+    providerId: string;
+    locationId?: string;
+  }) {
+    this.invalidatePlanningCaches({
+      organizationId: params.organizationId,
+      providerIds: [params.providerId],
+      dateKeys: undefined,
+      locationId: params.locationId,
+      clearSummaries: true,
+    });
   }
 
   private buildDateKeys(fromDateKey: string, toDateKey: string) {
@@ -726,6 +860,131 @@ export class SchedulingService {
       keys.push(cursor.toISOString().slice(0, 10));
     }
     return keys;
+  }
+
+  private invalidatePlanningCaches(params: {
+    organizationId: string;
+    providerIds: string[];
+    dateKeys?: string[];
+    locationId?: string;
+    clearSummaries: boolean;
+  }) {
+    const providerIdSet = new Set(params.providerIds);
+    const dateKeySet = params.dateKeys ? new Set(params.dateKeys) : null;
+
+    for (const key of this.providerSlotsCache.keys()) {
+      const { organizationId, providerId, dateKey, locationId } =
+        this.parseProviderSlotsCacheKey(key);
+      if (organizationId !== params.organizationId) {
+        continue;
+      }
+      if (!providerIdSet.has(providerId)) {
+        continue;
+      }
+      if (dateKeySet && !dateKeySet.has(dateKey)) {
+        continue;
+      }
+      if (params.locationId && locationId && params.locationId !== locationId) {
+        continue;
+      }
+      this.providerSlotsCache.delete(key);
+    }
+
+    for (const key of this.scheduleGridCache.keys()) {
+      const { organizationId, providerIds, dateKey, locationId } =
+        this.parseScheduleGridCacheKey(key);
+      if (organizationId !== params.organizationId) {
+        continue;
+      }
+      if (dateKeySet && !dateKeySet.has(dateKey)) {
+        continue;
+      }
+      if (params.locationId && locationId && params.locationId !== locationId) {
+        continue;
+      }
+      if (!providerIds.some((providerId) => providerIdSet.has(providerId))) {
+        continue;
+      }
+      this.scheduleGridCache.delete(key);
+    }
+
+    if (!params.clearSummaries) {
+      return;
+    }
+
+    for (const key of this.daySummariesCache.keys()) {
+      if (key.startsWith(`${params.organizationId}|`)) {
+        this.daySummariesCache.delete(key);
+      }
+    }
+    for (const key of this.weekSummariesCache.keys()) {
+      if (key.startsWith(`${params.organizationId}|`)) {
+        this.weekSummariesCache.delete(key);
+      }
+    }
+  }
+
+  private buildProviderSlotsCacheKey(params: ProviderSlotParams) {
+    return [
+      params.organizationId,
+      params.providerId,
+      params.dateKey,
+      params.locationId ?? "location:none",
+      params.serviceId ?? "service:none",
+      params.excludeAppointmentId ?? "exclude:none",
+    ].join("|");
+  }
+
+  private parseProviderSlotsCacheKey(key: string) {
+    const [organizationId, providerId, dateKey, locationId] = key.split("|", 4);
+    return {
+      organizationId,
+      providerId,
+      dateKey,
+      locationId: locationId === "location:none" ? undefined : locationId,
+    };
+  }
+
+  private buildDaySummariesCacheKey(params: DaySummaryParams) {
+    return [
+      params.organizationId,
+      params.fromDateKey,
+      params.toDateKey,
+      params.providerId ?? "provider:none",
+      params.locationId ?? "location:none",
+    ].join("|");
+  }
+
+  private buildWeekSummariesCacheKey(params: DaySummaryParams) {
+    return [
+      params.organizationId,
+      params.fromDateKey,
+      params.toDateKey,
+      params.providerId ?? "provider:none",
+      params.locationId ?? "location:none",
+      "week",
+    ].join("|");
+  }
+
+  private buildScheduleGridCacheKey(params: ScheduleGridParams) {
+    const providerIds = [...(params.providerIds ?? [])].sort().join(",");
+    return [
+      params.organizationId,
+      params.dateKey,
+      params.locationId ?? "location:none",
+      providerIds || "providers:all",
+    ].join("|");
+  }
+
+  private parseScheduleGridCacheKey(key: string) {
+    const [organizationId, dateKey, locationId, providerIdsValue] = key.split("|", 4);
+    return {
+      organizationId,
+      dateKey,
+      locationId: locationId === "location:none" ? undefined : locationId,
+      providerIds:
+        providerIdsValue === "providers:all" ? [] : providerIdsValue.split(",").filter(Boolean),
+    };
   }
 
   private async getProviderScheduleContext(params: {

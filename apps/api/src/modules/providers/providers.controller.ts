@@ -20,6 +20,7 @@ import {
   UpdateProviderScheduleDto,
 } from "./dto/update-provider-schedule.dto";
 import { ListProviderScheduleGridDto } from "./dto/list-provider-schedule-grid.dto";
+import { ListProviderScheduleGridsDto } from "./dto/list-provider-schedule-grids.dto";
 import { ListProviderSlotsDto } from "./dto/list-provider-slots.dto";
 import { ProvidersService } from "./providers.service";
 
@@ -33,6 +34,14 @@ export class ProvidersController {
   @Get()
   list(@Headers("authorization") authorization?: string) {
     return this.providers.list(authorization);
+  }
+
+  @Get("schedule-grid")
+  listScheduleGrids(
+    @Query() query: ListProviderScheduleGridsDto,
+    @Headers("authorization") authorization?: string,
+  ) {
+    return this.providers.listScheduleGrids(query, authorization);
   }
 
   @Get(":id")

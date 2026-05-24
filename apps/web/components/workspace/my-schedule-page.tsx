@@ -43,7 +43,6 @@ export function MySchedulePage() {
       />
 
       <ReservationsPage
-        providerScope={sessionUser?.providerId}
         visibleProviderScope={sessionUser?.providerId}
       />
 

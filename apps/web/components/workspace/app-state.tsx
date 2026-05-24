@@ -157,6 +157,7 @@ export type PaymentDraft = {
 
 type WorkspaceContextValue = {
   data: OperationalData;
+  planningRevision: number;
   calendarMode: CalendarMode;
   setCalendarMode: (mode: CalendarMode) => void;
   selectedDate: string;
@@ -210,7 +211,7 @@ type WorkspaceContextValue = {
     locationId?: string;
   }) => Promise<AppointmentWeekSummary[]>;
   fetchScheduleGridForDay: (params: {
-    providerId: string;
+    providerIds?: string[];
     date: string;
     locationId?: string;
   }) => Promise<ProviderDayScheduleGrid>;
@@ -270,7 +271,12 @@ export function WorkspaceProvider({
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [invoicesLoaded, setInvoicesLoaded] = useState(false);
   const [invoicesLoading, setInvoicesLoading] = useState(false);
+  const [planningRevision, setPlanningRevision] = useState(0);
   const [slotCache] = useState(() => new Map<string, ProviderSlotResponse>());
+  const [appointmentRangeCache] = useState(() => new Map<string, Appointment[]>());
+  const [daySummaryCache] = useState(() => new Map<string, AppointmentDaySummary[]>());
+  const [weekSummaryCache] = useState(() => new Map<string, AppointmentWeekSummary[]>());
+  const [scheduleGridCache] = useState(() => new Map<string, ProviderDayScheduleGrid>());
 
   const notify = useCallback((message: string) => {
     setToast({ id: Date.now(), message });
@@ -279,6 +285,46 @@ export function WorkspaceProvider({
   const clearToast = useCallback(() => {
     setToast(null);
   }, []);
+
+  const invalidatePlanningCaches = useCallback((params?: {
+    providerIds?: string[];
+    dateKeys?: string[];
+  }) => {
+    appointmentRangeCache.clear();
+    daySummaryCache.clear();
+    weekSummaryCache.clear();
+
+    const providerIds = params?.providerIds ? new Set(params.providerIds) : null;
+    const dateKeys = params?.dateKeys ? new Set(params.dateKeys) : null;
+
+    for (const key of slotCache.keys()) {
+      const [, providerId, dateKey] = key.split("|", 4);
+      if (providerIds && !providerIds.has(providerId)) {
+        continue;
+      }
+      if (dateKeys && !dateKeys.has(dateKey)) {
+        continue;
+      }
+      slotCache.delete(key);
+    }
+
+    for (const key of scheduleGridCache.keys()) {
+      const [, dateKey, providerValue] = key.split("|", 4);
+      if (dateKeys && !dateKeys.has(dateKey)) {
+        continue;
+      }
+      if (providerIds) {
+        const providerList =
+          providerValue === "providers:all" ? [] : providerValue.split(",").filter(Boolean);
+        if (providerList.length && !providerList.some((providerId) => providerIds.has(providerId))) {
+          continue;
+        }
+      }
+      scheduleGridCache.delete(key);
+    }
+
+    setPlanningRevision((current) => current + 1);
+  }, [appointmentRangeCache, daySummaryCache, scheduleGridCache, slotCache, weekSummaryCache]);
 
   const requireToken = useCallback(() => {
     if (!authToken) {
@@ -299,6 +345,38 @@ export function WorkspaceProvider({
     setData(nextData);
     setCalendarMode((current) => current || nextData.organization.primaryCalendar);
   }, [authToken]);
+
+  const mergeAppointmentIntoData = useCallback((appointment: Appointment) => {
+    setData((current) => {
+      const nextAppointments = current.appointments.some((item) => item.id === appointment.id)
+        ? current.appointments.map((item) => (item.id === appointment.id ? appointment : item))
+        : [...current.appointments, appointment];
+
+      nextAppointments.sort(
+        (left, right) =>
+          new Date(left.startsAtIso).getTime() - new Date(right.startsAtIso).getTime(),
+      );
+
+      return {
+        ...current,
+        appointments: nextAppointments,
+      };
+    });
+  }, []);
+
+  const removeAppointmentFromData = useCallback((appointmentId: string) => {
+    setData((current) => ({
+      ...current,
+      appointments: current.appointments.filter((appointment) => appointment.id !== appointmentId),
+    }));
+  }, []);
+
+  const fetchAppointmentById = useCallback(async (appointmentId: string, token: string) => {
+    return apiFetchJson<Appointment>(
+      `/appointments/${appointmentId}`,
+      withAuthHeaders(token, { cache: "no-store" }),
+    );
+  }, []);
 
   useEffect(() => {
     const storedToken = window.localStorage.getItem(SESSION_TOKEN_STORAGE_KEY);
@@ -381,6 +459,7 @@ export function WorkspaceProvider({
   const value = useMemo<WorkspaceContextValue>(
     () => ({
       data,
+      planningRevision,
       calendarMode,
       setCalendarMode,
       selectedDate,
@@ -393,50 +472,92 @@ export function WorkspaceProvider({
       logout,
       refreshOperationalData,
       createAppointment: async (draft) => {
-        await runMutation(
+        const token = requireToken();
+        const response = await apiFetchJson<{ id: string }>(
           "/appointments",
-          {
+          withAuthHeaders(token, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               organizationId: data.organization.id,
               ...draft,
             }),
-          },
-          "Appointment booked",
+          }),
         );
+        const appointment = await fetchAppointmentById(response.id, token);
+        mergeAppointmentIntoData(appointment);
+        invalidatePlanningCaches({
+          providerIds: [draft.providerId],
+          dateKeys: [draft.startsAtIso.slice(0, 10)],
+        });
+        notify("Appointment booked");
       },
       updateAppointment: async (appointmentId, draft) => {
-        await runMutation(
+        const token = requireToken();
+        const previous = data.appointments.find((appointment) => appointment.id === appointmentId);
+        await apiFetchJson(
           `/appointments/${appointmentId}`,
-          {
+          withAuthHeaders(token, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               organizationId: data.organization.id,
               ...draft,
             }),
-          },
-          "Appointment updated",
+          }),
         );
+        const appointment = await fetchAppointmentById(appointmentId, token);
+        mergeAppointmentIntoData(appointment);
+        invalidatePlanningCaches({
+          providerIds: [
+            draft.providerId,
+            previous?.providerId,
+          ].filter((value): value is string => Boolean(value)),
+          dateKeys: [
+            draft.startsAtIso.slice(0, 10),
+            previous?.startsAtIso.slice(0, 10),
+          ].filter((value): value is string => Boolean(value)),
+        });
+        notify("Appointment updated");
       },
       deleteAppointment: async (appointmentId) => {
-        await runMutation(
+        const token = requireToken();
+        const previous = data.appointments.find((appointment) => appointment.id === appointmentId);
+        await apiFetchJson(
           `/appointments/${appointmentId}`,
-          { method: "DELETE" },
-          "Appointment deleted",
+          withAuthHeaders(token, { method: "DELETE" }),
         );
+        removeAppointmentFromData(appointmentId);
+        invalidatePlanningCaches({
+          providerIds: previous ? [previous.providerId] : undefined,
+          dateKeys: previous ? [previous.startsAtIso.slice(0, 10)] : undefined,
+        });
+        notify("Appointment deleted");
       },
       updateAppointmentStatus: async (appointmentId, status, note) => {
-        await runMutation(
+        const token = requireToken();
+        const previous = data.appointments.find((appointment) => appointment.id === appointmentId);
+        await apiFetchJson(
           `/appointments/${appointmentId}/status`,
-          {
+          withAuthHeaders(token, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ status, note }),
-          },
-          "Appointment updated",
+          }),
         );
+        if (previous) {
+          mergeAppointmentIntoData({
+            ...previous,
+            status: status as Appointment["status"],
+          });
+          invalidatePlanningCaches({
+            providerIds: [previous.providerId],
+            dateKeys: [previous.startsAtIso.slice(0, 10)],
+          });
+        } else {
+          invalidatePlanningCaches();
+        }
+        notify("Appointment updated");
       },
       createCustomer: async (draft) => {
         await runMutation(
@@ -556,9 +677,21 @@ export function WorkspaceProvider({
           },
           "Schedule updated",
         );
+        invalidatePlanningCaches({ providerIds: [providerId] });
       },
       fetchAppointmentsRange: async ({ fromIso, toIso, providerId, locationId }) => {
         const token = requireToken();
+        const cacheKey = [
+          data.organization.id,
+          fromIso,
+          toIso,
+          providerId ?? "provider:none",
+          locationId ?? "location:none",
+        ].join("|");
+        const cached = appointmentRangeCache.get(cacheKey);
+        if (cached) {
+          return cached;
+        }
         const query = new URLSearchParams({
           fromIso,
           toIso,
@@ -569,10 +702,12 @@ export function WorkspaceProvider({
         if (locationId) {
           query.set("locationId", locationId);
         }
-        return apiFetchJson<Appointment[]>(
+        const response = await apiFetchJson<Appointment[]>(
           `/appointments?${query.toString()}`,
           withAuthHeaders(token, { cache: "no-store" }),
         );
+        appointmentRangeCache.set(cacheKey, response);
+        return response;
       },
       fetchAppointmentDaySummaries: async ({
         fromDateKey,
@@ -581,6 +716,17 @@ export function WorkspaceProvider({
         locationId,
       }) => {
         const token = requireToken();
+        const cacheKey = [
+          data.organization.id,
+          fromDateKey,
+          toDateKey,
+          providerId ?? "provider:none",
+          locationId ?? "location:none",
+        ].join("|");
+        const cached = daySummaryCache.get(cacheKey);
+        if (cached) {
+          return cached;
+        }
         const query = new URLSearchParams({
           fromDateKey,
           toDateKey,
@@ -591,10 +737,12 @@ export function WorkspaceProvider({
         if (locationId) {
           query.set("locationId", locationId);
         }
-        return apiFetchJson<AppointmentDaySummary[]>(
+        const response = await apiFetchJson<AppointmentDaySummary[]>(
           `/appointments/day-summaries?${query.toString()}`,
           withAuthHeaders(token, { cache: "no-store" }),
         );
+        daySummaryCache.set(cacheKey, response);
+        return response;
       },
       fetchWeekOperationalSummaries: async ({
         fromDateKey,
@@ -603,6 +751,17 @@ export function WorkspaceProvider({
         locationId,
       }) => {
         const token = requireToken();
+        const cacheKey = [
+          data.organization.id,
+          fromDateKey,
+          toDateKey,
+          providerId ?? "provider:none",
+          locationId ?? "location:none",
+        ].join("|");
+        const cached = weekSummaryCache.get(cacheKey);
+        if (cached) {
+          return cached;
+        }
         const query = new URLSearchParams({
           fromDateKey,
           toDateKey,
@@ -617,21 +776,38 @@ export function WorkspaceProvider({
           `/appointments/week-summaries?${query.toString()}`,
           withAuthHeaders(token, { cache: "no-store" }),
         );
+        weekSummaryCache.set(cacheKey, response.days);
         return response.days;
       },
-      fetchScheduleGridForDay: async ({ providerId, date, locationId }) => {
+      fetchScheduleGridForDay: async ({ providerIds, date, locationId }) => {
         const token = requireToken();
+        const normalizedProviderIds = [...(providerIds ?? [])].sort();
+        const cacheKey = [
+          data.organization.id,
+          date,
+          normalizedProviderIds.join(",") || "providers:all",
+          locationId ?? "location:none",
+        ].join("|");
+        const cached = scheduleGridCache.get(cacheKey);
+        if (cached) {
+          return cached;
+        }
         const query = new URLSearchParams({
           organizationId: data.organization.id,
           dateIso: date,
         });
+        if (normalizedProviderIds.length) {
+          query.set("providerIds", normalizedProviderIds.join(","));
+        }
         if (locationId) {
           query.set("locationId", locationId);
         }
-        return apiFetchJson<ProviderDayScheduleGrid>(
-          `/providers/${providerId}/schedule-grid?${query.toString()}`,
+        const response = await apiFetchJson<ProviderDayScheduleGrid>(
+          `/providers/schedule-grid?${query.toString()}`,
           withAuthHeaders(token, { cache: "no-store" }),
         );
+        scheduleGridCache.set(cacheKey, response);
+        return response;
       },
       fetchProviderSlotsForBooking: async ({
         providerId,
@@ -736,23 +912,33 @@ export function WorkspaceProvider({
       },
     }),
     [
+      appointmentRangeCache,
       authToken,
       calendarMode,
       clearToast,
       data,
+      daySummaryCache,
+      fetchAppointmentById,
       invoices,
       invoicesLoaded,
       invoicesLoading,
+      invalidatePlanningCaches,
       isAuthenticating,
       loadInvoicesInternal,
       logout,
+      mergeAppointmentIntoData,
       refreshOperationalData,
+      removeAppointmentFromData,
       requireToken,
       runMutation,
+      scheduleGridCache,
       selectedDate,
       sessionUser,
       slotCache,
       toast,
+      planningRevision,
+      weekSummaryCache,
+      notify,
     ],
   );
 

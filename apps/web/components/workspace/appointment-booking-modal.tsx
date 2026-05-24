@@ -125,8 +125,14 @@ export function AppointmentBookingModal({
     if (!provider) {
       return data.services;
     }
-    return data.services.filter((service) => provider.serviceIds.includes(service.id));
+    const mappedServices = data.services.filter((service) => provider.serviceIds.includes(service.id));
+    return mappedServices.length ? mappedServices : data.services;
   }, [data.providers, data.services, providerId]);
+
+  const selectedProvider = useMemo(
+    () => data.providers.find((provider) => provider.id === providerId),
+    [data.providers, providerId],
+  );
 
   const selectedService = useMemo(
     () => data.services.find((service) => service.id === serviceId),
@@ -155,7 +161,8 @@ export function AppointmentBookingModal({
         providerId,
         date: dateKey,
         locationId: data.locations[0]?.id,
-        serviceId: serviceId || undefined,
+        serviceId:
+          selectedProvider?.serviceIds.length && serviceId ? serviceId : undefined,
         excludeAppointmentId: initialAppointment?.id,
       })
         .then((response) => {
@@ -219,6 +226,7 @@ export function AppointmentBookingModal({
     initialAppointment?.startsAtIso,
     initialSlotIso,
     providerId,
+    selectedProvider?.serviceIds.length,
     selectedService?.bufferMinutes,
     selectedService?.durationMinutes,
     serviceId,
