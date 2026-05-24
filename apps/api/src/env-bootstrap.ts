@@ -34,11 +34,15 @@ export const monorepoRoot = findWorkspaceRoot();
 export function loadMonorepoEnv() {
   const envPath = join(monorepoRoot, ".env");
   const envLocalPath = join(monorepoRoot, ".env.local");
+  const isProductionRuntime =
+    process.env.NODE_ENV === "production" ||
+    Boolean(process.env.RENDER) ||
+    Boolean(process.env.VERCEL);
 
-  if (existsSync(envPath)) {
+  if (existsSync(envPath) && !isProductionRuntime) {
     config({ path: envPath });
   }
-  if (existsSync(envLocalPath)) {
+  if (existsSync(envLocalPath) && !isProductionRuntime) {
     config({ path: envLocalPath, override: true });
   }
 
