@@ -1,4 +1,5 @@
-import { IsOptional, IsString } from "class-validator";
+import { Type } from "class-transformer";
+import { IsInt, IsOptional, IsString, Min } from "class-validator";
 
 export class ListProviderSlotsDto {
   @IsString()
@@ -14,6 +15,12 @@ export class ListProviderSlotsDto {
   @IsOptional()
   @IsString()
   serviceId?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  durationMinutes?: number;
 
   @IsOptional()
   @IsString()

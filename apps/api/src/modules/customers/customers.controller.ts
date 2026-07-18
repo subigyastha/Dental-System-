@@ -11,6 +11,9 @@ import {
 } from "@nestjs/common";
 
 import { CreateCustomerDto } from "./dto/create-customer.dto";
+import { MatchCustomersDto } from "./dto/match-customers.dto";
+import { MergeCustomerDto } from "./dto/merge-customer.dto";
+import { ResolveCustomerForAppointmentDto } from "./dto/resolve-customer-for-appointment.dto";
 import { UpdateCustomerDto } from "./dto/update-customer.dto";
 import { UpsertVisitReportDto } from "./dto/upsert-visit-report.dto";
 import { CustomersService } from "./customers.service";
@@ -37,6 +40,19 @@ export class CustomersController {
     return this.customers.create(dto, authorization);
   }
 
+  @Post("match")
+  match(@Body() dto: MatchCustomersDto, @Headers("authorization") authorization?: string) {
+    return this.customers.match(dto, authorization);
+  }
+
+  @Post("resolve-for-appointment")
+  resolveForAppointment(
+    @Body() dto: ResolveCustomerForAppointmentDto,
+    @Headers("authorization") authorization?: string,
+  ) {
+    return this.customers.resolveForAppointment(dto, authorization);
+  }
+
   @Patch(":id")
   update(
     @Param("id") id: string,
@@ -49,6 +65,15 @@ export class CustomersController {
   @Delete(":id")
   delete(@Param("id") id: string, @Headers("authorization") authorization?: string) {
     return this.customers.delete(id, authorization);
+  }
+
+  @Post(":id/merge")
+  merge(
+    @Param("id") id: string,
+    @Body() dto: MergeCustomerDto,
+    @Headers("authorization") authorization?: string,
+  ) {
+    return this.customers.merge(id, dto, authorization);
   }
 
   @Get(":customerId/visit-reports")

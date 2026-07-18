@@ -11,6 +11,9 @@ import { AuthService } from "../auth/auth.service";
 import { assertClinicOperator } from "../auth/authz";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateCustomerDto } from "./dto/create-customer.dto";
+import { MatchCustomersDto } from "./dto/match-customers.dto";
+import { MergeCustomerDto } from "./dto/merge-customer.dto";
+import { ResolveCustomerForAppointmentDto } from "./dto/resolve-customer-for-appointment.dto";
 import { UpdateCustomerDto } from "./dto/update-customer.dto";
 import { UpsertVisitReportDto } from "./dto/upsert-visit-report.dto";
 
@@ -59,17 +62,19 @@ export class CustomersService {
     const existing = await this.prisma.customer.findFirst({
       where: {
         organizationId: dto.organizationId,
-        OR: [
-          { phone: dto.phone },
-          ...(dto.email ? [{ email: dto.email.toLowerCase() }] : []),
-          ...(dto.patientCode ? [{ patientCode: dto.patientCode.trim().toUpperCase() }] : []),
-        ],
+        ...(dto.patientCode
+          ? {
+              patientCode: dto.patientCode.trim().toUpperCase(),
+            }
+          : {
+              id: "__no_patient_code_conflict__",
+            }),
       },
-      select: { id: true, phone: true, email: true, patientCode: true },
+      select: { id: true, patientCode: true },
     });
 
     if (existing) {
-      throw new ConflictException("A patient with the same phone, email, or patient code already exists");
+      throw new ConflictException("A patient with the same patient code already exists");
     }
 
     const customer = await this.prisma.$transaction(async (tx) => {
@@ -123,6 +128,123 @@ export class CustomersService {
     return this.mapCustomer(customer);
   }
 
+  async match(dto: MatchCustomersDto, authorization?: string) {
+    const session = await this.requireOperator(authorization);
+    this.assertSameOrganization(session.organizationId, dto.organizationId);
+
+    const candidates = await this.prisma.customer.findMany({
+      where: {
+        organizationId: dto.organizationId,
+        OR: [
+          { phone: { contains: dto.phone } },
+          { fullName: { contains: dto.name, mode: "insensitive" } },
+          ...(dto.email ? [{ email: dto.email.toLowerCase() }] : []),
+        ],
+      },
+      include: {
+        dentalChart: true,
+      },
+      take: 12,
+      orderBy: [{ updatedAt: "desc" }],
+    });
+
+    const scored = candidates
+      .map((customer) => this.toCustomerMatch(customer, dto))
+      .filter((match) => match.confidence !== "none")
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 6);
+
+    return {
+      matches: scored.map(({ score, ...match }) => match),
+    };
+  }
+
+  async resolveForAppointment(
+    dto: ResolveCustomerForAppointmentDto,
+    authorization?: string,
+  ) {
+    const session = await this.requireOperator(authorization);
+    this.assertSameOrganization(session.organizationId, dto.organizationId);
+
+    if (dto.mode !== "create_new" && !dto.existingCustomerId) {
+      throw new BadRequestException("Existing customer is required for this resolution mode");
+    }
+
+    if (dto.mode === "use_existing") {
+      const existing = await this.prisma.customer.findFirst({
+        where: {
+          id: dto.existingCustomerId,
+          organizationId: dto.organizationId,
+        },
+        include: {
+          dentalChart: true,
+        },
+      });
+
+      if (!existing) {
+        throw new NotFoundException("Patient not found");
+      }
+
+      await this.prisma.auditLog.create({
+        data: {
+          organizationId: dto.organizationId,
+          actorId: session.id,
+          entityType: "customer",
+          entityId: existing.id,
+          action: "matched_existing_for_appointment",
+          newValue: this.customerAuditPayload(dto, existing.patientCode ?? undefined),
+          description: "Existing patient selected during appointment booking",
+        },
+      });
+
+      return this.mapCustomer(existing);
+    }
+
+    if (dto.mode === "update_existing") {
+      const existing = await this.prisma.customer.findFirst({
+        where: {
+          id: dto.existingCustomerId,
+          organizationId: dto.organizationId,
+        },
+        include: {
+          dentalChart: true,
+        },
+      });
+
+      if (!existing) {
+        throw new NotFoundException("Patient not found");
+      }
+
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const customer = await tx.customer.update({
+          where: { id: existing.id },
+          data: this.buildMergeFillData(existing, dto),
+          include: {
+            dentalChart: true,
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            organizationId: dto.organizationId,
+            actorId: session.id,
+            entityType: "customer",
+            entityId: existing.id,
+            action: "updated_from_booking_resolution",
+            newValue: this.customerAuditPayload(dto, customer.patientCode ?? undefined),
+            description: "Existing patient updated from appointment booking",
+          },
+        });
+
+        return customer;
+      });
+
+      return this.mapCustomer(updated);
+    }
+
+    return this.create(dto, authorization);
+  }
+
   async update(id: string, dto: UpdateCustomerDto, authorization?: string) {
     const session = await this.requireOperator(authorization);
     this.assertSameOrganization(session.organizationId, dto.organizationId);
@@ -140,17 +262,19 @@ export class CustomersService {
       where: {
         organizationId: dto.organizationId,
         id: { not: id },
-        OR: [
-          { phone: dto.phone },
-          ...(dto.email ? [{ email: dto.email.toLowerCase() }] : []),
-          ...(patientCode ? [{ patientCode }] : []),
-        ],
+        ...(patientCode
+          ? {
+              patientCode,
+            }
+          : {
+              id: "__no_patient_code_conflict__",
+            }),
       },
       select: { id: true },
     });
 
     if (duplicate) {
-      throw new ConflictException("Another patient already uses this phone, email, or patient code");
+      throw new ConflictException("Another patient already uses this patient code");
     }
 
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -236,6 +360,117 @@ export class CustomersService {
     });
 
     return { ok: true };
+  }
+
+  async merge(id: string, dto: MergeCustomerDto, authorization?: string) {
+    const session = await this.requireOperator(authorization);
+    this.assertSameOrganization(session.organizationId, dto.organizationId);
+
+    if (id === dto.secondaryCustomerId) {
+      throw new BadRequestException("Primary and duplicate patient cannot be the same record");
+    }
+
+    const [primary, secondary] = await Promise.all([
+      this.prisma.customer.findFirst({
+        where: { id, organizationId: dto.organizationId },
+        include: { dentalChart: true },
+      }),
+      this.prisma.customer.findFirst({
+        where: { id: dto.secondaryCustomerId, organizationId: dto.organizationId },
+        include: { dentalChart: true },
+      }),
+    ]);
+
+    if (!primary || !secondary) {
+      throw new NotFoundException("One or both patient records were not found");
+    }
+
+    const merged = await this.prisma.$transaction(async (tx) => {
+      const primaryAfterFill = await tx.customer.update({
+        where: { id: primary.id },
+        data: this.buildMergeFillData(primary, secondary),
+        include: { dentalChart: true },
+      });
+
+      await Promise.all([
+        tx.appointment.updateMany({
+          where: { customerId: secondary.id },
+          data: { customerId: primary.id },
+        }),
+        tx.appointmentSession.updateMany({
+          where: { customerId: secondary.id },
+          data: { customerId: primary.id },
+        }),
+        tx.followUpTask.updateMany({
+          where: { customerId: secondary.id },
+          data: { customerId: primary.id },
+        }),
+        tx.communicationLog.updateMany({
+          where: { customerId: secondary.id },
+          data: { customerId: primary.id },
+        }),
+        tx.invoice.updateMany({
+          where: { customerId: secondary.id },
+          data: { customerId: primary.id },
+        }),
+        tx.payment.updateMany({
+          where: { customerId: secondary.id },
+          data: { customerId: primary.id },
+        }),
+        tx.dentalChartRevision.updateMany({
+          where: { customerId: secondary.id },
+          data: { customerId: primary.id },
+        }),
+      ]);
+
+      if (secondary.dentalChart) {
+        if (!primaryAfterFill.dentalChart) {
+          await tx.patientDentalChart.update({
+            where: { id: secondary.dentalChart.id },
+            data: {
+              customerId: primary.id,
+            },
+          });
+        } else {
+          await tx.dentalChartRevision.create({
+            data: {
+              customerId: primary.id,
+              chartData: secondary.dentalChart.chartData as Prisma.InputJsonValue,
+              note: `Merged duplicate chart from ${secondary.fullName}`,
+            },
+          });
+          await tx.patientDentalChart.delete({
+            where: { id: secondary.dentalChart.id },
+          });
+        }
+      }
+
+      await tx.auditLog.create({
+        data: {
+          organizationId: dto.organizationId,
+          actorId: session.id,
+          entityType: "customer",
+          entityId: primary.id,
+          action: "merged_duplicate",
+          oldValue: {
+            secondaryCustomerId: secondary.id,
+            secondaryName: secondary.fullName,
+          },
+          description: "Duplicate patient merged into primary patient record",
+        },
+      });
+
+      await tx.customer.delete({
+        where: { id: secondary.id },
+      });
+
+      return tx.customer.findUniqueOrThrow({
+        where: { id: primary.id },
+        include: { dentalChart: true },
+      });
+    });
+
+    return this.mapCustomer(merged);
   }
 
   async listVisitReports(customerId: string, authorization?: string) {
@@ -586,6 +821,7 @@ export class CustomersService {
       patientCode: customer.patientCode ?? undefined,
       phone: customer.phone,
       email: customer.email ?? undefined,
+      age: customer.dateOfBirth ? this.getAge(customer.dateOfBirth) : 0,
       gender: customer.gender ?? undefined,
       dateOfBirthIso: customer.dateOfBirth?.toISOString(),
       address: customer.address ?? undefined,
@@ -594,7 +830,7 @@ export class CustomersService {
       allergies: customer.allergies ?? undefined,
       medicalNotes: customer.medicalNotes ?? undefined,
       risk: customer.riskLabel,
-      lastVisitAtIso: customer.lastVisitAt?.toISOString(),
+      lastVisitIso: (customer.lastVisitAt ?? customer.updatedAt).toISOString(),
       createdAtIso: customer.createdAt.toISOString(),
       updatedAtIso: customer.updatedAt.toISOString(),
       dentalChart: customer.dentalChart
@@ -669,6 +905,175 @@ export class CustomersService {
       segments: [],
       notes: [],
       version: 1,
+    };
+  }
+
+  private getAge(date: Date) {
+    const today = new Date();
+    let age = today.getFullYear() - date.getFullYear();
+    const monthDelta = today.getMonth() - date.getMonth();
+    if (monthDelta < 0 || (monthDelta === 0 && today.getDate() < date.getDate())) {
+      age -= 1;
+    }
+    return age;
+  }
+
+  private normalizePhone(phone: string) {
+    return phone.replace(/\D+/g, "");
+  }
+
+  private normalizeName(name: string) {
+    return name.trim().toLowerCase().replace(/\s+/g, " ");
+  }
+
+  private toCustomerMatch(
+    customer: {
+      id: string;
+      organizationId: string;
+      fullName: string;
+      patientCode: string | null;
+      phone: string;
+      email: string | null;
+      gender: string | null;
+      dateOfBirth: Date | null;
+      address: string | null;
+      emergencyContactName: string | null;
+      emergencyContactPhone: string | null;
+      allergies: string | null;
+      medicalNotes: string | null;
+      riskLabel: string;
+      lastVisitAt: Date | null;
+      createdAt: Date;
+      updatedAt: Date;
+      dentalChart?: {
+        id: string;
+        chartData: Prisma.JsonValue;
+        version: number;
+        updatedAt: Date;
+      } | null;
+    },
+    candidate: Pick<MatchCustomersDto, "name" | "phone" | "email">,
+  ) {
+    const normalizedPhone = this.normalizePhone(candidate.phone);
+    const normalizedExistingPhone = this.normalizePhone(customer.phone);
+    const normalizedName = this.normalizeName(candidate.name);
+    const normalizedExistingName = this.normalizeName(customer.fullName);
+
+    let score = 0;
+    let confidence: "strong" | "moderate" | "weak" | "none" = "none";
+
+    if (normalizedPhone && normalizedPhone === normalizedExistingPhone) {
+      score += 100;
+    } else if (
+      normalizedPhone &&
+      normalizedExistingPhone &&
+      (normalizedExistingPhone.endsWith(normalizedPhone) ||
+        normalizedPhone.endsWith(normalizedExistingPhone))
+    ) {
+      score += 55;
+    }
+
+    if (normalizedName && normalizedName === normalizedExistingName) {
+      score += 40;
+    } else if (
+      normalizedName &&
+      normalizedExistingName &&
+      (normalizedExistingName.includes(normalizedName) ||
+        normalizedName.includes(normalizedExistingName))
+    ) {
+      score += 22;
+    }
+
+    if (
+      candidate.email &&
+      customer.email &&
+      candidate.email.toLowerCase() === customer.email.toLowerCase()
+    ) {
+      score += 25;
+    }
+
+    if (score >= 100) {
+      confidence = "strong";
+    } else if (score >= 45) {
+      confidence = "moderate";
+    } else if (score >= 20) {
+      confidence = "weak";
+    }
+
+    return {
+      score,
+      confidence,
+      customer: this.mapCustomer(customer),
+    };
+  }
+
+  private buildMergeFillData(
+    primary: {
+      fullName: string;
+      patientCode: string | null;
+      phone: string;
+      email: string | null;
+      gender: string | null;
+      dateOfBirth: Date | null;
+      address: string | null;
+      emergencyContactName: string | null;
+      emergencyContactPhone: string | null;
+      allergies: string | null;
+      medicalNotes: string | null;
+      riskLabel: string;
+    },
+    incoming:
+      | ResolveCustomerForAppointmentDto
+      | {
+          fullName: string;
+          patientCode: string | null;
+          phone: string;
+          email: string | null;
+          gender: string | null;
+          dateOfBirth: Date | null;
+          address: string | null;
+          emergencyContactName: string | null;
+          emergencyContactPhone: string | null;
+          allergies: string | null;
+          medicalNotes: string | null;
+          riskLabel: string;
+        },
+  ) {
+    const incomingEmail = "email" in incoming ? incoming.email ?? null : null;
+    const incomingGender = "gender" in incoming ? incoming.gender ?? null : null;
+    const incomingDob = "dateOfBirthIso" in incoming
+      ? (incoming.dateOfBirthIso ? new Date(incoming.dateOfBirthIso) : null)
+      : ("dateOfBirth" in incoming ? incoming.dateOfBirth ?? null : null);
+
+    const incomingName = "name" in incoming ? incoming.name : incoming.fullName;
+    const incomingPatientCode =
+      "patientCode" in incoming ? incoming.patientCode ?? null : incoming.patientCode ?? null;
+    const incomingAddress = "address" in incoming ? incoming.address ?? null : null;
+    const incomingEmergencyName =
+      "emergencyContactName" in incoming ? incoming.emergencyContactName ?? null : null;
+    const incomingEmergencyPhone =
+      "emergencyContactPhone" in incoming ? incoming.emergencyContactPhone ?? null : null;
+    const incomingAllergies = "allergies" in incoming ? incoming.allergies ?? null : null;
+    const incomingMedicalNotes =
+      "medicalNotes" in incoming ? incoming.medicalNotes ?? null : null;
+    const incomingRisk = "risk" in incoming ? incoming.risk : incoming.riskLabel;
+
+    return {
+      fullName: primary.fullName || incomingName,
+      patientCode: primary.patientCode ?? incomingPatientCode,
+      phone: primary.phone || incoming.phone,
+      email: primary.email ?? incomingEmail,
+      gender: primary.gender ?? incomingGender,
+      dateOfBirth: primary.dateOfBirth ?? incomingDob,
+      address: primary.address ?? incomingAddress,
+      emergencyContactName: primary.emergencyContactName ?? incomingEmergencyName,
+      emergencyContactPhone: primary.emergencyContactPhone ?? incomingEmergencyPhone,
+      allergies: primary.allergies ?? incomingAllergies,
+      medicalNotes: primary.medicalNotes ?? incomingMedicalNotes,
+      riskLabel:
+        primary.riskLabel === "Routine" && incomingRisk !== "Routine"
+          ? incomingRisk
+          : primary.riskLabel,
     };
   }
 }

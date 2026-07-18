@@ -20,6 +20,7 @@ import type {
   AppointmentWeekSummaryResponse,
   CalendarMode,
   Customer,
+  CustomerMatch,
   Invoice,
   PaymentMethod,
   PaymentStatus,
@@ -47,6 +48,11 @@ export type CustomerDraft = {
   allergies?: string;
   medicalNotes?: string;
   risk: Customer["risk"];
+};
+
+export type ResolveCustomerDraft = CustomerDraft & {
+  mode: "use_existing" | "update_existing" | "create_new";
+  existingCustomerId?: string;
 };
 
 export type AppointmentDraft = {
@@ -178,6 +184,9 @@ type WorkspaceContextValue = {
     note?: string,
   ) => Promise<void>;
   createCustomer: (draft: CustomerDraft) => Promise<void>;
+  matchCustomers: (draft: Pick<CustomerDraft, "name" | "phone" | "email">) => Promise<CustomerMatch[]>;
+  resolveCustomerForAppointment: (draft: ResolveCustomerDraft) => Promise<Customer>;
+  mergeCustomers: (primaryCustomerId: string, secondaryCustomerId: string) => Promise<Customer>;
   updateCustomer: (customerId: string, draft: CustomerDraft) => Promise<void>;
   deleteCustomer: (customerId: string) => Promise<void>;
   createVisitReport: (customerId: string, draft: VisitReportDraft) => Promise<void>;
@@ -572,6 +581,61 @@ export function WorkspaceProvider({
           },
           "Patient added",
         );
+      },
+      matchCustomers: async (draft) => {
+        const token = requireToken();
+        const response = await apiFetchJson<{ matches: CustomerMatch[] }>(
+          "/customers/match",
+          withAuthHeaders(token, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              organizationId: data.organization.id,
+              ...draft,
+            }),
+          }),
+        );
+        return response.matches;
+      },
+      resolveCustomerForAppointment: async (draft) => {
+        const token = requireToken();
+        const customer = await apiFetchJson<Customer>(
+          "/customers/resolve-for-appointment",
+          withAuthHeaders(token, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              organizationId: data.organization.id,
+              ...draft,
+            }),
+          }),
+        );
+        await refreshOperationalData();
+        notify(
+          draft.mode === "create_new"
+            ? "Patient added from appointment"
+            : draft.mode === "update_existing"
+              ? "Existing patient updated"
+              : "Existing patient selected",
+        );
+        return customer;
+      },
+      mergeCustomers: async (primaryCustomerId, secondaryCustomerId) => {
+        const token = requireToken();
+        const customer = await apiFetchJson<Customer>(
+          `/customers/${primaryCustomerId}/merge`,
+          withAuthHeaders(token, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              organizationId: data.organization.id,
+              secondaryCustomerId,
+            }),
+          }),
+        );
+        await refreshOperationalData();
+        notify("Patient records merged");
+        return customer;
       },
       updateCustomer: async (customerId, draft) => {
         await runMutation(

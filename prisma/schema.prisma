@@ -431,6 +431,7 @@ model BlockedTime {
   reason         String
 
   @@index([organizationId, startsAt, endsAt])
+  @@index([organizationId, providerId, startsAt, endsAt])
 }
 
 model AppointmentSession {

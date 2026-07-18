@@ -4,7 +4,7 @@ import {
   Inject,
   Injectable,
 } from "@nestjs/common";
-import { AppointmentStatus } from "@prisma/client";
+import { AppointmentStatus, Prisma } from "@prisma/client";
 
 import {
   buildNepalIsoFromDateAndTime,
@@ -16,6 +16,7 @@ import {
   minutesToTimeLabel,
 } from "../../lib/nepal-time";
 import { PrismaService } from "../prisma/prisma.service";
+import { ScheduleCacheService } from "./schedule-cache.service";
 
 const blockingStatuses: AppointmentStatus[] = [
   "Scheduled",
@@ -129,14 +130,11 @@ type ProviderSlotsResult = {
 
 @Injectable()
 export class SchedulingService {
-  private readonly providerSlotsCache = new Map<string, ProviderSlotsResult>();
-  private readonly daySummariesCache = new Map<string, DaySummaryResult>();
-  private readonly weekSummariesCache = new Map<string, WeekSummaryResult>();
-  private readonly scheduleGridCache = new Map<string, ScheduleGridResult>();
-
   constructor(
     @Inject(PrismaService)
     private readonly prisma: PrismaService,
+    @Inject(ScheduleCacheService)
+    private readonly cache: ScheduleCacheService,
   ) {}
 
   async getServiceTiming(params: ServiceTimingParams) {
@@ -237,7 +235,7 @@ export class SchedulingService {
 
   async listProviderSlots(params: ProviderSlotParams): Promise<ProviderSlotsResult> {
     const cacheKey = this.buildProviderSlotsCacheKey(params);
-    const cached = this.providerSlotsCache.get(cacheKey);
+    const cached = this.cache.get<ProviderSlotsResult>(cacheKey);
     if (cached) {
       return cached;
     }
@@ -327,13 +325,13 @@ export class SchedulingService {
       slots,
     };
 
-    this.providerSlotsCache.set(cacheKey, response);
+    this.cache.set(cacheKey, response);
     return response;
   }
 
   async listDaySummaries(params: DaySummaryParams) {
     const cacheKey = this.buildDaySummariesCacheKey(params);
-    const cached = this.daySummariesCache.get(cacheKey);
+    const cached = this.cache.get<DaySummaryResult>(cacheKey);
     if (cached) {
       return cached;
     }
@@ -469,13 +467,13 @@ export class SchedulingService {
       });
     }
 
-    this.daySummariesCache.set(cacheKey, summaries);
+    this.cache.set(cacheKey, summaries);
     return summaries;
   }
 
   async listWeekSummaries(params: DaySummaryParams) {
     const cacheKey = this.buildWeekSummariesCacheKey(params);
-    const cached = this.weekSummariesCache.get(cacheKey);
+    const cached = this.cache.get<WeekSummaryResult>(cacheKey);
     if (cached) {
       return cached;
     }
@@ -647,13 +645,13 @@ export class SchedulingService {
     });
 
     const response = { days };
-    this.weekSummariesCache.set(cacheKey, response);
+    this.cache.set(cacheKey, response);
     return response;
   }
 
   async listScheduleGridForDay(params: ScheduleGridParams) {
     const cacheKey = this.buildScheduleGridCacheKey(params);
-    const cached = this.scheduleGridCache.get(cacheKey);
+    const cached = this.cache.get<ScheduleGridResult>(cacheKey);
     if (cached) {
       return cached;
     }
@@ -673,31 +671,71 @@ export class SchedulingService {
             })
           ).map((provider) => provider.id);
 
-    const providers = await Promise.all(
-      providerIds.map(async (providerId) => {
-        const scheduleContext = await this.getProviderScheduleContext({
+    const [scheduleContexts, providerRows, appointments] = await Promise.all([
+      this.getProviderScheduleContexts({
+        organizationId: params.organizationId,
+        providerIds,
+        dateKey: params.dateKey,
+        locationId: params.locationId,
+      }),
+      this.prisma.provider.findMany({
+        where: {
           organizationId: params.organizationId,
-          providerId,
-          dateKey: params.dateKey,
-          locationId: params.locationId,
-        });
-
-        const provider = await this.prisma.provider.findFirst({
-          where: { id: providerId, organizationId: params.organizationId },
-          select: {
-            id: true,
-            displayName: true,
-            color: true,
-            specialty: true,
+          id: { in: providerIds },
+        },
+        select: {
+          id: true,
+          displayName: true,
+          color: true,
+          specialty: true,
+        },
+        orderBy: { displayName: "asc" },
+      }),
+      this.prisma.appointment.findMany({
+        where: {
+          organizationId: params.organizationId,
+          providerId: { in: providerIds },
+          status: { in: blockingStatuses },
+          startsAt: {
+            gte: getNepalDayRangeFromDateKey(params.dateKey).startsAt,
+            lte: getNepalDayRangeFromDateKey(params.dateKey).endsAt,
           },
-        });
+        },
+        select: {
+          id: true,
+          providerId: true,
+          startsAt: true,
+          endsAt: true,
+          durationMinutes: true,
+          bufferMinutes: true,
+          status: true,
+          customer: { select: { fullName: true } },
+          services: {
+            select: {
+              service: {
+                select: { name: true },
+              },
+            },
+          },
+        },
+        orderBy: [{ providerId: "asc" }, { startsAt: "asc" }],
+      }),
+    ]);
 
-        if (!provider) {
+    const appointmentsByProvider = new Map<string, typeof appointments>();
+    for (const appointment of appointments) {
+      const list = appointmentsByProvider.get(appointment.providerId) ?? [];
+      list.push(appointment);
+      appointmentsByProvider.set(appointment.providerId, list);
+    }
+
+    const providers = providerRows.map((provider) => {
+        const scheduleContext = scheduleContexts.get(provider.id);
+        if (!scheduleContext) {
           return null;
         }
 
-        const slotStepMinutes =
-          STANDARD_SLOT_MINUTES;
+        const slotStepMinutes = STANDARD_SLOT_MINUTES;
         const daySlots: Array<{
           startTime: string;
           endTime: string;
@@ -710,39 +748,12 @@ export class SchedulingService {
           };
         }> = [];
 
-        const appointments = await this.prisma.appointment.findMany({
-          where: {
-            organizationId: params.organizationId,
-            providerId,
-            status: { in: blockingStatuses },
-            startsAt: {
-              gte: getNepalDayRangeFromDateKey(params.dateKey).startsAt,
-              lte: getNepalDayRangeFromDateKey(params.dateKey).endsAt,
-            },
-          },
-          select: {
-            id: true,
-            startsAt: true,
-            endsAt: true,
-            durationMinutes: true,
-            bufferMinutes: true,
-            status: true,
-            customer: { select: { fullName: true } },
-            services: {
-              select: {
-                service: {
-                  select: { name: true },
-                },
-              },
-            },
-          },
-          orderBy: { startsAt: "asc" },
-        });
+        const providerAppointments = appointmentsByProvider.get(provider.id) ?? [];
 
         for (let minutes = 8 * 60; minutes <= 19 * 60; minutes += slotStepMinutes) {
           const time = minutesToTimeLabel(minutes);
           const startTime = buildNepalIsoFromDateAndTime(params.dateKey, time);
-          const appointment = appointments.find(
+          const appointment = providerAppointments.find(
             (item) => getNepalMinutesFromIso(item.startsAt.toISOString()) === minutes,
           );
 
@@ -804,8 +815,7 @@ export class SchedulingService {
           specialty: provider.specialty,
           slots: daySlots,
         };
-      }),
-    );
+      });
 
     const response: ScheduleGridResult = {
       date: params.dateKey,
@@ -817,7 +827,7 @@ export class SchedulingService {
       ),
     };
 
-    this.scheduleGridCache.set(cacheKey, response);
+    this.cache.set(cacheKey, response);
     return response;
   }
 
@@ -872,7 +882,10 @@ export class SchedulingService {
     const providerIdSet = new Set(params.providerIds);
     const dateKeySet = params.dateKeys ? new Set(params.dateKeys) : null;
 
-    for (const key of this.providerSlotsCache.keys()) {
+    for (const key of this.cache.keys()) {
+      if (!key.startsWith("schedule:slots:")) {
+        continue;
+      }
       const { organizationId, providerId, dateKey, locationId } =
         this.parseProviderSlotsCacheKey(key);
       if (organizationId !== params.organizationId) {
@@ -887,10 +900,13 @@ export class SchedulingService {
       if (params.locationId && locationId && params.locationId !== locationId) {
         continue;
       }
-      this.providerSlotsCache.delete(key);
+      this.cache.delete(key);
     }
 
-    for (const key of this.scheduleGridCache.keys()) {
+    for (const key of this.cache.keys()) {
+      if (!key.startsWith("schedule:grid:")) {
+        continue;
+      }
       const { organizationId, providerIds, dateKey, locationId } =
         this.parseScheduleGridCacheKey(key);
       if (organizationId !== params.organizationId) {
@@ -905,38 +921,32 @@ export class SchedulingService {
       if (!providerIds.some((providerId) => providerIdSet.has(providerId))) {
         continue;
       }
-      this.scheduleGridCache.delete(key);
+      this.cache.delete(key);
     }
 
     if (!params.clearSummaries) {
       return;
     }
 
-    for (const key of this.daySummariesCache.keys()) {
-      if (key.startsWith(`${params.organizationId}|`)) {
-        this.daySummariesCache.delete(key);
+    for (const key of this.cache.keys()) {
+      if (key.startsWith(`schedule:day-summary:${params.organizationId}:`)) {
+        this.cache.delete(key);
       }
     }
-    for (const key of this.weekSummariesCache.keys()) {
-      if (key.startsWith(`${params.organizationId}|`)) {
-        this.weekSummariesCache.delete(key);
+    for (const key of this.cache.keys()) {
+      if (key.startsWith(`schedule:week-summary:${params.organizationId}:`)) {
+        this.cache.delete(key);
       }
     }
   }
 
   private buildProviderSlotsCacheKey(params: ProviderSlotParams) {
-    return [
-      params.organizationId,
-      params.providerId,
-      params.dateKey,
-      params.locationId ?? "location:none",
-      params.serviceId ?? "service:none",
-      params.excludeAppointmentId ?? "exclude:none",
-    ].join("|");
+    const serviceOrDuration = params.serviceId ?? "duration:none";
+    return `schedule:slots:${params.organizationId}:${params.providerId}:${params.dateKey}:${serviceOrDuration}:${params.locationId ?? "location:none"}:${params.excludeAppointmentId ?? "exclude:none"}`;
   }
 
   private parseProviderSlotsCacheKey(key: string) {
-    const [organizationId, providerId, dateKey, locationId] = key.split("|", 4);
+    const [, , organizationId, providerId, dateKey, , locationId] = key.split(":");
     return {
       organizationId,
       providerId,
@@ -946,38 +956,20 @@ export class SchedulingService {
   }
 
   private buildDaySummariesCacheKey(params: DaySummaryParams) {
-    return [
-      params.organizationId,
-      params.fromDateKey,
-      params.toDateKey,
-      params.providerId ?? "provider:none",
-      params.locationId ?? "location:none",
-    ].join("|");
+    return `schedule:day-summary:${params.organizationId}:${params.fromDateKey}:${params.toDateKey}:${params.providerId ?? "provider:none"}:${params.locationId ?? "location:none"}`;
   }
 
   private buildWeekSummariesCacheKey(params: DaySummaryParams) {
-    return [
-      params.organizationId,
-      params.fromDateKey,
-      params.toDateKey,
-      params.providerId ?? "provider:none",
-      params.locationId ?? "location:none",
-      "week",
-    ].join("|");
+    return `schedule:week-summary:${params.organizationId}:${params.fromDateKey}:${params.toDateKey}:${params.providerId ?? "provider:none"}:${params.locationId ?? "location:none"}`;
   }
 
   private buildScheduleGridCacheKey(params: ScheduleGridParams) {
     const providerIds = [...(params.providerIds ?? [])].sort().join(",");
-    return [
-      params.organizationId,
-      params.dateKey,
-      params.locationId ?? "location:none",
-      providerIds || "providers:all",
-    ].join("|");
+    return `schedule:grid:${params.organizationId}:${params.dateKey}:${providerIds || "providers:all"}:${params.locationId ?? "location:none"}`;
   }
 
   private parseScheduleGridCacheKey(key: string) {
-    const [organizationId, dateKey, locationId, providerIdsValue] = key.split("|", 4);
+    const [, , organizationId, dateKey, providerIdsValue, locationId] = key.split(":");
     return {
       organizationId,
       dateKey,
@@ -995,14 +987,44 @@ export class SchedulingService {
     resourceId?: string;
     excludeAppointmentId?: string;
   }) {
+    const contexts = await this.getProviderScheduleContexts({
+      organizationId: params.organizationId,
+      providerIds: [params.providerId],
+      dateKey: params.dateKey,
+      locationId: params.locationId,
+      resourceId: params.resourceId,
+      excludeAppointmentId: params.excludeAppointmentId,
+    });
+
+    return contexts.get(params.providerId) ?? {
+      providerIsBookable: false,
+      availability: [],
+      recurringBlocks: [],
+      blockedTimes: [],
+      possibleConflicts: [],
+    };
+  }
+
+  private async getProviderScheduleContexts(params: {
+    organizationId: string;
+    providerIds: string[];
+    dateKey: string;
+    locationId?: string;
+    resourceId?: string;
+    excludeAppointmentId?: string;
+  }) {
     const dayRange = getNepalDayRangeFromDateKey(params.dateKey);
     const dayOfWeek = new Date(`${params.dateKey}T12:00:00+05:45`).getUTCDay();
 
-    const [provider, availability, recurringBlocks, blockedTimes, possibleConflicts] =
+    const providerIds = [...new Set(params.providerIds)];
+
+    // Phase 2: replace these live queries with snapshot reads when snapshot layer exists
+    // Invalidation hooks are already in place via invalidateAppointmentPlanning
+    const [providers, availabilityRows, recurringBlockRows, blockedTimeRows, conflictRows] =
       await Promise.all([
-        this.prisma.provider.findFirst({
+        this.prisma.provider.findMany({
           where: {
-            id: params.providerId,
+            id: { in: providerIds },
             organizationId: params.organizationId,
           },
           select: {
@@ -1017,7 +1039,7 @@ export class SchedulingService {
         }),
         this.prisma.providerAvailability.findMany({
           where: {
-            providerId: params.providerId,
+            providerId: { in: providerIds },
             organizationId: params.organizationId,
             dayOfWeek,
             isActive: true,
@@ -1025,6 +1047,7 @@ export class SchedulingService {
           },
           select: {
             id: true,
+            providerId: true,
             startsAtLocal: true,
             endsAtLocal: true,
             slotDurationMinutes: true,
@@ -1034,7 +1057,7 @@ export class SchedulingService {
         }),
         this.prisma.providerRecurringBlock.findMany({
           where: {
-            providerId: params.providerId,
+            providerId: { in: providerIds },
             organizationId: params.organizationId,
             dayOfWeek,
             isActive: true,
@@ -1042,6 +1065,7 @@ export class SchedulingService {
           },
           select: {
             id: true,
+            providerId: true,
             startsAtLocal: true,
             endsAtLocal: true,
             reason: true,
@@ -1052,7 +1076,7 @@ export class SchedulingService {
           where: {
             organizationId: params.organizationId,
             OR: [
-              { providerId: params.providerId },
+              { providerId: { in: providerIds } },
               ...(params.resourceId ? [{ resourceId: params.resourceId }] : []),
             ],
             startsAt: { lte: dayRange.endsAt },
@@ -1060,6 +1084,7 @@ export class SchedulingService {
           },
           select: {
             id: true,
+            providerId: true,
             startsAt: true,
             endsAt: true,
             reason: true,
@@ -1072,7 +1097,7 @@ export class SchedulingService {
             id: params.excludeAppointmentId ? { not: params.excludeAppointmentId } : undefined,
             status: { in: blockingStatuses },
             OR: [
-              { providerId: params.providerId },
+              { providerId: { in: providerIds } },
               ...(params.resourceId ? [{ resourceId: params.resourceId }] : []),
             ],
             startsAt: { lte: dayRange.endsAt },
@@ -1080,6 +1105,8 @@ export class SchedulingService {
           },
           select: {
             id: true,
+            providerId: true,
+            resourceId: true,
             startsAt: true,
             durationMinutes: true,
             bufferMinutes: true,
@@ -1087,20 +1114,91 @@ export class SchedulingService {
         }),
       ]);
 
-    const providerIsBookable = Boolean(
-      provider &&
-        provider.status !== "Inactive" &&
-        provider.user?.status !== "Inactive" &&
-        provider.user?.status !== "Suspended",
+    const providersById = new Map(providers.map((provider) => [provider.id, provider]));
+    const availabilityByProvider = this.groupByProviderId(availabilityRows);
+    const recurringBlocksByProvider = this.groupByProviderId(recurringBlockRows);
+    const blockedTimesByProvider = this.groupByProviderId(
+      blockedTimeRows.filter((item) => item.providerId),
     );
+    const conflictsByProvider = this.groupByProviderId(
+      conflictRows.filter((item) => item.providerId),
+    );
+    const sharedBlockedTimes = blockedTimeRows.filter((item) => !item.providerId);
+    const sharedConflicts = conflictRows.filter((item) => !item.providerId);
 
-    return {
-      providerIsBookable,
-      availability,
-      recurringBlocks,
-      blockedTimes,
-      possibleConflicts,
-    };
+    const contexts = new Map<
+      string,
+      {
+        providerIsBookable: boolean;
+        availability: Array<{
+          id: string;
+          providerId: string;
+          startsAtLocal: string;
+          endsAtLocal: string;
+          slotDurationMinutes: number;
+          bufferMinutes: number;
+        }>;
+        recurringBlocks: Array<{
+          id: string;
+          providerId: string;
+          startsAtLocal: string;
+          endsAtLocal: string;
+          reason: string;
+        }>;
+        blockedTimes: Array<{
+          id: string;
+          providerId: string | null;
+          startsAt: Date;
+          endsAt: Date;
+          reason: string;
+        }>;
+        possibleConflicts: Array<{
+          id: string;
+          providerId: string;
+          resourceId: string | null;
+          startsAt: Date;
+          durationMinutes: number;
+          bufferMinutes: number;
+        }>;
+      }
+    >();
+
+    for (const providerId of providerIds) {
+      const provider = providersById.get(providerId);
+      contexts.set(providerId, {
+        providerIsBookable: Boolean(
+          provider &&
+            provider.status !== "Inactive" &&
+            provider.user?.status !== "Inactive" &&
+            provider.user?.status !== "Suspended",
+        ),
+        availability: availabilityByProvider.get(providerId) ?? [],
+        recurringBlocks: recurringBlocksByProvider.get(providerId) ?? [],
+        blockedTimes: [
+          ...(blockedTimesByProvider.get(providerId) ?? []),
+          ...sharedBlockedTimes,
+        ],
+        possibleConflicts: [
+          ...(conflictsByProvider.get(providerId) ?? []),
+          ...sharedConflicts,
+        ],
+      });
+    }
+
+    return contexts;
+  }
+
+  private groupByProviderId<T extends { providerId: string | null }>(rows: T[]) {
+    const grouped = new Map<string, T[]>();
+    for (const row of rows) {
+      if (!row.providerId) {
+        continue;
+      }
+      const list = grouped.get(row.providerId) ?? [];
+      list.push(row);
+      grouped.set(row.providerId, list);
+    }
+    return grouped;
   }
 
   private assertProviderWindowOpen(

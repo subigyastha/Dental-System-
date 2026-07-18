@@ -1,12 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Plus, Search } from "lucide-react";
 
 import { Button, Panel } from "@/components/ui";
-import type { Customer } from "@/lib/domain";
-import { useWorkspaceApp, type CustomerDraft } from "@/components/workspace/app-state";
+import { KoiInlineLoader } from "@/components/koi-loader";
+import type { Customer, CustomerMatch } from "@/lib/domain";
+import {
+  useWorkspaceApp,
+  type CustomerDraft,
+  type ResolveCustomerDraft,
+} from "@/components/workspace/app-state";
 import {
   EmptyState,
   Field,
@@ -18,7 +23,7 @@ import {
 import { formatDualDate } from "@/components/workspace/workspace-utils";
 
 export function PatientsPage() {
-  const { calendarMode, createCustomer, data } = useWorkspaceApp();
+  const { calendarMode, data, resolveCustomerForAppointment } = useWorkspaceApp();
   const [query, setQuery] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
@@ -113,7 +118,8 @@ export function PatientsPage() {
         <PatientFormModal
           onClose={() => setIsCreateOpen(false)}
           onSubmit={async (draft) => {
-            await createCustomer(draft);
+            const resolveDraft = draft as ResolveCustomerDraft;
+            await resolveCustomerForAppointment(resolveDraft);
             setIsCreateOpen(false);
           }}
           title="New patient"
@@ -131,9 +137,10 @@ export function PatientFormModal({
 }: {
   initialCustomer?: Customer;
   onClose: () => void;
-  onSubmit: (draft: CustomerDraft) => Promise<void>;
+  onSubmit: (draft: CustomerDraft | ResolveCustomerDraft) => Promise<void>;
   title: string;
 }) {
+  const { matchCustomers } = useWorkspaceApp();
   const [form, setForm] = useState<CustomerDraft>({
     name: initialCustomer?.name ?? "",
     patientCode: initialCustomer?.patientCode ?? "",
@@ -149,16 +156,68 @@ export function PatientFormModal({
     risk: initialCustomer?.risk ?? "Routine",
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [matches, setMatches] = useState<CustomerMatch[]>([]);
+  const [matchesLoading, setMatchesLoading] = useState(false);
+  const [selectedMatchAction, setSelectedMatchAction] = useState<{
+    mode: "use_existing" | "update_existing";
+    customer: Customer;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const isCreateMode = !initialCustomer;
 
   function updateField<Key extends keyof CustomerDraft>(key: Key, value: CustomerDraft[Key]) {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
+  useEffect(() => {
+    if (!isCreateMode) {
+      return;
+    }
+
+    if (!form.name.trim() && !form.phone.trim()) {
+      setMatches([]);
+      setMatchesLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setMatchesLoading(true);
+
+    const timeout = window.setTimeout(() => {
+      void matchCustomers({
+        name: form.name,
+        phone: form.phone,
+        email: form.email || undefined,
+      })
+        .then((nextMatches) => {
+          if (!cancelled) {
+            setMatches(nextMatches);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setMatches([]);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setMatchesLoading(false);
+          }
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [form.email, form.name, form.phone, isCreateMode, matchCustomers]);
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSaving(true);
+    setError(null);
     try {
-      await onSubmit({
+      const baseDraft = {
         ...form,
         patientCode: form.patientCode || undefined,
         email: form.email || undefined,
@@ -169,7 +228,22 @@ export function PatientFormModal({
         emergencyContactPhone: form.emergencyContactPhone || undefined,
         allergies: form.allergies || undefined,
         medicalNotes: form.medicalNotes || undefined,
-      });
+      };
+
+      if (isCreateMode) {
+        await onSubmit({
+          ...baseDraft,
+          mode: selectedMatchAction?.mode ?? "create_new",
+          existingCustomerId: selectedMatchAction?.customer.id,
+        });
+        return;
+      }
+
+      await onSubmit(baseDraft);
+    } catch (submissionError) {
+      setError(
+        submissionError instanceof Error ? submissionError.message : "Unable to save patient.",
+      );
     } finally {
       setIsSaving(false);
     }
@@ -278,11 +352,111 @@ export function PatientFormModal({
           </Field>
         </div>
 
+        {isCreateMode ? (
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-4">
+            <div className="text-xs uppercase tracking-[0.08em] text-[var(--text-muted)]">
+              Possible existing patients
+            </div>
+            <div className="mt-3">
+              {matchesLoading ? (
+                <KoiInlineLoader label="Checking for existing patients" />
+              ) : matches.length ? (
+                <div className="space-y-2">
+                  {matches.map((match) => {
+                    const tone =
+                      match.confidence === "strong"
+                        ? "border-emerald-300 bg-emerald-50"
+                        : match.confidence === "moderate"
+                          ? "border-amber-300 bg-amber-50"
+                          : "border-rose-300 bg-rose-50";
+                    const active = selectedMatchAction?.customer.id === match.customer.id;
+                    const label =
+                      match.confidence === "strong"
+                        ? "Perfect match"
+                        : match.confidence === "moderate"
+                          ? "Suggested match"
+                          : "Possible match";
+
+                    return (
+                      <div className={`rounded-md border px-3 py-3 ${tone}`} key={match.customer.id}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="font-medium text-[var(--foreground)]">
+                              {match.customer.name}
+                            </div>
+                            <div className="mt-1 text-xs text-[var(--text-muted)]">
+                              {[match.customer.phone, match.customer.email, match.customer.patientCode]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </div>
+                          </div>
+                          <span className="rounded-full bg-white/80 px-2 py-1 text-[10px] font-semibold text-[var(--foreground)]">
+                            {label}
+                          </span>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            className={`rounded-md px-3 py-2 text-xs font-medium ${
+                              active && selectedMatchAction?.mode === "use_existing"
+                                ? "bg-[var(--foreground)] text-white"
+                                : "bg-white text-[var(--foreground)]"
+                            }`}
+                            onClick={() =>
+                              setSelectedMatchAction({
+                                mode: "use_existing",
+                                customer: match.customer,
+                              })
+                            }
+                            type="button"
+                          >
+                            Use existing
+                          </button>
+                          <button
+                            className={`rounded-md px-3 py-2 text-xs font-medium ${
+                              active && selectedMatchAction?.mode === "update_existing"
+                                ? "bg-[var(--foreground)] text-white"
+                                : "bg-white text-[var(--foreground)]"
+                            }`}
+                            onClick={() =>
+                              setSelectedMatchAction({
+                                mode: "update_existing",
+                                customer: match.customer,
+                              })
+                            }
+                            type="button"
+                          >
+                            Update existing
+                          </button>
+                          <button
+                            className="rounded-md bg-white px-3 py-2 text-xs font-medium text-[var(--foreground)]"
+                            onClick={() => setSelectedMatchAction(null)}
+                            type="button"
+                          >
+                            Create new anyway
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-sm text-[var(--text-muted)]">
+                  No likely duplicate found.
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        {error ? <div className="text-sm text-[var(--danger)]">{error}</div> : null}
+
         <div className="flex justify-end gap-2">
           <Button onClick={onClose} variant="ghost">
             Cancel
           </Button>
-          <Button type="submit">{isSaving ? "Saving..." : "Save patient"}</Button>
+          <Button loading={isSaving} loadingLabel="Saving patient" type="submit">
+            Save patient
+          </Button>
         </div>
       </form>
     </Modal>

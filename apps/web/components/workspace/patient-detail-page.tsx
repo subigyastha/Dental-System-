@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FilePlus2, PencilLine, Trash2 } from "lucide-react";
+import { FilePlus2, GitMerge, PencilLine, Trash2 } from "lucide-react";
 
 import { KoiInlineLoader } from "@/components/koi-loader";
 
@@ -34,11 +34,13 @@ export function PatientDetailPage({ customerId }: { customerId: string }) {
     invoices,
     invoicesLoading,
     loadInvoices,
+    mergeCustomers,
     updateCustomer,
   } = useWorkspaceApp();
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [isBookingOpen, setIsBookingOpen] = useState(false);
+  const [isMergeOpen, setIsMergeOpen] = useState(false);
   const customer = data.customers.find((item) => item.id === customerId);
 
   const appointments = useMemo(
@@ -98,6 +100,10 @@ export function PatientDetailPage({ customerId }: { customerId: string }) {
             <Button onClick={() => setIsEditOpen(true)} variant="secondary">
               <PencilLine size={16} />
               Edit
+            </Button>
+            <Button onClick={() => setIsMergeOpen(true)} variant="secondary">
+              <GitMerge size={16} />
+              Merge client
             </Button>
             <Button
               onClick={async () => {
@@ -300,6 +306,17 @@ export function PatientDetailPage({ customerId }: { customerId: string }) {
           onClose={() => setIsBookingOpen(false)}
         />
       ) : null}
+
+      {isMergeOpen ? (
+        <MergeCustomerModal
+          customerId={customer.id}
+          onClose={() => setIsMergeOpen(false)}
+          onMerge={async (secondaryCustomerId) => {
+            await mergeCustomers(customer.id, secondaryCustomerId);
+            setIsMergeOpen(false);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -465,10 +482,192 @@ function VisitReportModal({
           <Button onClick={onClose} variant="ghost">
             Cancel
           </Button>
-          <Button loading={isSaving} loadingLabel="Saving report" type="submit">`r`n            Save report`r`n          </Button>
+          <Button loading={isSaving} loadingLabel="Saving report" type="submit">
+            Save report
+          </Button>
         </div>
       </form>
     </Modal>
+  );
+}
+
+function MergeCustomerModal({
+  customerId,
+  onClose,
+  onMerge,
+}: {
+  customerId: string;
+  onClose: () => void;
+  onMerge: (secondaryCustomerId: string) => Promise<void>;
+}) {
+  const { data, invoices } = useWorkspaceApp();
+  const [query, setQuery] = useState("");
+  const [secondaryCustomerId, setSecondaryCustomerId] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  const primaryCustomer = data.customers.find((item) => item.id === customerId);
+  const secondaryCustomer = data.customers.find((item) => item.id === secondaryCustomerId);
+
+  const candidates = useMemo(() => {
+    const search = query.trim().toLowerCase();
+    return data.customers
+      .filter((customer) => customer.id !== customerId)
+      .filter((customer) => {
+        if (!search) {
+          return true;
+        }
+        return [customer.name, customer.phone, customer.email ?? "", customer.patientCode ?? ""]
+          .join(" ")
+          .toLowerCase()
+          .includes(search);
+      })
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .slice(0, 8);
+  }, [customerId, data.customers, query]);
+
+  const primaryCounts = useMemo(
+    () => ({
+      appointments: data.appointments.filter((item) => item.customerId === customerId).length,
+      reports: data.visitReports.filter((item) => item.customerId === customerId).length,
+      invoices: invoices.filter((item) => item.customerId === customerId).length,
+    }),
+    [customerId, data.appointments, data.visitReports, invoices],
+  );
+
+  const secondaryCounts = useMemo(
+    () =>
+      secondaryCustomerId
+        ? {
+            appointments: data.appointments.filter((item) => item.customerId === secondaryCustomerId)
+              .length,
+            reports: data.visitReports.filter((item) => item.customerId === secondaryCustomerId)
+              .length,
+            invoices: invoices.filter((item) => item.customerId === secondaryCustomerId).length,
+          }
+        : null,
+    [data.appointments, data.visitReports, invoices, secondaryCustomerId],
+  );
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!secondaryCustomerId) {
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await onMerge(secondaryCustomerId);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      onClose={onClose}
+      subtitle="Keep the current patient as the primary record. We will move all appointments, reports, follow-ups, billing, and chart history from the duplicate into it."
+      title="Merge client"
+    >
+      <form className="space-y-4" onSubmit={handleSubmit}>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-4">
+            <div className="text-xs uppercase tracking-[0.08em] text-[var(--text-muted)]">Primary client</div>
+            <div className="mt-2 font-medium text-[var(--foreground)]">{primaryCustomer?.name}</div>
+            <div className="mt-1 text-sm text-[var(--text-muted)]">
+              {[primaryCustomer?.patientCode, primaryCustomer?.phone].filter(Boolean).join(" · ")}
+            </div>
+            <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
+              <MergeCount label="Appointments" value={primaryCounts.appointments} />
+              <MergeCount label="Reports" value={primaryCounts.reports} />
+              <MergeCount label="Invoices" value={primaryCounts.invoices} />
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-[var(--border)] bg-white p-4">
+            <Field label="Duplicate client to absorb">
+              <input
+                className={inputClassName}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search by name, phone, email, or patient code"
+                value={query}
+              />
+            </Field>
+
+            <div className="max-h-60 overflow-auto rounded-md border border-[var(--border)]">
+              {candidates.length ? (
+                candidates.map((customer) => {
+                  const active = customer.id === secondaryCustomerId;
+                  return (
+                    <button
+                      className={`flex w-full items-start justify-between gap-3 border-b border-[var(--border)] px-3 py-3 text-left last:border-b-0 ${
+                        active ? "bg-[var(--surface-muted)]" : "bg-white hover:bg-[var(--surface-muted)]"
+                      }`}
+                      key={customer.id}
+                      onClick={() => setSecondaryCustomerId(customer.id)}
+                      type="button"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate font-medium text-[var(--foreground)]">{customer.name}</div>
+                        <div className="truncate text-xs text-[var(--text-muted)]">
+                          {[customer.patientCode, customer.phone, customer.email].filter(Boolean).join(" · ")}
+                        </div>
+                      </div>
+                      {active ? (
+                        <span className="rounded-full bg-[var(--accent-soft)] px-2 py-1 text-[10px] font-semibold text-[var(--brand-strong)]">
+                          Selected
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="px-3 py-4 text-sm text-[var(--text-muted)]">No matching client found.</div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {secondaryCustomer && secondaryCounts ? (
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-4">
+            <div className="text-xs uppercase tracking-[0.08em] text-[var(--text-muted)]">Duplicate record</div>
+            <div className="mt-2 font-medium text-[var(--foreground)]">{secondaryCustomer.name}</div>
+            <div className="mt-1 text-sm text-[var(--text-muted)]">
+              {[secondaryCustomer.patientCode, secondaryCustomer.phone].filter(Boolean).join(" · ")}
+            </div>
+            <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
+              <MergeCount label="Appointments" value={secondaryCounts.appointments} />
+              <MergeCount label="Reports" value={secondaryCounts.reports} />
+              <MergeCount label="Invoices" value={secondaryCounts.invoices} />
+            </div>
+          </div>
+        ) : null}
+
+        <div className="flex justify-end gap-2">
+          <Button onClick={onClose} variant="ghost">
+            Cancel
+          </Button>
+          <Button
+            disabled={!secondaryCustomerId}
+            loading={isSaving}
+            loadingLabel="Merging records"
+            type="submit"
+          >
+            Merge into primary client
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function MergeCount({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md border border-[var(--border)] bg-white px-2 py-3">
+      <div className="text-base font-semibold text-[var(--foreground)]">{value}</div>
+      <div className="mt-1 text-[10px] uppercase tracking-[0.08em] text-[var(--text-muted)]">
+        {label}
+      </div>
+    </div>
   );
 }
 

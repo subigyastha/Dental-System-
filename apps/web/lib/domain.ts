@@ -88,6 +88,7 @@ export type DentalChartRevision = {
 
 export type Customer = {
   id: string;
+  organizationId?: string;
   name: string;
   patientCode?: string;
   phone: string;
@@ -104,6 +105,13 @@ export type Customer = {
   risk: "Routine" | "Needs attention" | "High priority";
   lastVisitIso: string;
   dentalChart?: DentalChart;
+};
+
+export type CustomerMatchConfidence = "strong" | "moderate" | "weak";
+
+export type CustomerMatch = {
+  confidence: CustomerMatchConfidence;
+  customer: Customer;
 };
 
 export type VisitReport = {
