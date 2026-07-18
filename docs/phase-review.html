@@ -24,8 +24,19 @@
       <h1>ClinicFlow phase review</h1>
       <p><strong>Current review:</strong> Phase 1 — Protected application boundary</p>
       <p><strong>Reviewed:</strong> 2026-07-18 • <strong>Decision:</strong> <span class="status partial">CONDITIONALLY COMPLETE — CI COOKIE/CSRF PROOF AND VISUAL DEMO PENDING</span></p>
-      <p>The uncommitted Phase 1 changes now include the secure-session slice: persisted opaque sessions, HttpOnly cookie transport, browser CSRF protection, and removal of web Prisma access. Exact public-action binding, focused security middleware tests, targeted tenant-scoping tests, a CI-only HTTP integration harness, and deterministic workspace-boundary tests are also in place. Formal closure still requires CI execution of a cookie/CSRF-aware ephemeral-PostgreSQL test and the required browser/API demonstration. The existing CI HTTP test is valid containment evidence but still uses temporary bearer compatibility, so it does not prove the new browser cookie path end to end.</p>
+      <p>Committed Phase 1 changes include the secure-session slice: persisted opaque sessions, HttpOnly cookie transport, browser CSRF protection, removal of web Prisma access, and propagation of the verified cookie session to protected API handlers. Exact public-action binding, focused security middleware tests, targeted tenant-scoping tests, a CI-only HTTP integration harness, and deterministic workspace-boundary tests are also in place. Formal closure still requires CI execution of a cookie/CSRF-aware ephemeral-PostgreSQL test and the required browser/API demonstration. The existing CI HTTP test is valid containment evidence but still uses temporary bearer compatibility, so it does not prove the new browser cookie path end to end.</p>
     </header>
+
+    <section>
+      <h2>Manual-review checklist</h2>
+      <ul>
+        <li><strong>Commit evidence:</strong> <code>4a9b789</code> introduced persisted cookie sessions, CSRF protection, web transport changes, and removal of web Prisma; <code>a106f91</code> propagates the verified request session to all current API controllers through <a href="../apps/api/src/modules/auth/request-session.ts">request-session.ts</a>. Review that controllers now consume the verified actor rather than reparsing browser credentials.</li>
+        <li><strong>Cookie flow:</strong> sign in should yield only the <code>HttpOnly</code>, <code>SameSite=Lax</code> session cookie; the response exposes the user and an in-memory CSRF token, never a session token. Logout must revoke the active session and clear the cookie.</li>
+        <li><strong>Browser transport:</strong> confirm requests use <code>credentials: include</code>, unsafe cookie mutations attach <code>x-csrf-token</code>, and browser storage contains neither bearer nor session token. The local <code>authToken</code> state is the literal marker <code>cookie-session</code>, not a credential.</li>
+        <li><strong>Cookie propagation:</strong> cookie-authenticated requests must reach appointments, billing, Clients, communications, follow-ups, operational data, organizations, providers, staff, and system handlers with the same verified session scope. <a href="../apps/api/src/modules/auth/request-session.spec.ts">request-session.spec.ts</a> is the focused unit evidence.</li>
+        <li><strong>Limitations accepted for review:</strong> bearer headers remain temporary non-browser compatibility and bypass cookie CSRF; active-session logout is present, but device/session listing and self-service revoke UI are not.</li>
+      </ul>
+    </section>
 
     <section>
       <h2>Phase 1 acceptance checklist</h2>
@@ -40,7 +51,7 @@
           <tr>
             <td>Public exceptions are minimal and explicit.</td>
             <td><span class="status implemented">IMPLEMENTED</span></td>
-            <td><a href="../apps/api/src/modules/auth/auth.controller.ts">Login</a> and <a href="../apps/api/src/modules/health/health.controller.ts">live/ready health</a> use the three explicit <code>@PublicRoute()</code> decorators. <a href="../apps/api/src/route-inventory.ts">route-inventory.ts</a> assigns the default authenticated classification, and <a href="../scripts/check-nest-route-inventory.mjs">the checker</a> passed for 63 handlers across 12 controllers. It now matches every declared public method/path to a decorated handler and fails for a missing, unexpected, or count-mismatched public action.</td>
+            <td><a href="../apps/api/src/modules/auth/auth.controller.ts">Login</a> and <a href="../apps/api/src/modules/health/health.controller.ts">live/ready health</a> use the three explicit <code>@PublicRoute()</code> decorators. <a href="../apps/api/src/route-inventory.ts">route-inventory.ts</a> assigns the default authenticated classification, and <a href="../scripts/check-nest-route-inventory.mjs">the checker</a> passed for 65 handlers across 12 controllers. It now matches every declared public method/path to a decorated handler and fails for a missing, unexpected, or count-mismatched public action.</td>
           </tr>
           <tr>
             <td>Known exposed Organization, Follow-up, Communications, System, and operational-data paths derive clinic scope from the authenticated actor.</td>
@@ -75,7 +86,7 @@
           <tr>
             <td>Secure server sessions, HttpOnly cookies, CSRF, logout/revocation, and no browser-held bearer token.</td>
             <td><span class="status implemented">IMPLEMENTED WITH FOLLOW-UPS</span></td>
-            <td><a href="../prisma/migrations/20260718_000004_server_sessions/migration.sql">UserSession migration</a> persists only hashes of opaque session and CSRF secrets, expiry/revocation/rotation linkage, device metadata, and session audit events. <a href="../apps/api/src/modules/auth/auth.controller.ts">Nest auth endpoints</a> exchange login for an <code>HttpOnly</code>, <code>SameSite=Lax</code>, production-secure cookie; logout revokes the current session and clears it. <a href="../apps/api/src/modules/auth/csrf.guard.ts">CsrfGuard</a> requires a session-bound proof on unsafe cookie-authenticated methods. <a href="../apps/web/lib/api-client.ts">web transport</a> uses <code>credentials: include</code> and keeps only the CSRF value in module memory; it sends no bearer header. <a href="../apps/web/lib/api-client.test.ts">two web tests</a>, <a href="../apps/api/src/modules/auth/csrf.guard.spec.ts">two CSRF tests</a>, and <a href="../apps/api/src/modules/auth/server-sessions.spec.ts">four server-session tests</a> cover the core behavior.</td>
+            <td><a href="../prisma/migrations/20260718_000004_server_sessions/migration.sql">UserSession migration</a> persists only hashes of opaque session and CSRF secrets, expiry/revocation/rotation linkage, device metadata, and session audit events. <a href="../apps/api/src/modules/auth/auth.controller.ts">Nest auth endpoints</a> exchange login for an <code>HttpOnly</code>, <code>SameSite=Lax</code>, production-secure cookie; logout revokes the current session and clears it. <a href="../apps/api/src/modules/auth/csrf.guard.ts">CsrfGuard</a> requires a session-bound proof on unsafe cookie-authenticated methods. <a href="../apps/api/src/modules/auth/request-session.ts">request-session.ts</a> propagates the globally verified actor to API controllers. <a href="../apps/web/lib/api-client.ts">web transport</a> uses <code>credentials: include</code> and keeps only the CSRF value in module memory; it sends no bearer header. Focused session, CSRF, request-session, and web-transport tests cover the core behavior.</td>
           </tr>
         </tbody>
       </table>
@@ -85,14 +96,14 @@
       <h2>Verification run in this review</h2>
       <ul>
         <li><code>npm.cmd run check:route-inventory</code> — passed: 65 handlers across 12 controllers; public exceptions remain limited to login and health.</li>
-        <li><code>npm.cmd test</code> — passed: 31 local tests, including 17 API security/session/CSRF tests, 3 workspace-boundary tests, and 2 cookie-transport tests; the CI-only HTTP integration test correctly skipped without <code>TEST_DATABASE_URL</code>.</li>
+        <li><code>npm.cmd test</code> — passed 38 local tests: 24 API security/session/CSRF/request-session tests, 7 calendar tests, 3 workspace-boundary tests, 2 cookie-transport tests, and 2 Client tenant-isolation tests. One CI-only HTTP integration test correctly skipped without <code>TEST_DATABASE_URL</code>.</li>
         <li><code>npm.cmd run test:tenancy -w api</code> — passed: 2 additional Client-service cross-tenant tests.</li>
         <li><code>npm.cmd run test:workspace-boundary -w web</code> — passed: 3 deterministic redirect, unavailable, and ready-state boundary tests.</li>
         <li><code>npm.cmd run test:phase-one-http -w api</code> with no <code>TEST_DATABASE_URL</code> — correctly skipped one integration test rather than using a developer/deployed database. CI is configured to migrate and run this test against ephemeral PostgreSQL.</li>
         <li><code>npm.cmd run check:web-prisma-boundary</code> — passed with 0 web Prisma paths.</li>
-        <li><code>npm.cmd run lint</code>, <code>npm.cmd run typecheck</code>, <code>npm.cmd run build</code>, and <code>npm.cmd run build:api</code> — passed when run directly.</li>
+        <li><code>npm.cmd run lint</code>, <code>npm.cmd run typecheck</code>, and <code>npm.cmd run build</code> — passed in the current validation run.</li>
       </ul>
-      <p class="callout"><strong>Scope note:</strong> These are local verification results against the uncommitted workspace. The disposable-database HTTP harness has not run locally by design, and no live browser/API demonstration or staging deployment was available for this review.</p>
+      <p class="callout"><strong>Scope note:</strong> These are local verification results for the committed Phase 1 work. The disposable-database HTTP harness has not run locally by design, and no live browser/API demonstration or staging deployment was available for this review.</p>
     </section>
 
     <section>
