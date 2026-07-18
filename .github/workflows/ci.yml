@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Quality, migrations, and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: clinicflow_ci
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d clinicflow_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/clinicflow_ci?schema=public
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/clinicflow_ci?schema=public
+      AUTH_SECRET: ci-only-not-a-production-secret
+      APP_ENV: test
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Lint web
+        run: npm run lint
+
+      - name: Typecheck web and API
+        run: npm run typecheck
+
+      - name: Enforce Nest-only operational data boundary
+        run: npm run check:web-prisma-boundary
+
+      - name: Scan tracked source for likely credentials
+        run: npm run check:secrets
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Validate Prisma schema
+        run: npx prisma validate
+
+      - name: Rehearse Prisma migrations on disposable PostgreSQL
+        run: npm run db:migrate:deploy
+
+      - name: Verify Prisma migration status
+        run: npm run db:migrate:status
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build web
+        run: npm run build
+
+      - name: Build API
+        run: npm run build:api

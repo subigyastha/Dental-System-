@@ -74,6 +74,7 @@ Seed data is for local/demo use only. It is not a fallback when an API or databa
 | Create local migration | `npm run db:migrate:dev` |
 | Apply released migrations | `npm run db:migrate:deploy` |
 | Check migration state | `npm run db:migrate:status` |
+| Rehearse checked-in migrations safely | `npm run db:migrate:rehearse` |
 | Seed local database | `npm run db:seed` |
 
 ## 6. Migration and data safety rules
@@ -83,6 +84,29 @@ Seed data is for local/demo use only. It is not a fallback when an API or databa
 - Back up and test restore before destructive or irreversible changes.
 - Client, Record, invoice, payment, audit, role, and inventory-history changes require the relevant governance specification and an ADR before implementation.
 - Use separate databases, credentials, secrets, provider sandboxes, and analytics datasets per environment.
+
+### 6.1 Migration rehearsal checklist
+
+Run `npm run db:migrate:rehearse` against a disposable local database before requesting review of a migration. The command performs `prisma migrate status`, `prisma migrate deploy`, and a final status check; it never uses `prisma db push`.
+
+The command refuses `APP_ENV` values for staging or production. It allows only loopback-local PostgreSQL URLs, or an explicitly named test database when `APP_ENV=test`. It prints redacted, artifact-friendly `MIGRATION_REHEARSAL` lines and a compact final JSON report. To include non-authenticated API health guidance after the API is running, use:
+
+```powershell
+npm run db:migrate:rehearse -- -SmokeApiBaseUrl http://localhost:4000
+```
+
+Before declaring the rehearsal successful, retain the console report and confirm:
+
+1. `status-before`, `deploy`, and `status-after` are recorded; `status-after` exits with `0`.
+2. The reported database safety class is `loopback-local` or `explicit-test`.
+3. The generated Prisma client, relevant application build, and affected test suite also pass.
+4. For a change that needs data backfill, the migration is additive first and the backfill is separately observable and repeatable.
+
+### 6.2 Failure and forward repair
+
+On a rehearsal, staging, or production migration failure, stop dependent deployment. Preserve the redacted rehearsal output, migration name, release version, and database error details in the restricted incident/release record. Do not use `db push`, `migrate reset`, a destructive schema rollback, or manually delete entries from Prisma's migration table.
+
+Prefer a reviewed forward repair: identify the last successfully applied migration, make the application compatible with that state, add a new corrective migration or idempotent backfill, rehearse it on a restored copy, and redeploy. Restore or point-in-time recovery requires the incident owner’s explicit decision and the runbook’s backup/restore procedure. Use `prisma migrate resolve` only with a reviewed recovery plan that documents why the migration state is safe.
 
 ## 7. Local troubleshooting
 

@@ -6,7 +6,8 @@
     "dev": "tsx watch --tsconfig tsconfig.json src/main.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:tenancy": "node --import tsx --test src/modules/customers/customers.tenancy.spec.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.19",
