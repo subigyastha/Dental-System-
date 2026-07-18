@@ -2,6 +2,7 @@ import { Body, Controller, Get, Headers, Inject, Post } from "@nestjs/common";
 
 import { AuthService } from "./auth.service";
 import { LoginDto } from "./dto/login.dto";
+import { PublicRoute } from "./public-route.decorator";
 
 @Controller("auth")
 export class AuthController {
@@ -11,6 +12,7 @@ export class AuthController {
   ) {}
 
   @Post("login")
+  @PublicRoute()
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto);
   }

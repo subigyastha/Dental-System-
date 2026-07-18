@@ -1,6 +1,8 @@
 import { Inject, Injectable } from "@nestjs/common";
 
 import { mapProviderToClient } from "../../lib/map-provider";
+import { AuthService } from "../auth/auth.service";
+import { assertClinicOperator } from "../auth/authz";
 import { PrismaService } from "../prisma/prisma.service";
 
 @Injectable()
@@ -8,10 +10,15 @@ export class OperationalDataService {
   constructor(
     @Inject(PrismaService)
     private readonly prisma: PrismaService,
+    @Inject(AuthService)
+    private readonly auth: AuthService,
   ) {}
 
-  async getOperationalData() {
-    const organization = await this.prisma.organization.findFirst({
+  async getOperationalData(authorization?: string) {
+    const session = await this.auth.requireSession(authorization);
+    assertClinicOperator(session.role);
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: session.organizationId },
       include: {
         settings: true,
         providers: {

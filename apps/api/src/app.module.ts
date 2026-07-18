@@ -9,6 +9,7 @@ import { BillingModule } from "./modules/billing/billing.module";
 import { CommunicationsModule } from "./modules/communications/communications.module";
 import { CustomersModule } from "./modules/customers/customers.module";
 import { FollowupsModule } from "./modules/followups/followups.module";
+import { HealthModule } from "./modules/health/health.module";
 import { OperationalDataModule } from "./modules/operational-data/operational-data.module";
 import { OrganizationsModule } from "./modules/organizations/organizations.module";
 import { PrismaModule } from "./modules/prisma/prisma.module";
@@ -28,6 +29,7 @@ import { SystemModule } from "./modules/system/system.module";
     }),
     PrismaModule,
     AuthModule,
+    HealthModule,
     SystemModule,
     OperationalDataModule,
     AppointmentsModule,

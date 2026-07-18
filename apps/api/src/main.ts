@@ -1,11 +1,15 @@
 import "reflect-metadata";
 import type { INestApplication } from "@nestjs/common";
-import { ValidationPipe } from "@nestjs/common";
+import { Logger, ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 
 import { loadMonorepoEnv } from "./env-bootstrap";
+import { allowedOrigins, createRateLimit, securityHeaders } from "./http-security";
 
 loadMonorepoEnv();
+
+const logger = new Logger("HttpSecurity");
+const rateLimit = createRateLimit();
 
 function isAddrInUse(err: unknown): boolean {
   return (
@@ -45,8 +49,25 @@ async function listenOnAvailablePort(
 
 async function bootstrap() {
   const { AppModule } = await import("./app.module.js");
-  const app = await NestFactory.create(AppModule, { cors: true });
+  const origins = allowedOrigins();
+  const app = await NestFactory.create(AppModule, {
+    cors: {
+      origin(origin, callback) {
+        if (!origin || origins.includes(origin)) {
+          callback(null, true);
+          return;
+        }
+        callback(new Error("Origin is not allowed"));
+      },
+      credentials: true,
+      methods: ["GET", "HEAD", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+      allowedHeaders: ["authorization", "content-type", "idempotency-key", "x-request-id"],
+      exposedHeaders: ["x-request-id", "ratelimit-limit", "ratelimit-remaining"],
+    },
+  });
   app.setGlobalPrefix("api");
+  app.use(securityHeaders);
+  app.use(rateLimit);
   app.useGlobalPipes(
     new ValidationPipe({
       transform: true,
@@ -57,6 +78,7 @@ async function bootstrap() {
 
   const preferred = Number(process.env.API_PORT ?? 4000);
   const port = await listenOnAvailablePort(app, preferred);
+  logger.log({ event: "api_started", port, allowedOrigins: origins.length });
   console.log(`Nest API listening on http://localhost:${port}/api`);
 }
 

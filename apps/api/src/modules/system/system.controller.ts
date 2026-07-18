@@ -1,21 +1,26 @@
 import {
   Controller,
   Get,
+  Headers,
   Inject,
   ServiceUnavailableException,
 } from "@nestjs/common";
 
 import { PrismaService } from "../prisma/prisma.service";
+import { AuthService } from "../auth/auth.service";
 
 @Controller("system")
 export class SystemController {
   constructor(
     @Inject(PrismaService)
     private readonly prisma: PrismaService,
+    @Inject(AuthService)
+    private readonly auth: AuthService,
   ) {}
 
   @Get("status")
-  async status() {
+  async status(@Headers("authorization") authorization?: string) {
+    const session = await this.auth.requireSession(authorization);
     if (!process.env.DATABASE_URL) {
       return {
         databaseConfigured: false,
@@ -26,7 +31,9 @@ export class SystemController {
     }
 
     try {
-      const organizationCount = await this.prisma.organization.count();
+      const organizationCount = await this.prisma.organization.count({
+        where: { id: session.organizationId },
+      });
 
       return {
         databaseConfigured: true,

@@ -1,5 +1,7 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 
+import { AuthService } from "../auth/auth.service";
+import { assertClinicAdmin } from "../auth/authz";
 import { PrismaService } from "../prisma/prisma.service";
 import { UpdateOrganizationDto } from "./dto/update-organization.dto";
 
@@ -8,11 +10,19 @@ export class OrganizationsService {
   constructor(
     @Inject(PrismaService)
     private readonly prisma: PrismaService,
+    @Inject(AuthService)
+    private readonly auth: AuthService,
   ) {}
 
-  async update(id: string, dto: UpdateOrganizationDto) {
+  async update(id: string, dto: UpdateOrganizationDto, authorization?: string) {
+    const session = await this.auth.requireSession(authorization);
+    assertClinicAdmin(session.role);
+    if (id !== session.organizationId) {
+      throw new NotFoundException("Organization not found");
+    }
+
     const existing = await this.prisma.organization.findUnique({
-      where: { id },
+      where: { id: session.organizationId },
       select: { id: true },
     });
 

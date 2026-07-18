@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ClinicFlow phase review</title>
+    <style>
+      :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #172033; background: #f5f7fb; }
+      body { max-width: 1120px; margin: 0 auto; padding: 32px 20px 64px; }
+      header, section { background: #fff; border: 1px solid #dbe2ee; border-radius: 12px; padding: 24px; margin: 18px 0; box-shadow: 0 2px 8px rgb(23 32 51 / 4%); }
+      h1, h2, h3 { margin: 0 0 12px; color: #10203d; } h1 { font-size: 28px; } h2 { font-size: 21px; margin-top: 0; } h3 { font-size: 16px; }
+      p, li { line-height: 1.55; } a { color: #1359b8; } code { background: #eff3f8; padding: 2px 5px; border-radius: 4px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 14px; } th, td { text-align: left; vertical-align: top; padding: 11px; border-bottom: 1px solid #e4e9f1; }
+      th { background: #f4f7fb; } .status { display: inline-block; padding: 3px 8px; border-radius: 999px; font-weight: 700; font-size: 12px; white-space: nowrap; }
+      .implemented { background: #dff6e8; color: #14633a; } .partial { background: #fff1c7; color: #825900; } .deferred { background: #e8edf6; color: #40526e; } .blocked { background: #fde3e4; color: #9d2028; }
+      .callout { border-left: 4px solid #b87a00; background: #fff9e9; padding: 12px 16px; } .risk { color: #8b2026; font-weight: 650; }
+      .screenshots { display: grid; grid-template-columns: repeat(auto-fit, minmax(245px, 1fr)); gap: 14px; } .shot { min-height: 145px; padding: 14px; border: 2px dashed #b9c7dc; border-radius: 9px; background: #f9fbfd; color: #53647d; }
+      .shot code { display: block; margin-top: 8px; overflow-wrap: anywhere; } .meta { color: #53647d; margin: 0; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <p class="meta">Persistent implementation review • Update this file after every delivery phase</p>
+      <h1>ClinicFlow phase review</h1>
+      <p><strong>Current review:</strong> Phase 1 — Protected application boundary</p>
+      <p><strong>Reviewed:</strong> 2026-07-18 • <strong>Decision:</strong> <span class="status partial">IMPLEMENTED — CI INTEGRATION PROOF AND VISUAL DEMO PENDING</span></p>
+      <p>The uncommitted Phase 1 changes materially improve Nest route protection and remove the workspace’s direct-data/seed fallback. Exact public-action binding, focused security middleware tests, targeted tenant-scoping tests, a CI-only HTTP integration harness, and deterministic workspace-boundary tests are now in place. The HTTP harness is intentionally pending its ephemeral PostgreSQL CI run because no disposable local database exists; that is pending execution evidence, not a known code defect. Formal phase closure still requires that CI result and the required browser/API demonstration. Cookie sessions and CSRF are expected P2/UP-02 work, separately recorded below; their deferral still blocks a production release but is not presented as a Phase 1 containment regression.</p>
+    </header>
+
+    <section>
+      <h2>Phase 1 acceptance checklist</h2>
+      <table>
+        <thead><tr><th>Acceptance item</th><th>Status</th><th>Evidence and review finding</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Nest is default-deny; operational routes require authentication unless explicitly public.</td>
+            <td><span class="status implemented">IMPLEMENTED</span></td>
+            <td><a href="../apps/api/src/modules/auth/auth.module.ts">Global <code>APP_GUARD</code></a> installs <a href="../apps/api/src/modules/auth/session-auth.guard.ts">SessionAuthGuard</a>. The guard’s default path calls <code>requireSession</code>; the 11-test focused suite includes <a href="../apps/api/src/modules/auth/session-auth.guard.spec.ts">default-deny guard tests</a> plus HTTP-security and tenant-scope middleware/service tests.</td>
+          </tr>
+          <tr>
+            <td>Public exceptions are minimal and explicit.</td>
+            <td><span class="status implemented">IMPLEMENTED</span></td>
+            <td><a href="../apps/api/src/modules/auth/auth.controller.ts">Login</a> and <a href="../apps/api/src/modules/health/health.controller.ts">live/ready health</a> use the three explicit <code>@PublicRoute()</code> decorators. <a href="../apps/api/src/route-inventory.ts">route-inventory.ts</a> assigns the default authenticated classification, and <a href="../scripts/check-nest-route-inventory.mjs">the checker</a> passed for 63 handlers across 12 controllers. It now matches every declared public method/path to a decorated handler and fails for a missing, unexpected, or count-mismatched public action.</td>
+          </tr>
+          <tr>
+            <td>Known exposed Organization, Follow-up, Communications, System, and operational-data paths derive clinic scope from the authenticated actor.</td>
+            <td><span class="status implemented">IMPLEMENTED FOR CHANGED PATHS</span></td>
+            <td>Changed services now resolve the user session and query by its organization: <a href="../apps/api/src/modules/organizations/organizations.service.ts">Organizations</a>, <a href="../apps/api/src/modules/followups/followups.service.ts">Follow-ups</a>, <a href="../apps/api/src/modules/communications/communications.service.ts">Communications</a>, <a href="../apps/api/src/modules/system/system.controller.ts">System status</a>, and <a href="../apps/api/src/modules/operational-data/operational-data.service.ts">operational data</a>. Communications also rejects a body client ID that does not match the scoped appointment.</td>
+          </tr>
+          <tr>
+            <td>Anonymous and cross-tenant requests fail across every current module without identifier leakage.</td>
+            <td><span class="status partial">PARTIAL / TARGETED PROOF</span></td>
+            <td>The 11-test focused suite now covers tenant scope for Organization update, Communications, Follow-ups, operational data, and System status through <a href="../apps/api/src/modules/auth/phase-one-tenancy.spec.ts">phase-one-tenancy.spec.ts</a>; <a href="../apps/api/src/modules/customers/customers.tenancy.spec.ts">customers.tenancy.spec.ts</a> adds two Client cases. This is good evidence for the known exposed paths, but it is not yet a real HTTP/disposable-database denial matrix for all 12 legacy modules or a full identifier-leak assessment.</td>
+          </tr>
+          <tr>
+            <td>Known Phase 1 exposed paths are denied anonymously and scoped across organizations through a real Nest HTTP server.</td>
+            <td><span class="status partial">CI-PENDING PROOF</span></td>
+            <td><a href="../apps/api/src/integration/phase-one-http.integration.spec.ts">phase-one-http.integration.spec.ts</a> starts Nest against <code>TEST_DATABASE_URL</code>, creates two synthetic clinics, proves anonymous 401s and cross-clinic 404s for Organization, Communications, and Follow-ups, and verifies the scoped operational/system reads do not change Clinic B. It refuses to use <code>DATABASE_URL</code> or an <code>.env</code> fallback; it requires a named test/CI/sandbox database. The local clean run correctly skipped because no disposable database was configured. <a href="../.github/workflows/ci.yml">CI</a> supplies an ephemeral migrated PostgreSQL service through <code>TEST_DATABASE_URL</code>; its green result is still required evidence.</td>
+          </tr>
+          <tr>
+            <td>Workspace does not read Prisma/seed data when the secure API is unavailable.</td>
+            <td><span class="status implemented">IMPLEMENTED FOR WORKSPACE BOOTSTRAP</span></td>
+            <td><a href="../apps/web/app/(workspace)/layout.tsx">workspace layout</a> no longer calls <code>getOperationalData</code>; <a href="../apps/web/components/workspace/workspace-root.tsx">WorkspaceRoot</a> loads Nest <code>/operational-data</code> and renders a retryable unavailable state. <a href="../apps/web/lib/database-data.ts">database-data.ts</a> is type-only. <a href="../apps/web/lib/workspace-access.test.ts">Three deterministic workspace-boundary tests</a> cover redirect before clinic rendering, unavailable-without-sample-data, and ready only after authenticated data. The focused boundary check passed and reports four known migration paths remaining.</td>
+          </tr>
+          <tr>
+            <td>No direct Next.js Prisma operational authority remains.</td>
+            <td><span class="status partial">DEFERRED TO P2 / UP-04</span></td>
+            <td>The boundary check is a regression guard, not proof of removal: <a href="../scripts/check-no-web-prisma.mjs">its allowlist</a> explicitly permits legacy paths. In particular <a href="../apps/web/lib/auth.ts">web auth</a> and <a href="../apps/web/app/api/auth/login/route.ts">Next login</a> still use Prisma, and the staff workspace still calls legacy Nest <code>/api/operational-data</code> rather than the future scoped <code>/api/v1</code> read models. The four disabled Next operational routes are a useful containment measure, not the completed API-boundary migration.</td>
+          </tr>
+          <tr>
+            <td>Security headers, CORS restrictions, rate limiting, and correlation IDs are present.</td>
+            <td><span class="status implemented">IMPLEMENTED BASELINE</span></td>
+            <td><a href="../apps/api/src/main.ts">main.ts</a> adds CORS allowlists, several response headers, request IDs, and an in-memory login/API rate limiter. <a href="../apps/api/src/http-security.spec.ts">http-security.spec.ts</a> proves production-origin defaults, header/correlation-ID behavior, and the login 429 threshold. The in-memory limiter and end-to-end correlation propagation remain later distributed-runtime work, not an untested P1 claim.</td>
+          </tr>
+          <tr>
+            <td>Secure server sessions, HttpOnly cookies, CSRF, rotation/revocation/logout, and no browser token storage.</td>
+            <td><span class="status deferred">DEFERRED — P2 / UP-02</span></td>
+            <td><a href="../apps/api/src/modules/auth/auth.service.ts">Nest AuthService</a> still signs stateless HMAC bearer tokens with a fallback secret; <a href="../apps/web/app/login/page.tsx">the web login page</a> stores the token in <code>localStorage</code>; <a href="../apps/web/lib/api-client.ts">api-client.ts</a> sends an <code>Authorization: Bearer</code> header. There is no session table, cookie, CSRF proof, revocation/rotation, logout endpoint, or production secret fail-fast validation. This is an explicit release blocker, not a cosmetic follow-up.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Verification run in this review</h2>
+      <ul>
+        <li><code>npm.cmd run check:route-inventory</code> — passed: 63 handlers across 12 controllers; three public action decorators, limited to login and health.</li>
+        <li><code>npm.cmd run test:auth -w api</code> — passed: 11 focused default-deny, public-exception, CORS/header/request-ID/rate-limit, and tenant-scoping tests.</li>
+        <li><code>npm.cmd run test:tenancy -w api</code> — passed: 2 additional Client-service cross-tenant tests.</li>
+        <li><code>npm.cmd run test:workspace-boundary -w web</code> — passed: 3 deterministic redirect, unavailable, and ready-state boundary tests.</li>
+        <li><code>npm.cmd run test:phase-one-http -w api</code> with no <code>TEST_DATABASE_URL</code> — correctly skipped one integration test rather than using a developer/deployed database. CI is configured to migrate and run this test against ephemeral PostgreSQL.</li>
+        <li><code>npm.cmd run check:web-prisma-boundary</code> — passed with 4 explicitly allowed legacy migration paths still present.</li>
+        <li><code>npm.cmd run lint</code>, <code>npm.cmd run typecheck</code>, <code>npm.cmd run build</code>, and <code>npm.cmd run build:api</code> — passed in the final Phase 1 handoff suite.</li>
+      </ul>
+      <p class="callout"><strong>Scope note:</strong> These are local verification results against the uncommitted workspace. No live browser/API demonstration, real HTTP request matrix, disposable-database integration suite, migration rehearsal, CORS/rate-limit test, or staging deployment was run as part of this Phase 1 review.</p>
+    </section>
+
+    <section>
+      <h2>Actual Phase 1 risks and required closure work</h2>
+      <ol>
+        <li class="risk">Wait for the CI job to complete the migrated ephemeral-PostgreSQL HTTP harness. This is pending proof, not a known local code defect; do not substitute a developer or deployed database to make the test run locally.</li>
+        <li class="risk">After CI proves the five known exposed paths, expand the disposable-database HTTP denial matrix to all legacy modules and prove 401/403/404 responses do not reveal cross-clinic IDs or counts. The current 13 focused tests plus one CI harness are not yet a complete module matrix.</li>
+        <li>Run the signed-in, anonymous, API-outage, and cross-clinic browser/API demonstration using synthetic fixtures, then attach redacted evidence below. No browser capture was available during this review.</li>
+        <li>Before distributed deployment, replace the process-local rate limiter and propagate correlation IDs through structured logs, audit records, traces, and worker boundaries.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Expected Phase 2 / later deferrals</h2>
+      <p>These items are intentionally not treated as Phase 1 defects. They remain production-release blockers until their scheduled phases complete.</p>
+      <ul>
+        <li><strong>P2 / UP-02:</strong> replace browser-held HMAC bearer credentials with server-side sessions, secure HttpOnly cookies, CSRF protection, expiry/rotation/revocation/logout, and startup secret validation.</li>
+        <li><strong>P2 / UP-04:</strong> retire temporary Next Prisma auth routes and legacy <code>/api/operational-data</code>, then deliver scoped <code>/api/v1</code> read models as the sole web operational boundary.</li>
+        <li><strong>P7:</strong> replace process-local rate limiting with shared infrastructure and propagate correlation IDs through structured logs, audit records, traces, and worker boundaries.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Screenshot and demo evidence</h2>
+      <p>Local browser screenshot capture was attempted for this review but browser access was unavailable, so no image is fabricated or attached. Add verified images after the Phase 1 demo. Store redacted screenshots outside source code or in an approved evidence directory; never include client, session, or credential data.</p>
+      <div class="screenshots">
+        <div class="shot"><strong>1. Anonymous workspace redirect</strong><br />Show <code>/dashboard</code> redirecting to sign-in with no clinic data.<code>artifacts/phase-1/anonymous-workspace-redirect.png</code></div>
+        <div class="shot"><strong>2. Protected API denial</strong><br />Show an unauthenticated operational API request returning the expected denial and request ID.<code>artifacts/phase-1/unauthenticated-api-denial.png</code></div>
+        <div class="shot"><strong>3. Workspace outage state</strong><br />Show the deliberate unavailable/retry UI with no seed data.<code>artifacts/phase-1/workspace-api-unavailable.png</code></div>
+        <div class="shot"><strong>4. Cross-clinic denial</strong><br />Show Clinic A denied access to a Clinic B target using synthetic fixtures only.<code>artifacts/phase-1/cross-tenant-denial.png</code></div>
+      </div>
+    </section>
+  </body>
+</html>

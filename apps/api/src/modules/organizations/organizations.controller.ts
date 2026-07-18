@@ -1,4 +1,4 @@
-import { Body, Controller, Inject, Param, Patch } from "@nestjs/common";
+import { Body, Controller, Headers, Inject, Param, Patch } from "@nestjs/common";
 
 import { OrganizationsService } from "./organizations.service";
 import { UpdateOrganizationDto } from "./dto/update-organization.dto";
@@ -11,7 +11,11 @@ export class OrganizationsController {
   ) {}
 
   @Patch(":id")
-  update(@Param("id") id: string, @Body() dto: UpdateOrganizationDto) {
-    return this.organizations.update(id, dto);
+  update(
+    @Param("id") id: string,
+    @Body() dto: UpdateOrganizationDto,
+    @Headers("authorization") authorization?: string,
+  ) {
+    return this.organizations.update(id, dto, authorization);
   }
 }

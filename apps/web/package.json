@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.typecheck.json --noEmit",
-    "test:calendar": "node --import tsx --test lib/calendar/calendar.test.ts"
+    "test:calendar": "node --import tsx --test lib/calendar/calendar.test.ts",
+    "test:workspace-boundary": "node --import tsx --test lib/workspace-access.test.ts"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",

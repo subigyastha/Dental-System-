@@ -31,6 +31,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/clinicflow_ci?schema=public
       DIRECT_URL: postgresql://postgres:postgres@localhost:5432/clinicflow_ci?schema=public
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/clinicflow_ci?schema=public
       AUTH_SECRET: ci-only-not-a-production-secret
       APP_ENV: test
 
@@ -58,6 +59,9 @@ jobs:
 
       - name: Enforce Nest-only operational data boundary
         run: npm run check:web-prisma-boundary
+
+      - name: Verify every Nest controller has an access classification
+        run: npm run check:route-inventory
 
       - name: Scan tracked source for likely credentials
         run: npm run check:secrets
