@@ -1,4 +1,6 @@
-import { Controller, Get, Headers, Inject } from "@nestjs/common";
+import { Controller, Get, Inject } from "@nestjs/common";
+
+import { ServiceSession } from "../auth/request-session";
 
 import { OperationalDataService } from "./operational-data.service";
 
@@ -10,7 +12,7 @@ export class OperationalDataController {
   ) {}
 
   @Get()
-  getOperationalData(@Headers("authorization") authorization?: string) {
+  getOperationalData(@ServiceSession() authorization?: string) {
     return this.operationalData.getOperationalData(authorization);
   }
 }

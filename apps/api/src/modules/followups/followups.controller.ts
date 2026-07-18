@@ -1,4 +1,6 @@
-import { Controller, Headers, Inject, Param, Patch } from "@nestjs/common";
+import { Controller, Inject, Param, Patch } from "@nestjs/common";
+
+import { ServiceSession } from "../auth/request-session";
 
 import { FollowupsService } from "./followups.service";
 
@@ -10,7 +12,7 @@ export class FollowupsController {
   ) {}
 
   @Patch(":id")
-  close(@Param("id") id: string, @Headers("authorization") authorization?: string) {
+  close(@Param("id") id: string, @ServiceSession() authorization?: string) {
     return this.followups.close(id, authorization);
   }
 }

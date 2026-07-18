@@ -1,10 +1,11 @@
 import {
   Controller,
   Get,
-  Headers,
   Inject,
   ServiceUnavailableException,
 } from "@nestjs/common";
+
+import { ServiceSession } from "../auth/request-session";
 
 import { PrismaService } from "../prisma/prisma.service";
 import { AuthService } from "../auth/auth.service";
@@ -19,7 +20,7 @@ export class SystemController {
   ) {}
 
   @Get("status")
-  async status(@Headers("authorization") authorization?: string) {
+  async status(@ServiceSession() authorization?: string) {
     const session = await this.auth.requireSession(authorization);
     if (!process.env.DATABASE_URL) {
       return {

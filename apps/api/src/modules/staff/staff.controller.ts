@@ -3,13 +3,14 @@ import {
   Controller,
   Delete,
   Get,
-  Headers,
   Inject,
   Param,
   Patch,
   Post,
   Query,
 } from "@nestjs/common";
+
+import { ServiceSession } from "../auth/request-session";
 
 import { CreateStaffDto } from "./dto/create-staff.dto";
 import { ResetStaffPasswordDto } from "./dto/reset-staff-password.dto";
@@ -26,20 +27,20 @@ export class StaffController {
   @Get()
   list(
     @Query("includeInactive") includeInactive?: string,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.staff.list(includeInactive === "true", authorization);
   }
 
   @Get(":id")
-  getOne(@Param("id") id: string, @Headers("authorization") authorization?: string) {
+  getOne(@Param("id") id: string, @ServiceSession() authorization?: string) {
     return this.staff.getOne(id, authorization);
   }
 
   @Post()
   create(
     @Body() dto: CreateStaffDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.staff.create(dto, authorization);
   }
@@ -48,7 +49,7 @@ export class StaffController {
   update(
     @Param("id") id: string,
     @Body() dto: UpdateStaffDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.staff.update(id, dto, authorization);
   }
@@ -57,7 +58,7 @@ export class StaffController {
   resetPassword(
     @Param("id") id: string,
     @Body() dto: ResetStaffPasswordDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.staff.resetPassword(id, dto, authorization);
   }
@@ -65,13 +66,13 @@ export class StaffController {
   @Delete(":id")
   deactivate(
     @Param("id") id: string,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.staff.deactivate(id, authorization);
   }
 
   @Patch(":id/restore")
-  restore(@Param("id") id: string, @Headers("authorization") authorization?: string) {
+  restore(@Param("id") id: string, @ServiceSession() authorization?: string) {
     return this.staff.restore(id, authorization);
   }
 }

@@ -3,13 +3,14 @@ import {
   Controller,
   Delete,
   Get,
-  Headers,
   Inject,
   Param,
   Patch,
   Post,
   Query,
 } from "@nestjs/common";
+
+import { ServiceSession } from "../auth/request-session";
 
 import { BillingService } from "./billing.service";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
@@ -27,20 +28,20 @@ export class BillingController {
   @Get("invoices")
   listInvoices(
     @Query() query: ListInvoicesDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.billing.listInvoices(query, authorization);
   }
 
   @Get("invoices/:id")
-  getInvoice(@Param("id") id: string, @Headers("authorization") authorization?: string) {
+  getInvoice(@Param("id") id: string, @ServiceSession() authorization?: string) {
     return this.billing.getInvoice(id, authorization);
   }
 
   @Post("invoices")
   createInvoice(
     @Body() dto: CreateInvoiceDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.billing.createInvoice(dto, authorization);
   }
@@ -49,7 +50,7 @@ export class BillingController {
   updateInvoice(
     @Param("id") id: string,
     @Body() dto: UpdateInvoiceDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.billing.updateInvoice(id, dto, authorization);
   }
@@ -57,7 +58,7 @@ export class BillingController {
   @Delete("invoices/:id")
   deleteInvoice(
     @Param("id") id: string,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.billing.deleteInvoice(id, authorization);
   }
@@ -66,7 +67,7 @@ export class BillingController {
   recordPayment(
     @Param("id") id: string,
     @Body() dto: RecordPaymentDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.billing.recordPayment(id, dto, authorization);
   }
@@ -76,7 +77,7 @@ export class BillingController {
     @Param("id") id: string,
     @Param("paymentId") paymentId: string,
     @Body() dto: RecordPaymentDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.billing.updatePayment(id, paymentId, dto, authorization);
   }
@@ -85,7 +86,7 @@ export class BillingController {
   deletePayment(
     @Param("id") id: string,
     @Param("paymentId") paymentId: string,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.billing.deletePayment(id, paymentId, authorization);
   }

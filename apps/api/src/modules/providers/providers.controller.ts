@@ -3,13 +3,14 @@ import {
   Controller,
   Delete,
   Get,
-  Headers,
   Inject,
   Param,
   Patch,
   Post,
   Query,
 } from "@nestjs/common";
+
+import { ServiceSession } from "../auth/request-session";
 
 import { CreateProviderDto } from "./dto/create-provider.dto";
 import { UpdateProviderDto } from "./dto/update-provider.dto";
@@ -32,33 +33,33 @@ export class ProvidersController {
   ) {}
 
   @Get()
-  list(@Headers("authorization") authorization?: string) {
+  list(@ServiceSession() authorization?: string) {
     return this.providers.list(authorization);
   }
 
   @Get("schedule-grid")
   listScheduleGrids(
     @Query() query: ListProviderScheduleGridsDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.providers.listScheduleGrids(query, authorization);
   }
 
   @Get(":id")
-  getOne(@Param("id") id: string, @Headers("authorization") authorization?: string) {
+  getOne(@Param("id") id: string, @ServiceSession() authorization?: string) {
     return this.providers.getOne(id, authorization);
   }
 
   @Post()
   create(
     @Body() dto: CreateProviderDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.providers.create(dto, authorization);
   }
 
   @Delete(":id")
-  remove(@Param("id") id: string, @Headers("authorization") authorization?: string) {
+  remove(@Param("id") id: string, @ServiceSession() authorization?: string) {
     return this.providers.remove(id, authorization);
   }
 
@@ -66,7 +67,7 @@ export class ProvidersController {
   update(
     @Param("id") id: string,
     @Body() dto: UpdateProviderDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.providers.update(id, dto, authorization);
   }
@@ -74,7 +75,7 @@ export class ProvidersController {
   @Get(":id/schedule")
   getSchedule(
     @Param("id") id: string,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.providers.getSchedule(id, authorization);
   }
@@ -83,7 +84,7 @@ export class ProvidersController {
   listSlots(
     @Param("id") id: string,
     @Query() query: ListProviderSlotsDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.providers.listSlots(id, query, authorization);
   }
@@ -92,7 +93,7 @@ export class ProvidersController {
   listScheduleGrid(
     @Param("id") id: string,
     @Query() query: ListProviderScheduleGridDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.providers.listScheduleGrid(id, query, authorization);
   }
@@ -101,7 +102,7 @@ export class ProvidersController {
   updateSchedule(
     @Param("id") id: string,
     @Body() dto: UpdateProviderScheduleDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.providers.updateSchedule(id, dto, authorization);
   }
@@ -110,7 +111,7 @@ export class ProvidersController {
   createRecurringBlock(
     @Param("id") id: string,
     @Body() body: { organizationId: string; entry: RecurringBlockDto },
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.providers.createRecurringBlock(
       id,
@@ -125,7 +126,7 @@ export class ProvidersController {
     @Param("id") id: string,
     @Param("entryId") entryId: string,
     @Body() body: { organizationId: string; entry: RecurringBlockDto },
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.providers.updateRecurringBlock(
       id,
@@ -141,7 +142,7 @@ export class ProvidersController {
     @Param("id") id: string,
     @Param("entryId") entryId: string,
     @Body() body: { organizationId: string },
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.providers.deleteRecurringBlock(
       id,
@@ -155,7 +156,7 @@ export class ProvidersController {
   createAvailabilityEntry(
     @Param("id") id: string,
     @Body() body: { organizationId: string; entry: AvailabilityWindowDto },
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.providers.createAvailabilityEntry(
       id,
@@ -170,7 +171,7 @@ export class ProvidersController {
     @Param("id") id: string,
     @Param("entryId") entryId: string,
     @Body() body: { organizationId: string; entry: AvailabilityWindowDto },
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.providers.updateAvailabilityEntry(
       id,
@@ -186,7 +187,7 @@ export class ProvidersController {
     @Param("id") id: string,
     @Param("entryId") entryId: string,
     @Body() body: { organizationId: string },
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.providers.deleteAvailabilityEntry(
       id,
@@ -200,7 +201,7 @@ export class ProvidersController {
   createBlockedTime(
     @Param("id") id: string,
     @Body() body: { organizationId: string; entry: BlockedTimeDto },
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.providers.createBlockedTime(
       id,
@@ -215,7 +216,7 @@ export class ProvidersController {
     @Param("id") id: string,
     @Param("entryId") entryId: string,
     @Body() body: { organizationId: string; entry: BlockedTimeDto },
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.providers.updateBlockedTime(
       id,
@@ -231,7 +232,7 @@ export class ProvidersController {
     @Param("id") id: string,
     @Param("entryId") entryId: string,
     @Body() body: { organizationId: string },
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.providers.deleteBlockedTime(
       id,

@@ -22,6 +22,8 @@ export type AuthSession = {
   providerId?: string;
 };
 
+export type AuthSessionReference = AuthSession | string | undefined;
+
 export type SessionMetadata = {
   ipAddress?: string;
   userAgent?: string;
@@ -102,7 +104,12 @@ export class AuthService {
     return this.requireSessionToken(token);
   }
 
-  async requireSession(authorization?: string): Promise<AuthSession> {
+  async requireSession(reference?: AuthSessionReference): Promise<AuthSession> {
+    if (reference && typeof reference !== "string") {
+      return reference;
+    }
+
+    const authorization = reference;
     const token = this.extractBearerToken(authorization);
     return this.requireSessionToken(token);
   }

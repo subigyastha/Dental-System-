@@ -3,12 +3,13 @@ import {
   Controller,
   Delete,
   Get,
-  Headers,
   Inject,
   Param,
   Patch,
   Post,
 } from "@nestjs/common";
+
+import { ServiceSession } from "../auth/request-session";
 
 import { CreateCustomerDto } from "./dto/create-customer.dto";
 import { MatchCustomersDto } from "./dto/match-customers.dto";
@@ -26,29 +27,29 @@ export class CustomersController {
   ) {}
 
   @Get()
-  list(@Headers("authorization") authorization?: string) {
+  list(@ServiceSession() authorization?: string) {
     return this.customers.list(authorization);
   }
 
   @Get(":id")
-  getOne(@Param("id") id: string, @Headers("authorization") authorization?: string) {
+  getOne(@Param("id") id: string, @ServiceSession() authorization?: string) {
     return this.customers.getOne(id, authorization);
   }
 
   @Post()
-  create(@Body() dto: CreateCustomerDto, @Headers("authorization") authorization?: string) {
+  create(@Body() dto: CreateCustomerDto, @ServiceSession() authorization?: string) {
     return this.customers.create(dto, authorization);
   }
 
   @Post("match")
-  match(@Body() dto: MatchCustomersDto, @Headers("authorization") authorization?: string) {
+  match(@Body() dto: MatchCustomersDto, @ServiceSession() authorization?: string) {
     return this.customers.match(dto, authorization);
   }
 
   @Post("resolve-for-appointment")
   resolveForAppointment(
     @Body() dto: ResolveCustomerForAppointmentDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.customers.resolveForAppointment(dto, authorization);
   }
@@ -57,13 +58,13 @@ export class CustomersController {
   update(
     @Param("id") id: string,
     @Body() dto: UpdateCustomerDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.customers.update(id, dto, authorization);
   }
 
   @Delete(":id")
-  delete(@Param("id") id: string, @Headers("authorization") authorization?: string) {
+  delete(@Param("id") id: string, @ServiceSession() authorization?: string) {
     return this.customers.delete(id, authorization);
   }
 
@@ -71,7 +72,7 @@ export class CustomersController {
   merge(
     @Param("id") id: string,
     @Body() dto: MergeCustomerDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.customers.merge(id, dto, authorization);
   }
@@ -79,7 +80,7 @@ export class CustomersController {
   @Get(":customerId/visit-reports")
   listVisitReports(
     @Param("customerId") customerId: string,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.customers.listVisitReports(customerId, authorization);
   }
@@ -88,7 +89,7 @@ export class CustomersController {
   getVisitReport(
     @Param("customerId") customerId: string,
     @Param("reportId") reportId: string,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.customers.getVisitReport(customerId, reportId, authorization);
   }
@@ -97,7 +98,7 @@ export class CustomersController {
   upsertVisitReport(
     @Param("customerId") customerId: string,
     @Body() dto: UpsertVisitReportDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.customers.upsertVisitReport(customerId, dto, authorization);
   }
@@ -106,7 +107,7 @@ export class CustomersController {
   deleteVisitReport(
     @Param("customerId") customerId: string,
     @Param("reportId") reportId: string,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.customers.deleteVisitReport(customerId, reportId, authorization);
   }

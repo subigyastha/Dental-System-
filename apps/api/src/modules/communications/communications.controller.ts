@@ -1,4 +1,6 @@
-import { Body, Controller, Headers, Inject, Post } from "@nestjs/common";
+import { Body, Controller, Inject, Post } from "@nestjs/common";
+
+import { ServiceSession } from "../auth/request-session";
 
 import { CommunicationsService } from "./communications.service";
 import { CreateCommunicationDto } from "./dto/create-communication.dto";
@@ -13,7 +15,7 @@ export class CommunicationsController {
   @Post()
   create(
     @Body() dto: CreateCommunicationDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.communications.create(dto, authorization);
   }

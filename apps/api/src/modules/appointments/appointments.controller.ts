@@ -3,13 +3,14 @@ import {
   Controller,
   Delete,
   Get,
-  Headers,
   Inject,
   Param,
   Patch,
   Post,
   Query,
 } from "@nestjs/common";
+
+import { ServiceSession } from "../auth/request-session";
 
 import { AppointmentsService } from "./appointments.service";
 import { CreateAppointmentDto } from "./dto/create-appointment.dto";
@@ -29,7 +30,7 @@ export class AppointmentsController {
   @Get()
   list(
     @Query() query: ListAppointmentsDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.appointments.list(query, authorization);
   }
@@ -37,7 +38,7 @@ export class AppointmentsController {
   @Get("day-summaries")
   listDaySummaries(
     @Query() query: ListDaySummariesDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.appointments.listDaySummaries(query, authorization);
   }
@@ -45,20 +46,20 @@ export class AppointmentsController {
   @Get("week-summaries")
   listWeekSummaries(
     @Query() query: ListWeekSummariesDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.appointments.listWeekSummaries(query, authorization);
   }
 
   @Get(":id")
-  getOne(@Param("id") id: string, @Headers("authorization") authorization?: string) {
+  getOne(@Param("id") id: string, @ServiceSession() authorization?: string) {
     return this.appointments.getOne(id, authorization);
   }
 
   @Post()
   create(
     @Body() dto: CreateAppointmentDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.appointments.create(dto, authorization);
   }
@@ -67,13 +68,13 @@ export class AppointmentsController {
   update(
     @Param("id") id: string,
     @Body() dto: UpdateAppointmentDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.appointments.update(id, dto, authorization);
   }
 
   @Delete(":id")
-  delete(@Param("id") id: string, @Headers("authorization") authorization?: string) {
+  delete(@Param("id") id: string, @ServiceSession() authorization?: string) {
     return this.appointments.delete(id, authorization);
   }
 
@@ -81,7 +82,7 @@ export class AppointmentsController {
   updateStatus(
     @Param("id") id: string,
     @Body() dto: UpdateAppointmentStatusDto,
-    @Headers("authorization") authorization?: string,
+    @ServiceSession() authorization?: string,
   ) {
     return this.appointments.updateStatus(id, dto, authorization);
   }
