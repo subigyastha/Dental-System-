@@ -63,6 +63,7 @@ const BASELINE_OFFENDING_PATHS = new Set([
 
 const sourceFiles = listVersionedAndUntrackedFiles()
   .map((file) => resolve(ROOT, file))
+  .filter((file) => existsSync(file))
   .filter(isProductionWebSource);
 const prismaSources = new Set(
   sourceFiles.filter((file) => PRISMA_PACKAGE_PATTERN.test(readFileSync(file, "utf8"))),

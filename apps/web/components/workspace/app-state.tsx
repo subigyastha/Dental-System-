@@ -11,7 +11,7 @@ import {
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
-import { apiFetchJson, SESSION_TOKEN_STORAGE_KEY, withAuthHeaders } from "@/lib/api-client";
+import { apiFetchJson, withSessionRequest as withAuthHeaders } from "@/lib/api-client";
 import type { OperationalData } from "@/lib/database-data";
 import type {
   Appointment,
@@ -169,7 +169,6 @@ type WorkspaceContextValue = {
   selectedDate: string;
   setSelectedDate: (dateKey: string) => void;
   sessionUser: SessionUser | null;
-  authToken: string | null;
   isAuthenticating: boolean;
   toast: ToastState;
   clearToast: () => void;
@@ -388,23 +387,15 @@ export function WorkspaceProvider({
   }, []);
 
   useEffect(() => {
-    const storedToken = window.localStorage.getItem(SESSION_TOKEN_STORAGE_KEY);
-    if (!storedToken) {
-      setIsAuthenticating(false);
-      router.replace("/login");
-      return;
-    }
-
-    setAuthToken(storedToken);
-    apiFetchJson<SessionUser>("/auth/me", withAuthHeaders(storedToken))
+    apiFetchJson<SessionUser>("/auth/me")
       .then((user) => {
+        setAuthToken("cookie-session");
         setSessionUser(user);
         if (user.providerId && providerOnlyRoles.has(user.role) && pathname === "/dashboard") {
           router.replace("/my-schedule");
         }
       })
       .catch(() => {
-        window.localStorage.removeItem(SESSION_TOKEN_STORAGE_KEY);
         setAuthToken(null);
         setSessionUser(null);
         router.replace("/login");
@@ -413,7 +404,9 @@ export function WorkspaceProvider({
   }, [pathname, router]);
 
   const logout = useCallback(() => {
-    window.localStorage.removeItem(SESSION_TOKEN_STORAGE_KEY);
+    void apiFetchJson("/auth/logout", { method: "POST" }).catch(() => {
+      // Local session state must still be cleared when the server is unreachable.
+    });
     setSessionUser(null);
     setAuthToken(null);
     setInvoices([]);
@@ -474,7 +467,6 @@ export function WorkspaceProvider({
       selectedDate,
       setSelectedDate,
       sessionUser,
-      authToken,
       isAuthenticating,
       toast,
       clearToast,
@@ -977,7 +969,6 @@ export function WorkspaceProvider({
     }),
     [
       appointmentRangeCache,
-      authToken,
       calendarMode,
       clearToast,
       data,

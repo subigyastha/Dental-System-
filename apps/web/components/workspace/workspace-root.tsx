@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { KoiPageLoader } from "@/components/koi-loader";
 import { WorkspaceProvider } from "@/components/workspace/app-state";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
-import { apiFetchJson, SESSION_TOKEN_STORAGE_KEY, withAuthHeaders } from "@/lib/api-client";
+import { ApiRequestError, apiFetchJson } from "@/lib/api-client";
 import type { OperationalData } from "@/lib/database-data";
 import { resolveWorkspaceGate } from "@/lib/workspace-access";
 
@@ -23,23 +23,22 @@ export function WorkspaceRoot({
   const [requiresSignIn, setRequiresSignIn] = useState(false);
 
   const loadWorkspace = useCallback(async () => {
-    const token = window.localStorage.getItem(SESSION_TOKEN_STORAGE_KEY);
-    if (!token) {
-      setRequiresSignIn(true);
-      router.replace("/login");
-      return;
-    }
-
     setRequiresSignIn(false);
     setError(null);
     try {
+      await apiFetchJson("/auth/me", { cache: "no-store" });
       const response = await apiFetchJson<OperationalData>(
         "/operational-data",
-        withAuthHeaders(token, { cache: "no-store" }),
+        { cache: "no-store" },
       );
       setData(response);
-    } catch {
+    } catch (loadError) {
       setData(null);
+      if (loadError instanceof ApiRequestError && loadError.status === 401) {
+        setRequiresSignIn(true);
+        router.replace("/login");
+        return;
+      }
       setError(
         "Clinic data is temporarily unavailable. Check your connection and try again.",
       );
@@ -49,6 +48,18 @@ export function WorkspaceRoot({
   useEffect(() => {
     void loadWorkspace();
   }, [loadWorkspace]);
+
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      setData(null);
+      setError(null);
+      setRequiresSignIn(true);
+      router.replace("/login");
+    };
+
+    window.addEventListener("clinicflow:session-expired", handleSessionExpired);
+    return () => window.removeEventListener("clinicflow:session-expired", handleSessionExpired);
+  }, [router]);
 
   const gate = resolveWorkspaceGate({
     requiresSignIn,

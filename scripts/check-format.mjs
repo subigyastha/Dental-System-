@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const ROOT = process.cwd();
@@ -25,7 +25,9 @@ const IGNORED_PATH_SEGMENTS = new Set([
 const CHECKED_ROOTS = new Set(["apps", "docs", "prisma", "scripts", ".github"]);
 const CHECKED_ROOT_FILES = new Set(["package.json", "tsconfig.json"]);
 
-const files = listVersionedAndUntrackedFiles().filter(isCheckedTextFile);
+const files = listVersionedAndUntrackedFiles()
+  .filter(isCheckedTextFile)
+  .filter((file) => existsSync(resolve(ROOT, file)));
 const violations = [];
 
 for (const file of files) {

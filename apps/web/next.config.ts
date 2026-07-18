@@ -6,8 +6,6 @@ import type { NextConfig } from "next";
 const monorepoRoot = join(__dirname, "../..");
 loadEnvConfig(monorepoRoot);
 
-const nextConfig: NextConfig = {
-  serverExternalPackages: ["@prisma/client"],
-};
+const nextConfig: NextConfig = {};
 
 export default nextConfig;

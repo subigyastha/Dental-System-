@@ -61,7 +61,13 @@ async function bootstrap() {
       },
       credentials: true,
       methods: ["GET", "HEAD", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-      allowedHeaders: ["authorization", "content-type", "idempotency-key", "x-request-id"],
+      allowedHeaders: [
+        "authorization",
+        "content-type",
+        "idempotency-key",
+        "x-request-id",
+        "x-csrf-token",
+      ],
       exposedHeaders: ["x-request-id", "ratelimit-limit", "ratelimit-remaining"],
     },
   });

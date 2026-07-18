@@ -23,8 +23,8 @@
       <p class="meta">Persistent implementation review • Update this file after every delivery phase</p>
       <h1>ClinicFlow phase review</h1>
       <p><strong>Current review:</strong> Phase 1 — Protected application boundary</p>
-      <p><strong>Reviewed:</strong> 2026-07-18 • <strong>Decision:</strong> <span class="status partial">IMPLEMENTED — CI INTEGRATION PROOF AND VISUAL DEMO PENDING</span></p>
-      <p>The uncommitted Phase 1 changes materially improve Nest route protection and remove the workspace’s direct-data/seed fallback. Exact public-action binding, focused security middleware tests, targeted tenant-scoping tests, a CI-only HTTP integration harness, and deterministic workspace-boundary tests are now in place. The HTTP harness is intentionally pending its ephemeral PostgreSQL CI run because no disposable local database exists; that is pending execution evidence, not a known code defect. Formal phase closure still requires that CI result and the required browser/API demonstration. Cookie sessions and CSRF are expected P2/UP-02 work, separately recorded below; their deferral still blocks a production release but is not presented as a Phase 1 containment regression.</p>
+      <p><strong>Reviewed:</strong> 2026-07-18 • <strong>Decision:</strong> <span class="status partial">CONDITIONALLY COMPLETE — CI COOKIE/CSRF PROOF AND VISUAL DEMO PENDING</span></p>
+      <p>The uncommitted Phase 1 changes now include the secure-session slice: persisted opaque sessions, HttpOnly cookie transport, browser CSRF protection, and removal of web Prisma access. Exact public-action binding, focused security middleware tests, targeted tenant-scoping tests, a CI-only HTTP integration harness, and deterministic workspace-boundary tests are also in place. Formal closure still requires CI execution of a cookie/CSRF-aware ephemeral-PostgreSQL test and the required browser/API demonstration. The existing CI HTTP test is valid containment evidence but still uses temporary bearer compatibility, so it does not prove the new browser cookie path end to end.</p>
     </header>
 
     <section>
@@ -60,12 +60,12 @@
           <tr>
             <td>Workspace does not read Prisma/seed data when the secure API is unavailable.</td>
             <td><span class="status implemented">IMPLEMENTED FOR WORKSPACE BOOTSTRAP</span></td>
-            <td><a href="../apps/web/app/(workspace)/layout.tsx">workspace layout</a> no longer calls <code>getOperationalData</code>; <a href="../apps/web/components/workspace/workspace-root.tsx">WorkspaceRoot</a> loads Nest <code>/operational-data</code> and renders a retryable unavailable state. <a href="../apps/web/lib/database-data.ts">database-data.ts</a> is type-only. <a href="../apps/web/lib/workspace-access.test.ts">Three deterministic workspace-boundary tests</a> cover redirect before clinic rendering, unavailable-without-sample-data, and ready only after authenticated data. The focused boundary check passed and reports four known migration paths remaining.</td>
+            <td><a href="../apps/web/app/(workspace)/layout.tsx">workspace layout</a> no longer calls <code>getOperationalData</code>; <a href="../apps/web/components/workspace/workspace-root.tsx">WorkspaceRoot</a> asks Nest <code>/auth/me</code> before loading <code>/operational-data</code> and renders a retryable unavailable state. <a href="../apps/web/lib/database-data.ts">database-data.ts</a> is type-only. <a href="../apps/web/lib/workspace-access.test.ts">Three deterministic workspace-boundary tests</a> cover redirect before clinic rendering, unavailable-without-sample-data, and ready only after authenticated data.</td>
           </tr>
           <tr>
             <td>No direct Next.js Prisma operational authority remains.</td>
-            <td><span class="status partial">DEFERRED TO P2 / UP-04</span></td>
-            <td>The boundary check is a regression guard, not proof of removal: <a href="../scripts/check-no-web-prisma.mjs">its allowlist</a> explicitly permits legacy paths. In particular <a href="../apps/web/lib/auth.ts">web auth</a> and <a href="../apps/web/app/api/auth/login/route.ts">Next login</a> still use Prisma, and the staff workspace still calls legacy Nest <code>/api/operational-data</code> rather than the future scoped <code>/api/v1</code> read models. The four disabled Next operational routes are a useful containment measure, not the completed API-boundary migration.</td>
+            <td><span class="status implemented">IMPLEMENTED</span></td>
+            <td><a href="../scripts/check-no-web-prisma.mjs">The boundary check</a> now reports <strong>0 known web Prisma paths</strong>. <code>apps/web/lib/auth.ts</code> and <code>apps/web/lib/prisma.ts</code> were removed; the legacy Next auth routes are disabled with 410 responses. The workspace still uses the legacy Nest <code>/api/operational-data</code> payload; replacing that with scoped <code>/api/v1</code> read models is later UP-04 work, not a return to web Prisma authority.</td>
           </tr>
           <tr>
             <td>Security headers, CORS restrictions, rate limiting, and correlation IDs are present.</td>
@@ -73,9 +73,9 @@
             <td><a href="../apps/api/src/main.ts">main.ts</a> adds CORS allowlists, several response headers, request IDs, and an in-memory login/API rate limiter. <a href="../apps/api/src/http-security.spec.ts">http-security.spec.ts</a> proves production-origin defaults, header/correlation-ID behavior, and the login 429 threshold. The in-memory limiter and end-to-end correlation propagation remain later distributed-runtime work, not an untested P1 claim.</td>
           </tr>
           <tr>
-            <td>Secure server sessions, HttpOnly cookies, CSRF, rotation/revocation/logout, and no browser token storage.</td>
-            <td><span class="status deferred">DEFERRED — P2 / UP-02</span></td>
-            <td><a href="../apps/api/src/modules/auth/auth.service.ts">Nest AuthService</a> still signs stateless HMAC bearer tokens with a fallback secret; <a href="../apps/web/app/login/page.tsx">the web login page</a> stores the token in <code>localStorage</code>; <a href="../apps/web/lib/api-client.ts">api-client.ts</a> sends an <code>Authorization: Bearer</code> header. There is no session table, cookie, CSRF proof, revocation/rotation, logout endpoint, or production secret fail-fast validation. This is an explicit release blocker, not a cosmetic follow-up.</td>
+            <td>Secure server sessions, HttpOnly cookies, CSRF, logout/revocation, and no browser-held bearer token.</td>
+            <td><span class="status implemented">IMPLEMENTED WITH FOLLOW-UPS</span></td>
+            <td><a href="../prisma/migrations/20260718_000004_server_sessions/migration.sql">UserSession migration</a> persists only hashes of opaque session and CSRF secrets, expiry/revocation/rotation linkage, device metadata, and session audit events. <a href="../apps/api/src/modules/auth/auth.controller.ts">Nest auth endpoints</a> exchange login for an <code>HttpOnly</code>, <code>SameSite=Lax</code>, production-secure cookie; logout revokes the current session and clears it. <a href="../apps/api/src/modules/auth/csrf.guard.ts">CsrfGuard</a> requires a session-bound proof on unsafe cookie-authenticated methods. <a href="../apps/web/lib/api-client.ts">web transport</a> uses <code>credentials: include</code> and keeps only the CSRF value in module memory; it sends no bearer header. <a href="../apps/web/lib/api-client.test.ts">two web tests</a>, <a href="../apps/api/src/modules/auth/csrf.guard.spec.ts">two CSRF tests</a>, and <a href="../apps/api/src/modules/auth/server-sessions.spec.ts">four server-session tests</a> cover the core behavior.</td>
           </tr>
         </tbody>
       </table>
@@ -84,33 +84,34 @@
     <section>
       <h2>Verification run in this review</h2>
       <ul>
-        <li><code>npm.cmd run check:route-inventory</code> — passed: 63 handlers across 12 controllers; three public action decorators, limited to login and health.</li>
-        <li><code>npm.cmd run test:auth -w api</code> — passed: 11 focused default-deny, public-exception, CORS/header/request-ID/rate-limit, and tenant-scoping tests.</li>
+        <li><code>npm.cmd run check:route-inventory</code> — passed: 65 handlers across 12 controllers; public exceptions remain limited to login and health.</li>
+        <li><code>npm.cmd test</code> — passed: 31 local tests, including 17 API security/session/CSRF tests, 3 workspace-boundary tests, and 2 cookie-transport tests; the CI-only HTTP integration test correctly skipped without <code>TEST_DATABASE_URL</code>.</li>
         <li><code>npm.cmd run test:tenancy -w api</code> — passed: 2 additional Client-service cross-tenant tests.</li>
         <li><code>npm.cmd run test:workspace-boundary -w web</code> — passed: 3 deterministic redirect, unavailable, and ready-state boundary tests.</li>
         <li><code>npm.cmd run test:phase-one-http -w api</code> with no <code>TEST_DATABASE_URL</code> — correctly skipped one integration test rather than using a developer/deployed database. CI is configured to migrate and run this test against ephemeral PostgreSQL.</li>
-        <li><code>npm.cmd run check:web-prisma-boundary</code> — passed with 4 explicitly allowed legacy migration paths still present.</li>
-        <li><code>npm.cmd run lint</code>, <code>npm.cmd run typecheck</code>, <code>npm.cmd run build</code>, and <code>npm.cmd run build:api</code> — passed in the final Phase 1 handoff suite.</li>
+        <li><code>npm.cmd run check:web-prisma-boundary</code> — passed with 0 web Prisma paths.</li>
+        <li><code>npm.cmd run lint</code>, <code>npm.cmd run typecheck</code>, <code>npm.cmd run build</code>, and <code>npm.cmd run build:api</code> — passed when run directly.</li>
       </ul>
-      <p class="callout"><strong>Scope note:</strong> These are local verification results against the uncommitted workspace. No live browser/API demonstration, real HTTP request matrix, disposable-database integration suite, migration rehearsal, CORS/rate-limit test, or staging deployment was run as part of this Phase 1 review.</p>
+      <p class="callout"><strong>Scope note:</strong> These are local verification results against the uncommitted workspace. The disposable-database HTTP harness has not run locally by design, and no live browser/API demonstration or staging deployment was available for this review.</p>
     </section>
 
     <section>
       <h2>Actual Phase 1 risks and required closure work</h2>
       <ol>
-        <li class="risk">Wait for the CI job to complete the migrated ephemeral-PostgreSQL HTTP harness. This is pending proof, not a known local code defect; do not substitute a developer or deployed database to make the test run locally.</li>
-        <li class="risk">After CI proves the five known exposed paths, expand the disposable-database HTTP denial matrix to all legacy modules and prove 401/403/404 responses do not reveal cross-clinic IDs or counts. The current 13 focused tests plus one CI harness are not yet a complete module matrix.</li>
-        <li>Run the signed-in, anonymous, API-outage, and cross-clinic browser/API demonstration using synthetic fixtures, then attach redacted evidence below. No browser capture was available during this review.</li>
+        <li class="risk">Update and run the CI ephemeral-PostgreSQL HTTP harness through the new cookie login and CSRF mutation path. Its current request fixture retains bearer authentication as temporary compatibility, so CI does not yet prove cookie/CSRF behavior end to end.</li>
+        <li>Expose and test the currently implemented session rotation/revoke-all capabilities through approved device/session management controls. Current UI only supports logout of the active session; there is no device list or self-service revoke UI.</li>
+        <li>Validate production startup secret policy explicitly. A missing <code>AUTH_SECRET</code> is rejected when a production session hash is used, but fail-fast startup validation is not evidenced here.</li>
+        <li>Run the signed-in, anonymous, API-outage, cookie-CSRF-denial, and cross-clinic browser/API demonstration using synthetic fixtures, then attach redacted evidence below. Browser capture was unavailable during this review.</li>
         <li>Before distributed deployment, replace the process-local rate limiter and propagate correlation IDs through structured logs, audit records, traces, and worker boundaries.</li>
       </ol>
     </section>
 
     <section>
-      <h2>Expected Phase 2 / later deferrals</h2>
-      <p>These items are intentionally not treated as Phase 1 defects. They remain production-release blockers until their scheduled phases complete.</p>
+      <h2>Post-Phase-1 follow-up</h2>
+      <p>These items do not reopen the completed secure-session slice, but they remain production-release or later-platform work.</p>
       <ul>
-        <li><strong>P2 / UP-02:</strong> replace browser-held HMAC bearer credentials with server-side sessions, secure HttpOnly cookies, CSRF protection, expiry/rotation/revocation/logout, and startup secret validation.</li>
-        <li><strong>P2 / UP-04:</strong> retire temporary Next Prisma auth routes and legacy <code>/api/operational-data</code>, then deliver scoped <code>/api/v1</code> read models as the sole web operational boundary.</li>
+        <li><strong>Phase 1 compatibility retirement:</strong> remove legacy bearer authentication once non-browser clients have migrated; bearer callers currently bypass cookie CSRF by design and are not used by web transport.</li>
+        <li><strong>UP-04:</strong> replace legacy <code>/api/operational-data</code> with scoped <code>/api/v1</code> read models as the sole operational web boundary.</li>
         <li><strong>P7:</strong> replace process-local rate limiting with shared infrastructure and propagate correlation IDs through structured logs, audit records, traces, and worker boundaries.</li>
       </ul>
     </section>

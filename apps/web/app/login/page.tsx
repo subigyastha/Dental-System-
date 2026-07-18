@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui";
-import { apiFetchJson, SESSION_TOKEN_STORAGE_KEY } from "@/lib/api-client";
+import { apiFetchJson, rememberCsrfToken } from "@/lib/api-client";
 import type { SessionUser } from "@/lib/domain";
 
 export default function LoginPage() {
@@ -21,13 +21,13 @@ export default function LoginPage() {
     setError("");
 
     try {
-      const result = await apiFetchJson<{ token: string; user: SessionUser }>("/auth/login", {
+      const result = await apiFetchJson<{ user: SessionUser; csrfToken: string }>("/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
 
-      window.localStorage.setItem(SESSION_TOKEN_STORAGE_KEY, result.token);
+      rememberCsrfToken(result.csrfToken);
       router.replace(result.user.providerId && ["Provider", "Assistant"].includes(result.user.role) ? "/my-schedule" : "/dashboard");
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Could not sign in");

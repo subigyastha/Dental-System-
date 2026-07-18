@@ -8,9 +8,10 @@ import { Reflector } from "@nestjs/core";
 
 import { AuthService, type AuthSession } from "./auth.service";
 import { IS_PUBLIC_ROUTE } from "./public-route.decorator";
+import { readSessionCookie } from "./session-cookie";
 
 type RequestWithSession = {
-  headers: { authorization?: string | string[] };
+  headers: { authorization?: string | string[]; cookie?: string | string[] };
   method?: string;
   originalUrl?: string;
   requestId?: string;
@@ -41,7 +42,10 @@ export class SessionAuthGuard implements CanActivate {
       : request.headers.authorization;
 
     try {
-      request.authSession = await this.auth.requireSession(authorization);
+      const cookieToken = readSessionCookie(request.headers.cookie);
+      request.authSession = cookieToken
+        ? await this.auth.sessionFromToken(cookieToken)
+        : await this.auth.requireSession(authorization);
       return true;
     } catch (error) {
       this.logger.warn({

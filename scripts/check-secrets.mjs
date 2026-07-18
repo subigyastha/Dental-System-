@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
 const ROOT = process.cwd();
@@ -29,6 +29,9 @@ for (const file of listVersionedAndUntrackedFiles()) {
   }
 
   const path = resolve(ROOT, file);
+  if (!existsSync(path)) {
+    continue;
+  }
   if (statSync(path).size > MAX_BYTES) {
     continue;
   }

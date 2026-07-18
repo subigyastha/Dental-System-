@@ -3,6 +3,7 @@ import { APP_GUARD } from "@nestjs/core";
 
 import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
+import { CsrfGuard } from "./csrf.guard";
 import { SessionAuthGuard } from "./session-auth.guard";
 
 @Module({
@@ -12,6 +13,10 @@ import { SessionAuthGuard } from "./session-auth.guard";
     {
       provide: APP_GUARD,
       useClass: SessionAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: CsrfGuard,
     },
   ],
   exports: [AuthService],

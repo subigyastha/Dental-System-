@@ -197,6 +197,7 @@ model User {
   role           UserRole
   provider       Provider?
   clientProfiles Customer[]
+  sessions       UserSession[]
   auditLogs      AuditLog[]
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
@@ -205,6 +206,30 @@ model User {
   @@index([organizationId, role])
   @@index([email])
   @@index([status])
+}
+
+model UserSession {
+  id                  String       @id @default(cuid())
+  userId              String
+  user                User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash           String       @unique
+  csrfTokenHash       String
+  expiresAt           DateTime
+  revokedAt           DateTime?
+  revokedReason       String?
+  lastSeenAt          DateTime?
+  rotatedAt           DateTime?
+  replacedBySessionId String?      @unique
+  replacedBySession   UserSession? @relation("UserSessionRotation", fields: [replacedBySessionId], references: [id], onDelete: SetNull)
+  replacesSession     UserSession? @relation("UserSessionRotation")
+  ipAddress           String?
+  userAgent           String?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
+  @@index([revokedAt])
 }
 
 model Provider {
