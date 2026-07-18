@@ -12,23 +12,56 @@ import {
 import { ServiceSession } from "../auth/request-session";
 
 import { CreateCustomerDto } from "./dto/create-customer.dto";
+import { ArchiveCustomerDto } from "./dto/archive-customer.dto";
 import { MatchCustomersDto } from "./dto/match-customers.dto";
 import { MergeCustomerDto } from "./dto/merge-customer.dto";
 import { ResolveCustomerForAppointmentDto } from "./dto/resolve-customer-for-appointment.dto";
+import { PurgeCustomerDto } from "./dto/purge-customer.dto";
 import { UpdateCustomerDto } from "./dto/update-customer.dto";
 import { UpsertVisitReportDto } from "./dto/upsert-visit-report.dto";
 import { CustomersService } from "./customers.service";
+import { CustomerArchiveService } from "./customer-archive.service";
 
 @Controller("customers")
 export class CustomersController {
   constructor(
     @Inject(CustomersService)
     private readonly customers: CustomersService,
+    @Inject(CustomerArchiveService)
+    private readonly archive: CustomerArchiveService,
   ) {}
 
   @Get()
   list(@ServiceSession() authorization?: string) {
     return this.customers.list(authorization);
+  }
+
+  @Get("archive")
+  listArchived(@ServiceSession() authorization?: string) {
+    return this.archive.listArchived(authorization);
+  }
+
+  @Post(":id/archive")
+  archiveCustomer(
+    @Param("id") id: string,
+    @Body() dto: ArchiveCustomerDto,
+    @ServiceSession() authorization?: string,
+  ) {
+    return this.archive.archive(id, dto.reason, authorization);
+  }
+
+  @Post(":id/restore")
+  restoreCustomer(@Param("id") id: string, @ServiceSession() authorization?: string) {
+    return this.archive.restore(id, authorization);
+  }
+
+  @Delete(":id/purge")
+  purgeCustomer(
+    @Param("id") id: string,
+    @Body() dto: PurgeCustomerDto,
+    @ServiceSession() authorization?: string,
+  ) {
+    return this.archive.purge(id, dto.confirmCustomerId, dto.reason, authorization);
   }
 
   @Get(":id")
@@ -65,7 +98,7 @@ export class CustomersController {
 
   @Delete(":id")
   delete(@Param("id") id: string, @ServiceSession() authorization?: string) {
-    return this.customers.delete(id, authorization);
+    return this.archive.archive(id, "legacy_delete_route", authorization);
   }
 
   @Post(":id/merge")

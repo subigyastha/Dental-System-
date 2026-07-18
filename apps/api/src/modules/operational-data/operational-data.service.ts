@@ -16,7 +16,7 @@ export class OperationalDataService {
 
   async getOperationalData(authorization?: string) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicOperator(session.role);
+    assertClinicOperator(session);
     const organization = await this.prisma.organization.findUnique({
       where: { id: session.organizationId },
       include: {

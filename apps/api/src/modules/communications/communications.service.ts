@@ -21,7 +21,7 @@ export class CommunicationsService {
 
   async create(dto: CreateCommunicationDto, authorization?: string) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicOperator(session.role);
+    assertClinicOperator(session);
     const appointment = await this.prisma.appointment.findFirst({
       where: { id: dto.appointmentId, organizationId: session.organizationId },
       select: { organizationId: true, customerId: true },

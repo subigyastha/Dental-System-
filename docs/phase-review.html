@@ -22,10 +22,36 @@
     <header>
       <p class="meta">Persistent implementation review • Update this file after every delivery phase</p>
       <h1>ClinicFlow phase review</h1>
-      <p><strong>Current review:</strong> Phase 1 — Protected application boundary</p>
-      <p><strong>Reviewed:</strong> 2026-07-18 • <strong>Decision:</strong> <span class="status partial">CONDITIONALLY COMPLETE — CI COOKIE/CSRF PROOF AND VISUAL DEMO PENDING</span></p>
-      <p>Committed Phase 1 changes include the secure-session slice: persisted opaque sessions, HttpOnly cookie transport, browser CSRF protection, removal of web Prisma access, and propagation of the verified cookie session to protected API handlers. Exact public-action binding, focused security middleware tests, targeted tenant-scoping tests, a CI-only HTTP integration harness, and deterministic workspace-boundary tests are also in place. Formal closure still requires CI execution of a cookie/CSRF-aware ephemeral-PostgreSQL test and the required browser/API demonstration. The existing CI HTTP test is valid containment evidence but still uses temporary bearer compatibility, so it does not prove the new browser cookie path end to end.</p>
+      <p><strong>Current review:</strong> Phase 2 — Governed API workspace and platform control</p>
+      <p><strong>Reviewed:</strong> 2026-07-18 • <strong>Decision:</strong> <span class="status partial">READY FOR MANUAL REVIEW — UNCOMMITTED; CI AND VISUAL EVIDENCE PENDING</span></p>
+      <p>Phase 2 is an additive governance and workspace slice over the committed Phase 1 security boundary. No Phase 2 commit exists yet. This review records the present working-tree evidence and does not claim a remote CI run or visual demonstration.</p>
     </header>
+
+    <section>
+      <h2>Phase 2 manual-review checklist</h2>
+      <table>
+        <thead><tr><th>Delivered scope</th><th>Status</th><th>Evidence to inspect</th></tr></thead>
+        <tbody>
+          <tr><td>Additive membership, multi-role, rollout-flag, and location-scope governance.</td><td><span class="status implemented">IMPLEMENTED LOCALLY</span></td><td><a href="../prisma/migrations/20260718_000005_additive_role_assignments/migration.sql">additive role migration</a>, <a href="../apps/api/src/modules/auth/role-governance.service.ts">role-governance service</a>, <a href="../apps/api/src/modules/auth/authorization-policy.service.ts">authorization policy</a>, and <a href="../apps/web/components/workspace/access-roles-panel.tsx">role-governance UI</a>. Confirm Owner/Admin capability inheritance, additive role union, effective/revoked state, and location scope in API and UI.</td></tr>
+          <tr><td>Client archive → Owner-confirmed permanent purge.</td><td><span class="status implemented">IMPLEMENTED LOCALLY</span></td><td><a href="../prisma/migrations/20260718_000006_customer_archive_lifecycle/migration.sql">archive lifecycle migration</a>, <a href="../apps/api/src/modules/customers/customer-archive.service.ts">archive service</a>, and <a href="../apps/web/components/workspace/archive-center-page.tsx">Archive Center</a>. Manually verify archive precedes purge and a non-Owner cannot finalize an eligible purge.</td></tr>
+          <tr><td>Super Admin platform aggregates, feature flags, and read-only time-bound support grants.</td><td><span class="status implemented">IMPLEMENTED LOCALLY</span></td><td><a href="../prisma/migrations/20260718_000007_platform_controls/migration.sql">platform-controls migration</a>, <a href="../apps/api/src/modules/platform/platform.service.ts">platform service</a>, and <a href="../apps/web/components/platform/platform-workspace.tsx">platform workspace</a>. Confirm aggregate/de-identified default views, feature-flag audit, reasoned support grant, expiry, and read-only scope.</td></tr>
+          <tr><td>Versioned dashboard bootstrap and dashboard experience.</td><td><span class="status implemented">IMPLEMENTED LOCALLY</span></td><td><a href="../apps/api/src/modules/api-v1/dashboard-v1.controller.ts">v1 dashboard controller</a>, <a href="../apps/api/src/modules/api-v1/dashboard-bootstrap.service.ts">bootstrap service</a>, and <a href="../apps/web/components/workspace/dashboard-page.tsx">Dashboard UI</a>. Confirm role/capability-filtered payloads and no direct web database access.</td></tr>
+          <tr><td>Updated workspace shell and mobile navigation.</td><td><span class="status implemented">IMPLEMENTED LOCALLY</span></td><td><a href="../apps/web/components/workspace/workspace-shell.tsx">workspace shell</a> and <a href="../apps/web/components/workspace/mobile-workspace-nav.tsx">mobile navigation</a>. Manually review desktop/mobile navigation, loading/denied/error states, and the dashboard bootstrap transition.</td></tr>
+        </tbody>
+      </table>
+      <p class="callout"><strong>Test evidence:</strong> the current local verification passed 67 automated tests across the core and Phase 2-focused commands, with one named disposable-database HTTP integration test intentionally skipped because <code>TEST_DATABASE_URL</code> is not configured. The route inventory reports 81 handlers across 15 controllers. This review does not claim a remote CI result; review the local test output before committing.</p>
+    </section>
+
+    <section>
+      <h2>Phase 2 known limitations</h2>
+      <ul>
+        <li>Location-ID mutations are conservatively denied for location-only roles rather than conditionally permitted; this is safe but incomplete location-scoped capability behavior.</li>
+        <li>Legacy <code>/api/operational-data</code> remains for non-dashboard pages. The v1 bootstrap/dashboard slice does not yet complete every scoped read model.</li>
+        <li>Bearer compatibility remains for non-browser callers; browser transport remains cookie-based.</li>
+        <li>The Phase 1 <code>TEST_DATABASE_URL</code> ephemeral HTTP test is still skipped locally and no remote CI run is evidenced here.</li>
+        <li>No browser screenshot is attached: local in-app browser access was unavailable. Do not infer a visual pass from component tests.</li>
+      </ul>
+    </section>
 
     <section>
       <h2>Manual-review checklist</h2>

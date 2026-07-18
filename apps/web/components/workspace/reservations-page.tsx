@@ -947,6 +947,8 @@ function MobileReservationsView({
             sessionUser.role,
           )}
           hasMySchedule={Boolean(visibleProviderScope)}
+          hasArchiveAccess={["Owner", "Admin"].includes(sessionUser.role)}
+          hasSettingsAccess={["Owner", "Admin", "Manager"].includes(sessionUser.role)}
           onClose={() => onMoreOpenChange(false)}
           onLogout={onLogout}
           onNavigate={(href) => {
@@ -958,14 +960,8 @@ function MobileReservationsView({
 
       <MobileWorkspaceBottomNav
         active="schedule"
-        canViewBilling={["Owner", "Admin", "Manager", "Receptionist", "Scheduler"].includes(
-          sessionUser.role,
-        )}
-        scheduleLabel={visibleProviderScope ? "Schedule" : "Reservations"}
-        onBilling={() => router.push("/billing")}
         onBook={() => onOpenBooking(providerScope, selectedDate)}
         onMore={() => onMoreOpenChange(true)}
-        onOverview={() => router.push("/dashboard")}
         onSchedule={() => {}}
       />
     </div>

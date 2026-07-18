@@ -1,36 +1,53 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f7f8fa;
-  --foreground: #1f2328;
-  --surface: #ffffff;
-  --surface-container-lowest: #ffffff;
-  --surface-container-low: #f4f5f7;
-  --surface-container: #eef1f3;
-  --surface-container-high: #e7ebee;
-  --surface-muted: #f4f5f7;
-  --surface-subtle: #eef1f3;
-  --surface-strong: #e7ebee;
-  --border: #dde3e8;
-  --text-muted: #66707a;
-  --accent: #0ea5a4;
-  --accent-strong: #0b8a89;
-  --accent-soft: #d8f6f3;
-  --brand: #006a61;
-  --brand-strong: #004d46;
-  --secondary-accent: #7c3f91;
-  --secondary-surface: #f6e8fb;
-  --secondary-text: #7c3f91;
-  --attention: #ffa000;
-  --danger: #ba1a1a;
-  --danger-soft: #ffdad6;
-  --success: #006a61;
-  --ink: #1f2328;
-  --sidebar: #1c1f24;
-  --sidebar-elevated: #23272f;
-  --sidebar-active: #f6e8fb;
-  --sidebar-active-text: #38153f;
-  --shell-muted: #f7f8fa;
+  /* DentalFlow semantic tokens. Existing aliases below keep older screens consistent. */
+  --color-canvas: #ffffff;
+  --color-surface: #f8fafc;
+  --color-sidebar: #f1f5f9;
+  --color-hover: #e8f0f7;
+  --color-selected: #dceef9;
+  --color-border: #d7e0e8;
+  --color-text: #17212b;
+  --color-text-muted: #5c6b78;
+  --color-primary: #0b6e99;
+  --color-primary-hover: #085a7d;
+  --color-success: #16803c;
+  --color-warning: #9a6700;
+  --color-danger: #c2352b;
+  --color-info: #1769aa;
+  --focus-ring: rgba(11, 110, 153, 0.34);
+
+  --background: var(--color-surface);
+  --foreground: var(--color-text);
+  --surface: var(--color-canvas);
+  --surface-container-lowest: var(--color-canvas);
+  --surface-container-low: #f4f7f9;
+  --surface-container: var(--color-sidebar);
+  --surface-container-high: #e8eef3;
+  --surface-muted: var(--color-surface);
+  --surface-subtle: var(--color-sidebar);
+  --surface-strong: #e8eef3;
+  --border: var(--color-border);
+  --text-muted: var(--color-text-muted);
+  --accent: var(--color-primary);
+  --accent-strong: var(--color-primary-hover);
+  --accent-soft: var(--color-selected);
+  --brand: var(--color-primary);
+  --brand-strong: var(--color-primary-hover);
+  --secondary-accent: var(--color-info);
+  --secondary-surface: #eaf3fa;
+  --secondary-text: var(--color-info);
+  --attention: var(--color-warning);
+  --danger: var(--color-danger);
+  --danger-soft: #fbe5e3;
+  --success: var(--color-success);
+  --ink: var(--color-text);
+  --sidebar: var(--color-sidebar);
+  --sidebar-elevated: #e8eef3;
+  --sidebar-active: var(--color-selected);
+  --sidebar-active-text: var(--color-primary-hover);
+  --shell-muted: var(--color-surface);
   --card-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.1);
   --popover-shadow: 0 18px 48px rgba(15, 23, 42, 0.16);
 }
@@ -45,14 +62,15 @@ body {
   margin: 0;
   background: var(--background);
   color: var(--foreground);
-  font-family: "Hanken Grotesk", "Segoe UI", "Aptos", ui-sans-serif, system-ui,
-    -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 20px;
   letter-spacing: 0;
 }
 
 body {
   min-height: 100vh;
-  line-height: 1.4;
+  line-height: 20px;
 }
 
 h1,
@@ -61,8 +79,7 @@ h3,
 h4,
 h5,
 h6 {
-  font-family: "Hanken Grotesk", "Aptos Display", "Segoe UI", ui-sans-serif,
-    system-ui, sans-serif;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
 button,
@@ -88,12 +105,12 @@ a:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-  outline: 3px solid rgba(0, 198, 182, 0.28);
+  outline: 3px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
 ::selection {
-  background: rgba(0, 198, 182, 0.18);
+  background: var(--color-selected);
 }
 
 .scrollbar-quiet {

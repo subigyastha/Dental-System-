@@ -16,7 +16,7 @@ export class OrganizationsService {
 
   async update(id: string, dto: UpdateOrganizationDto, authorization?: string) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicAdmin(session.role);
+    assertClinicAdmin(session);
     if (id !== session.organizationId) {
       throw new NotFoundException("Organization not found");
     }

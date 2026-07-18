@@ -2,159 +2,181 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
-import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowRight, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 
-import { DualCalendarDatePicker, DualDateDisplay } from "@/components/calendar-ui";
 import { Button, Panel, PriorityTag, StatusPill } from "@/components/ui";
 import { useWorkspaceApp } from "@/components/workspace/app-state";
-import {
-  MetricTile,
-  PageHeader,
-} from "@/components/workspace/elements";
+import { EmptyState, MetricTile, PageHeader } from "@/components/workspace/elements";
 import {
   MobileWorkspaceBottomNav,
   MobileWorkspaceMoreSheet,
 } from "@/components/workspace/mobile-workspace-nav";
-import {
-  buildAppointmentView,
-  buildFollowUpView,
-  formatClockRange,
-  formatDualDate,
-} from "@/components/workspace/workspace-utils";
-import { toDateKey } from "@/lib/calendar";
+import { ApiRequestError, apiFetchJson } from "@/lib/api-client";
+import type { AppointmentStatus, Priority } from "@/lib/domain";
 
 const billingRoles = new Set(["Owner", "Admin", "Manager", "Receptionist", "Scheduler"]);
 
-type MobileOverviewTab = "agenda" | "followups" | "clinic";
+type V1Envelope<T> = { data: T; meta: { apiVersion: "v1"; requestId?: string } };
+
+export type DashboardBootstrap = {
+  context: {
+    organization: { id: string; name: string; timezone: string; primaryCalendar: "AD" | "BS" };
+    actor: { id: string; name: string; roles: string[]; roleSource: string; capabilities: string[] };
+  };
+  summary: {
+    activeClientCount: number;
+    appointmentsNext24Hours: number;
+    overdueFollowUpCount: number;
+    generatedAtIso: string;
+  };
+  schedule: {
+    items: Array<{
+      id: string;
+      startsAtIso: string;
+      endsAtIso: string;
+      status: AppointmentStatus;
+      priority: Priority;
+      client: { id: string; name: string; clientCode: string | null };
+      provider: { id: string; name: string };
+      location: { id: string; name: string } | null;
+    }>;
+    page: { limit: number; count: number; hasMore: boolean };
+  };
+  followUps: {
+    items: Array<{
+      id: string;
+      dueAtIso: string;
+      status: string;
+      priority: Priority;
+      type: string;
+      summary: string;
+      nextAction: string;
+      client: { id: string; name: string; clientCode: string | null };
+    }>;
+    page: { limit: number; count: number; hasMore: boolean };
+  };
+};
+
+export function unwrapDashboardBootstrap(envelope: V1Envelope<DashboardBootstrap>) {
+  if (envelope.meta?.apiVersion !== "v1" || !envelope.data) {
+    throw new Error("The dashboard service returned an unsupported response.");
+  }
+  return envelope.data;
+}
+
+export function dashboardBootstrapError(error: unknown) {
+  if (error instanceof ApiRequestError && error.status === 403) {
+    return "You do not have permission to view this dashboard.";
+  }
+  if (error instanceof ApiRequestError && error.status === 401) {
+    return "Your session has expired. Please sign in again.";
+  }
+  return error instanceof Error ? error.message : "The dashboard could not be loaded.";
+}
 
 export function DashboardPage() {
   const router = useRouter();
-  const {
-    data,
-    calendarMode,
-    selectedDate,
-    sessionUser,
-    logout,
-    setCalendarMode,
-    setSelectedDate,
-    updateAppointmentStatus,
-  } = useWorkspaceApp();
-  const [agendaMode, setAgendaMode] = useState<"today" | "tomorrow" | "date">("today");
-  const [mobileTab, setMobileTab] = useState<MobileOverviewTab>("agenda");
+  const { sessionUser, logout, updateAppointmentStatus } = useWorkspaceApp();
+  const [bootstrap, setBootstrap] = useState<DashboardBootstrap | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [mobileTab, setMobileTab] = useState<"agenda" | "followups" | "clinic">("agenda");
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
 
-  const agendaDateKey = useMemo(() => {
-    if (agendaMode === "today") {
-      return todayDateKey();
+  const loadBootstrap = useCallback(async () => {
+    setError(null);
+    try {
+      const response = await apiFetchJson<V1Envelope<DashboardBootstrap>>("/v1/dashboard/bootstrap?limit=12", {
+        cache: "no-store",
+      });
+      setBootstrap(unwrapDashboardBootstrap(response));
+    } catch (loadError) {
+      setBootstrap(null);
+      setError(dashboardBootstrapError(loadError));
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
     }
-    if (agendaMode === "tomorrow") {
-      return addDaysToDateKey(todayDateKey(), 1);
-    }
-    return selectedDate;
-  }, [agendaMode, selectedDate]);
+  }, []);
 
-  const appointmentViews = useMemo(
-    () =>
-      data.appointments.map((appointment) =>
-        buildAppointmentView(appointment, data.customers, data.providers, data.services),
-      ),
-    [data.appointments, data.customers, data.providers, data.services],
-  );
+  useEffect(() => {
+    void loadBootstrap();
+  }, [loadBootstrap]);
 
-  const followUpViews = useMemo(
-    () =>
-      data.followUps
-        .filter((task) => task.status !== "Done")
-        .map((task) => buildFollowUpView(task, data.customers, data.providers))
-        .sort((a, b) => new Date(a.dueIso).getTime() - new Date(b.dueIso).getTime()),
-    [data.customers, data.followUps, data.providers],
-  );
-
-  const dayAppointments = useMemo(
-    () =>
-      appointmentViews
-        .filter((appointment) => toDateKey(appointment.startsAtIso) === agendaDateKey)
-        .sort((a, b) => new Date(a.startsAtIso).getTime() - new Date(b.startsAtIso).getTime()),
-    [agendaDateKey, appointmentViews],
-  );
-
-  const unconfirmedCount = dayAppointments.filter(
-    (appointment) => appointment.communicationState !== "Confirmed by phone",
-  ).length;
-  const providerPressureCount = data.providers.filter(
-    (provider) => provider.status !== "Available",
-  ).length;
-  const urgentFollowUps = followUpViews.filter((task) => task.priority === "Urgent");
   const scheduleLabel = sessionUser?.providerId ? "Schedule" : "Reservations";
   const scheduleHref = sessionUser?.providerId ? "/my-schedule" : "/reservations";
+  const updateStatus = async (appointmentId: string, status: "Completed" | "Confirmed") => {
+    setUpdatingId(appointmentId);
+    try {
+      await updateAppointmentStatus(appointmentId, status);
+      await loadBootstrap();
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  if (isLoading) {
+    return <DashboardState body="Loading the server-confirmed dashboard snapshot..." title="Loading overview" />;
+  }
+
+  if (error || !bootstrap) {
+    return (
+      <DashboardState
+        actionLabel="Retry"
+        body={error ?? "The dashboard service returned no data."}
+        onAction={() => {
+          setIsLoading(true);
+          void loadBootstrap();
+        }}
+        title={error?.includes("permission") ? "Dashboard permission denied" : "Overview unavailable"}
+      />
+    );
+  }
 
   return (
     <>
       <div className="hidden space-y-5 md:block">
         <PageHeader
           title="Overview"
-          subtitle="Fast clinic picture with today, tomorrow, or any picked date."
+          subtitle={`Server-confirmed clinic snapshot · generated ${formatDateTime(bootstrap.summary.generatedAtIso, bootstrap.context.organization.timezone)}`}
           action={
-            <Link
-              className="text-sm font-medium text-[var(--accent)] hover:text-[var(--accent-strong)]"
-              href="/reservations"
-            >
-              Open reservations
-            </Link>
+            <div className="flex items-center gap-3">
+              <Button
+                disabled={isRefreshing}
+                onClick={() => {
+                  setIsRefreshing(true);
+                  void loadBootstrap();
+                }}
+                variant="ghost"
+              >
+                <RefreshCw aria-hidden="true" size={16} />
+                {isRefreshing ? "Refreshing..." : "Refresh"}
+              </Button>
+              <Link className="text-sm font-medium text-[var(--accent)] hover:text-[var(--accent-strong)]" href="/reservations">
+                Open reservations
+              </Link>
+            </div>
           }
         />
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <MetricTile
-            hint={`${dayAppointments.filter((appointment) => appointment.status === "Confirmed").length} confirmed`}
-            label={agendaMode === "tomorrow" ? "Tomorrow" : agendaMode === "date" ? "Selected day" : "Today"}
-            value={String(dayAppointments.length)}
-          />
-          <MetricTile
-            hint={`${urgentFollowUps.length} urgent`}
-            label="Open follow-ups"
-            value={String(followUpViews.length)}
-          />
-          <MetricTile hint="Needs calls or reminders" label="Unconfirmed" value={String(unconfirmedCount)} />
-          <MetricTile
-            hint="Providers marked busy or away"
-            label="Provider pressure"
-            value={String(providerPressureCount)}
-          />
-        </div>
+        <DashboardMetrics bootstrap={bootstrap} />
 
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.9fr)]">
-          <Panel
-            action={
-              <div className="flex gap-2">
-                <QuickTab active={agendaMode === "today"} label="Today" onClick={() => setAgendaMode("today")} />
-                <QuickTab active={agendaMode === "tomorrow"} label="Tomorrow" onClick={() => setAgendaMode("tomorrow")} />
-                <QuickTab active={agendaMode === "date"} label="Pick date" onClick={() => setAgendaMode("date")} />
-              </div>
-            }
-            title={`Agenda - ${formatDualDate(agendaDateKey, calendarMode)}`}
-          >
-            {agendaMode === "date" ? (
-              <div className="border-b border-[var(--border)] p-4">
-                <DualCalendarDatePicker
-                  mode={calendarMode}
-                  onChange={setSelectedDate}
-                  onModeChange={setCalendarMode}
-                  value={selectedDate}
-                />
-              </div>
-            ) : null}
-            <AppointmentAgendaList
-              appointments={dayAppointments}
-              emptyMessage="No appointments booked for this day yet."
-              onComplete={(appointmentId) => void updateAppointmentStatus(appointmentId, "Completed")}
-              onConfirm={(appointmentId) => void updateAppointmentStatus(appointmentId, "Confirmed")}
+          <Panel title="Upcoming appointments · next 24 hours">
+            <BootstrapAppointments
+              appointments={bootstrap.schedule.items}
+              hasMore={bootstrap.schedule.page.hasMore}
+              isUpdatingId={updatingId}
+              onComplete={(id) => void updateStatus(id, "Completed")}
+              onConfirm={(id) => void updateStatus(id, "Confirmed")}
+              timezone={bootstrap.context.organization.timezone}
             />
           </Panel>
-
-          <Panel title="Follow-ups">
-            <FollowUpList followUps={followUpViews.slice(0, 6)} />
+          <Panel title="Overdue follow-ups">
+            <BootstrapFollowUps followUps={bootstrap.followUps.items} hasMore={bootstrap.followUps.page.hasMore} timezone={bootstrap.context.organization.timezone} />
           </Panel>
         </div>
       </div>
@@ -164,161 +186,50 @@ export function DashboardPage() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-lg font-semibold text-[var(--foreground)]">Overview</div>
-              <div className="mt-1">
-                <DualDateDisplay
-                  adDateKey={agendaDateKey}
-                  mode={calendarMode}
-                  primaryClassName="text-base font-semibold"
-                  secondaryClassName="text-xs"
-                />
-              </div>
+              <div className="mt-1 text-xs text-[var(--text-muted)]">Next 24 hours · server-confirmed</div>
             </div>
             <Button onClick={() => router.push(scheduleHref)} variant="secondary">
-              <ArrowRight size={16} />
+              <ArrowRight aria-hidden="true" size={16} />
               {scheduleLabel}
             </Button>
           </div>
-
-          <div className="mt-3 flex rounded-xl border border-[var(--border)] bg-[var(--surface-muted)] p-1">
-            <MobileOverviewTabButton
-              active={mobileTab === "agenda"}
-              label="Agenda"
-              onClick={() => setMobileTab("agenda")}
-            />
-            <MobileOverviewTabButton
-              active={mobileTab === "followups"}
-              label="Follow-ups"
-              onClick={() => setMobileTab("followups")}
-            />
-            <MobileOverviewTabButton
-              active={mobileTab === "clinic"}
-              label="Clinic"
-              onClick={() => setMobileTab("clinic")}
-            />
+          <div className="mt-3 flex rounded-md border border-[var(--border)] bg-[var(--surface-muted)] p-1">
+            <MobileTabButton active={mobileTab === "agenda"} label="Agenda" onClick={() => setMobileTab("agenda")} />
+            <MobileTabButton active={mobileTab === "followups"} label="Follow-ups" onClick={() => setMobileTab("followups")} />
+            <MobileTabButton active={mobileTab === "clinic"} label="Clinic" onClick={() => setMobileTab("clinic")} />
           </div>
         </div>
 
         {mobileTab === "agenda" ? (
           <div className="space-y-4">
-            <Panel
-              action={
-                <div className="flex items-center gap-2">
-                  <button
-                    className="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface-muted)]"
-                    onClick={() => {
-                      const nextDate = addDaysToDateKey(agendaDateKey, -1);
-                      setAgendaMode("date");
-                      setSelectedDate(nextDate);
-                    }}
-                    type="button"
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                  <DateModeChip active={agendaMode === "today"} label="Today" onClick={() => setAgendaMode("today")} />
-                  <DateModeChip active={agendaMode === "tomorrow"} label="Tomorrow" onClick={() => setAgendaMode("tomorrow")} />
-                  <button
-                    className="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface-muted)]"
-                    onClick={() => {
-                      const nextDate = addDaysToDateKey(agendaDateKey, 1);
-                      setAgendaMode("date");
-                      setSelectedDate(nextDate);
-                    }}
-                    type="button"
-                  >
-                    <ChevronRight size={16} />
-                  </button>
-                </div>
-              }
-              title="Day flow"
-            >
-              <div className="space-y-4 p-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <MobileMetricCard
-                    label={agendaMode === "tomorrow" ? "Tomorrow load" : agendaMode === "date" ? "Selected day" : "Today load"}
-                    value={String(dayAppointments.length)}
-                  />
-                  <MobileMetricCard label="Needs follow-up" value={String(unconfirmedCount)} />
-                </div>
-                <DualCalendarDatePicker
-                  mode={calendarMode}
-                  onChange={(dateKey) => {
-                    setAgendaMode("date");
-                    setSelectedDate(dateKey);
-                  }}
-                  onModeChange={setCalendarMode}
-                  value={agendaDateKey}
-                />
-              </div>
-            </Panel>
-
-            <Panel title="Appointments">
-              <AppointmentAgendaList
-                appointments={dayAppointments}
-                compact
-                emptyMessage="No appointments lined up for this day."
-                onComplete={(appointmentId) => void updateAppointmentStatus(appointmentId, "Completed")}
-                onConfirm={(appointmentId) => void updateAppointmentStatus(appointmentId, "Confirmed")}
+            <DashboardMetrics bootstrap={bootstrap} compact />
+            <Panel title="Upcoming appointments">
+              <BootstrapAppointments
+                appointments={bootstrap.schedule.items}
+                hasMore={bootstrap.schedule.page.hasMore}
+                isUpdatingId={updatingId}
+                onComplete={(id) => void updateStatus(id, "Completed")}
+                onConfirm={(id) => void updateStatus(id, "Confirmed")}
+                timezone={bootstrap.context.organization.timezone}
               />
             </Panel>
           </div>
         ) : null}
 
         {mobileTab === "followups" ? (
-          <div className="space-y-4">
-            <Panel title="Urgent now">
-              {urgentFollowUps.length ? (
-                <div className="space-y-3 p-4">
-                  {urgentFollowUps.slice(0, 3).map((task) => (
-                    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-muted)] p-4" key={task.id}>
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="font-medium text-[var(--foreground)]">{task.summary}</div>
-                          <div className="mt-1 text-sm text-[var(--text-muted)]">{task.nextAction}</div>
-                        </div>
-                        <PriorityTag priority={task.priority} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="p-4 text-sm text-[var(--text-muted)]">Nothing urgent is waiting right now.</div>
-              )}
-            </Panel>
-
-            <Panel title="Open follow-ups">
-              <FollowUpList followUps={followUpViews} compact />
-            </Panel>
-          </div>
+          <Panel title="Overdue follow-ups">
+            <BootstrapFollowUps followUps={bootstrap.followUps.items} hasMore={bootstrap.followUps.page.hasMore} timezone={bootstrap.context.organization.timezone} />
+          </Panel>
         ) : null}
 
         {mobileTab === "clinic" ? (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <MobileMetricCard label="Open follow-ups" value={String(followUpViews.length)} />
-              <MobileMetricCard label="Provider pressure" value={String(providerPressureCount)} />
-              <MobileMetricCard label="Confirmed today" value={String(dayAppointments.filter((appointment) => appointment.status === "Confirmed").length)} />
-              <MobileMetricCard label="Urgent tasks" value={String(urgentFollowUps.length)} />
-            </div>
-
+            <DashboardMetrics bootstrap={bootstrap} compact />
             <Panel title="Quick actions">
               <div className="space-y-3 p-4">
-                <QuickLinkCard
-                  body="Open the full provider board and move into booking from there."
-                  href={scheduleHref}
-                  label={scheduleLabel}
-                />
-                <QuickLinkCard
-                  body="Review patient records and move into visit history from one place."
-                  href="/patients"
-                  label="Patients"
-                />
-                {billingRoles.has(sessionUser?.role ?? "") ? (
-                  <QuickLinkCard
-                    body="Check unpaid invoices and record payments without leaving mobile flow."
-                    href="/billing"
-                    label="Billing"
-                  />
-                ) : null}
+                <QuickLink body="Open the provider board and move into booking from there." href={scheduleHref} label={scheduleLabel} />
+                <QuickLink body="Review client records and visit history from one place." href="/patients" label="Clients" />
+                {billingRoles.has(sessionUser?.role ?? "") ? <QuickLink body="Check invoices and record payments." href="/billing" label="Billing" /> : null}
               </div>
             </Panel>
           </div>
@@ -326,8 +237,10 @@ export function DashboardPage() {
 
         {mobileMoreOpen ? (
           <MobileWorkspaceMoreSheet
+            hasArchiveAccess={["Owner", "Admin"].includes(sessionUser?.role ?? "")}
             hasBillingAccess={billingRoles.has(sessionUser?.role ?? "")}
             hasMySchedule={Boolean(sessionUser?.providerId)}
+            hasSettingsAccess={["Owner", "Admin", "Manager"].includes(sessionUser?.role ?? "")}
             onClose={() => setMobileMoreOpen(false)}
             onLogout={logout}
             onNavigate={(href) => {
@@ -336,236 +249,56 @@ export function DashboardPage() {
             }}
           />
         ) : null}
-
         <MobileWorkspaceBottomNav
-          active="overview"
-          canViewBilling={billingRoles.has(sessionUser?.role ?? "")}
-          onBilling={() => router.push("/billing")}
-          onBook={() => router.push(`/reservations?book=1&date=${agendaDateKey}`)}
+          active="more"
+          onBook={() => router.push("/reservations?book=1")}
           onMore={() => setMobileMoreOpen(true)}
-          onOverview={() => {}}
           onSchedule={() => router.push(scheduleHref)}
-          scheduleLabel={scheduleLabel}
         />
       </div>
     </>
   );
 }
 
-function AppointmentAgendaList({
-  appointments,
-  compact = false,
-  emptyMessage,
-  onComplete,
-  onConfirm,
-}: {
-  appointments: ReturnType<typeof buildAppointmentView>[];
-  compact?: boolean;
-  emptyMessage: string;
-  onComplete: (appointmentId: string) => void;
-  onConfirm: (appointmentId: string) => void;
-}) {
-  if (!appointments.length) {
-    return <div className="px-4 py-6 text-sm text-[var(--text-muted)]">{emptyMessage}</div>;
+function DashboardMetrics({ bootstrap, compact = false }: { bootstrap: DashboardBootstrap; compact?: boolean }) {
+  const metrics = [
+    { label: "Active clients", value: String(bootstrap.summary.activeClientCount), hint: "Current clinic records" },
+    { label: "Next 24 hours", value: String(bootstrap.summary.appointmentsNext24Hours), hint: "Active appointments" },
+    { label: "Overdue follow-ups", value: String(bootstrap.summary.overdueFollowUpCount), hint: "Needs action" },
+  ];
+  if (compact) {
+    return <div className="grid grid-cols-3 gap-3">{metrics.map((metric) => <div className="rounded-md border border-[var(--border)] bg-[var(--surface-muted)] p-3" key={metric.label}><div className="text-xs text-[var(--text-muted)]">{metric.label}</div><div className="mt-2 text-xl font-semibold text-[var(--foreground)]">{metric.value}</div></div>)}</div>;
   }
-
-  return (
-    <div className="divide-y divide-[var(--border)]">
-      {appointments.map((appointment) => (
-        <div
-          className={`flex flex-col gap-3 px-4 py-4 ${compact ? "" : "sm:flex-row sm:items-center sm:justify-between"}`}
-          key={appointment.id}
-        >
-          <div className="min-w-0">
-            <div className="truncate font-medium text-[var(--foreground)]">
-              {appointment.customer?.name ?? "Unknown patient"}
-            </div>
-            <div className="mt-1 text-sm text-[var(--text-muted)]">
-              {formatClockRange(
-                appointment.startsAtIso,
-                appointment.durationMinutes,
-                appointment.bufferMinutes,
-              )}{" "}
-              - {appointment.provider?.name ?? "Unassigned"}
-            </div>
-            <div className="mt-1 text-sm text-[var(--text-muted)]">
-              {appointment.services.map((service) => service.name).join(", ") || "No service"}
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <PriorityTag priority={appointment.priority} />
-            <StatusPill status={appointment.status} />
-            {appointment.status === "Scheduled" ? (
-              <button
-                className="rounded-md border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)]"
-                onClick={() => onConfirm(appointment.id)}
-                type="button"
-              >
-                Confirm
-              </button>
-            ) : null}
-            {appointment.status !== "Completed" ? (
-              <button
-                className="rounded-md border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)]"
-                onClick={() => onComplete(appointment.id)}
-                type="button"
-              >
-                Complete
-              </button>
-            ) : null}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
+  return <div className="grid gap-4 md:grid-cols-3">{metrics.map((metric) => <MetricTile hint={metric.hint} key={metric.label} label={metric.label} value={metric.value} />)}</div>;
 }
 
-function FollowUpList({
-  followUps,
-  compact = false,
-}: {
-  followUps: ReturnType<typeof buildFollowUpView>[];
-  compact?: boolean;
-}) {
-  if (!followUps.length) {
-    return <div className="px-4 py-6 text-sm text-[var(--text-muted)]">No open follow-ups right now.</div>;
-  }
-
-  return (
-    <div className="divide-y divide-[var(--border)]">
-      {followUps.map((task) => (
-        <div className={`${compact ? "px-4 py-4" : "px-4 py-4"}`} key={task.id}>
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="font-medium text-[var(--foreground)]">{task.summary}</div>
-              <div className="mt-1 text-sm text-[var(--text-muted)]">
-                {task.customer?.name ?? "Unknown patient"} - {task.provider?.name ?? "Unassigned"}
-              </div>
-              <div className="mt-2 text-sm text-[var(--text-muted)]">{task.nextAction}</div>
-            </div>
-            <PriorityTag priority={task.priority} />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
+function BootstrapAppointments({ appointments, hasMore, isUpdatingId, onComplete, onConfirm, timezone }: { appointments: DashboardBootstrap["schedule"]["items"]; hasMore: boolean; isUpdatingId: string | null; onComplete: (id: string) => void; onConfirm: (id: string) => void; timezone: string }) {
+  if (!appointments.length) return <div className="px-4 py-6 text-sm text-[var(--text-muted)]">No active appointments in the next 24 hours.</div>;
+  return <div className="divide-y divide-[var(--border)]">{appointments.map((appointment) => <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between" key={appointment.id}><div className="min-w-0"><div className="truncate font-medium text-[var(--foreground)]">{appointment.client.name}</div><div className="mt-1 text-sm text-[var(--text-muted)]">{formatTimeRange(appointment.startsAtIso, appointment.endsAtIso, timezone)} · {appointment.provider.name}</div><div className="mt-1 text-sm text-[var(--text-muted)]">{appointment.location?.name ?? "No location assigned"}</div></div><div className="flex flex-wrap items-center gap-2"><PriorityTag priority={appointment.priority} /><StatusPill status={appointment.status} />{appointment.status === "Scheduled" ? <button className="rounded-md border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] disabled:opacity-60" disabled={isUpdatingId === appointment.id} onClick={() => onConfirm(appointment.id)} type="button">Confirm</button> : null}{appointment.status !== "Completed" ? <button className="rounded-md border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] disabled:opacity-60" disabled={isUpdatingId === appointment.id} onClick={() => onComplete(appointment.id)} type="button">Complete</button> : null}</div></div>)}{hasMore ? <div className="px-4 py-3 text-sm text-[var(--text-muted)]">More appointments are available in Reservations.</div> : null}</div>;
 }
 
-function QuickTab({
-  active,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className={`rounded-md px-3 py-1.5 text-sm ${active ? "bg-white text-[var(--foreground)]" : "text-[var(--text-muted)]"}`}
-      onClick={onClick}
-      type="button"
-    >
-      {label}
-    </button>
-  );
+function BootstrapFollowUps({ followUps, hasMore, timezone }: { followUps: DashboardBootstrap["followUps"]["items"]; hasMore: boolean; timezone: string }) {
+  if (!followUps.length) return <div className="px-4 py-6 text-sm text-[var(--text-muted)]">No overdue follow-ups right now.</div>;
+  return <div className="divide-y divide-[var(--border)]">{followUps.map((task) => <div className="px-4 py-4" key={task.id}><div className="flex items-start justify-between gap-3"><div><div className="font-medium text-[var(--foreground)]">{task.summary}</div><div className="mt-1 text-sm text-[var(--text-muted)]">{task.client.name} · due {formatDateTime(task.dueAtIso, timezone)}</div><div className="mt-2 text-sm text-[var(--text-muted)]">{task.nextAction}</div></div><PriorityTag priority={task.priority} /></div></div>)}{hasMore ? <div className="px-4 py-3 text-sm text-[var(--text-muted)]">More overdue follow-ups are available in the work queue.</div> : null}</div>;
 }
 
-function MobileOverviewTabButton({
-  active,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${
-        active ? "bg-white text-[var(--foreground)] shadow-sm" : "text-[var(--text-muted)]"
-      }`}
-      onClick={onClick}
-      type="button"
-    >
-      {label}
-    </button>
-  );
+function DashboardState({ actionLabel, body, onAction, title }: { actionLabel?: string; body: string; onAction?: () => void; title: string }) {
+  return <div className="p-4 md:p-0"><EmptyState actionLabel={actionLabel} body={body} onAction={onAction} title={title} /></div>;
 }
 
-function DateModeChip({
-  active,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className={`rounded-md border px-3 py-1.5 text-sm ${
-        active
-          ? "border-[var(--accent)] bg-white text-[var(--foreground)]"
-          : "border-[var(--border)] bg-[var(--surface-muted)] text-[var(--text-muted)]"
-      }`}
-      onClick={onClick}
-      type="button"
-    >
-      {label}
-    </button>
-  );
+function MobileTabButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+  return <button className={`flex-1 rounded-md px-3 py-2 text-sm font-medium ${active ? "bg-[var(--surface)] text-[var(--foreground)]" : "text-[var(--text-muted)]"}`} onClick={onClick} type="button">{label}</button>;
 }
 
-function MobileMetricCard({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-muted)] p-4">
-      <div className="text-xs font-medium uppercase tracking-[0.08em] text-[var(--text-muted)]">{label}</div>
-      <div className="mt-2 text-2xl font-semibold text-[var(--foreground)]">{value}</div>
-    </div>
-  );
+function QuickLink({ body, href, label }: { body: string; href: string; label: string }) {
+  return <Link className="block rounded-md border border-[var(--border)] bg-[var(--surface-muted)] p-4" href={href}><div className="flex items-start justify-between gap-3"><div><div className="font-medium text-[var(--foreground)]">{label}</div><div className="mt-1 text-sm leading-6 text-[var(--text-muted)]">{body}</div></div><ArrowRight aria-hidden="true" className="mt-0.5 text-[var(--accent)]" size={16} /></div></Link>;
 }
 
-function QuickLinkCard({
-  body,
-  href,
-  label,
-}: {
-  body: string;
-  href: string;
-  label: string;
-}) {
-  return (
-    <Link
-      className="block rounded-xl border border-[var(--border)] bg-[var(--surface-muted)] p-4"
-      href={href}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="font-medium text-[var(--foreground)]">{label}</div>
-          <div className="mt-1 text-sm leading-6 text-[var(--text-muted)]">{body}</div>
-        </div>
-        <div className="mt-0.5 rounded-full bg-white p-2 text-[var(--accent)]">
-          <ArrowRight size={16} />
-        </div>
-      </div>
-    </Link>
-  );
+function formatDateTime(value: string, timezone: string) {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short", timeZone: timezone }).format(new Date(value));
 }
 
-function todayDateKey() {
-  return toDateKey(new Date().toISOString());
-}
-
-function addDaysToDateKey(dateKey: string, days: number) {
-  const date = new Date(`${dateKey}T00:00:00+05:45`);
-  date.setDate(date.getDate() + days);
-  return toDateKey(date.toISOString());
+function formatTimeRange(start: string, end: string, timezone: string) {
+  const format = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", timeZone: timezone });
+  return `${format.format(new Date(start))}–${format.format(new Date(end))}`;
 }

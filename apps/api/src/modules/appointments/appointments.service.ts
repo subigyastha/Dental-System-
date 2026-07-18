@@ -9,7 +9,7 @@ import { AppointmentStatus, Priority, Prisma } from "@prisma/client";
 
 import { getNepalAdDateKeyFromIso, getNepalDayOfWeekFromIso } from "../../lib/nepal-time";
 import { AuthService } from "../auth/auth.service";
-import { assertClinicOperator } from "../auth/authz";
+import { assertClinicOperator, assertClinicOperatorForLocation } from "../auth/authz";
 import { PrismaService } from "../prisma/prisma.service";
 import { SchedulingService } from "../scheduling/scheduling.service";
 import { CreateAppointmentDto } from "./dto/create-appointment.dto";
@@ -52,7 +52,7 @@ export class AppointmentsService {
   ) {}
 
   async list(query: ListAppointmentsDto, authorization?: string) {
-    const session = await this.requireOperator(authorization);
+    const session = await this.requireOperator(authorization, query.locationId);
     const appointments = await this.prisma.appointment.findMany({
       where: {
         organizationId: session.organizationId,
@@ -93,7 +93,7 @@ export class AppointmentsService {
   }
 
   async listDaySummaries(query: ListDaySummariesDto, authorization?: string) {
-    const session = await this.requireOperator(authorization);
+    const session = await this.requireOperator(authorization, query.locationId);
     return this.scheduling.listDaySummaries({
       organizationId: session.organizationId,
       fromDateKey: query.fromDateKey,
@@ -104,7 +104,7 @@ export class AppointmentsService {
   }
 
   async listWeekSummaries(query: ListWeekSummariesDto, authorization?: string) {
-    const session = await this.requireOperator(authorization);
+    const session = await this.requireOperator(authorization, query.locationId);
     return this.scheduling.listWeekSummaries({
       organizationId: session.organizationId,
       fromDateKey: query.fromDateKey,
@@ -115,7 +115,7 @@ export class AppointmentsService {
   }
 
   async create(dto: CreateAppointmentDto, authorization?: string) {
-    const session = await this.requireOperator(authorization);
+    const session = await this.requireOperator(authorization, dto.locationId);
     this.assertSameOrganization(session.organizationId, dto.organizationId);
     const normalized = await this.validateAndNormalizeAppointment(dto);
 
@@ -445,9 +445,10 @@ export class AppointmentsService {
     return { ok: true };
   }
 
-  private async requireOperator(authorization?: string) {
+  private async requireOperator(authorization?: string, locationId?: string) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicOperator(session.role);
+    if (locationId) assertClinicOperatorForLocation(session, locationId);
+    else assertClinicOperator(session);
     return session;
   }
 

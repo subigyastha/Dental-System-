@@ -318,48 +318,14 @@ export class CustomersService {
   }
 
   async delete(id: string, authorization?: string) {
-    const session = await this.requireOperator(authorization);
-    const customer = await this.prisma.customer.findFirst({
-      where: { id, organizationId: session.organizationId },
-      select: { id: true, organizationId: true },
-    });
-
-    if (!customer) {
-      throw new NotFoundException("Patient not found");
-    }
-
-    const [appointments, reports, followUps, communications, invoices, payments] =
-      await Promise.all([
-        this.prisma.appointment.count({ where: { customerId: id } }),
-        this.prisma.appointmentSession.count({ where: { customerId: id } }),
-        this.prisma.followUpTask.count({ where: { customerId: id } }),
-        this.prisma.communicationLog.count({ where: { customerId: id } }),
-        this.prisma.invoice.count({ where: { customerId: id } }),
-        this.prisma.payment.count({ where: { customerId: id } }),
-      ]);
-
-    if (appointments || reports || followUps || communications || invoices || payments) {
-      throw new BadRequestException(
-        "Patient cannot be deleted because operational or financial records already exist",
-      );
-    }
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.auditLog.create({
-        data: {
-          organizationId: customer.organizationId,
-          actorId: session.id,
-          entityType: "customer",
-          entityId: customer.id,
-          action: "deleted",
-          description: "Patient profile deleted",
-        },
-      });
-
-      await tx.customer.delete({ where: { id } });
-    });
-
-    return { ok: true };
+    // The public compatibility route now delegates to CustomerArchiveService.
+    // Keep this method fail-closed so future internal callers cannot bypass the
+    // archive → Owner-confirmed purge lifecycle.
+    void id;
+    void authorization;
+    throw new BadRequestException(
+      "Direct client deletion is disabled; archive first and use Owner-confirmed purge",
+    );
   }
 
   async merge(id: string, dto: MergeCustomerDto, authorization?: string) {
@@ -728,7 +694,7 @@ export class CustomersService {
 
   private async requireOperator(authorization?: string) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicOperator(session.role);
+    assertClinicOperator(session);
     return session;
   }
 

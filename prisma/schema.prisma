@@ -17,7 +17,15 @@ enum UserRole {
   Scheduler
   Provider
   Assistant
+  Finance
+  InventoryManager
   Client
+}
+
+enum OrganizationMembershipStatus {
+  Active
+  Suspended
+  Revoked
 }
 
 enum RecordStatus {
@@ -110,6 +118,12 @@ enum PaymentStatus {
   Voided
 }
 
+enum SupportAccessGrantStatus {
+  Active
+  Revoked
+  Expired
+}
+
 model Organization {
   id              String            @id @default(cuid())
   name            String
@@ -122,6 +136,7 @@ model Organization {
   primaryCalendar String            @default("BS")
   locations       Location[]
   users           User[]
+  memberships     OrganizationMembership[]
   providers       Provider[]
   customers       Customer[]
   services        Service[]
@@ -133,6 +148,9 @@ model Organization {
   payments        Payment[]
   workflowEvents  WorkflowEvent[]
   auditLogs       AuditLog[]
+  featureOverrides OrganizationFeatureOverride[]
+  featureAdoptionEvents FeatureAdoptionEvent[]
+  supportAccessGrants SupportAccessGrant[]
   settings        OrganizationSetting?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
@@ -156,6 +174,7 @@ model Location {
   recurringBlocks ProviderRecurringBlock[]
   blockedTimes   BlockedTime[]
   providerServices ProviderService[]
+  roleAssignments RoleAssignment[]
   createdAt      DateTime               @default(now())
   updatedAt      DateTime               @updatedAt
 
@@ -197,8 +216,19 @@ model User {
   role           UserRole
   provider       Provider?
   clientProfiles Customer[]
+  archivedCustomers Customer[] @relation("CustomerArchivedBy")
   sessions       UserSession[]
+  memberships    OrganizationMembership[] @relation("OrganizationMembershipSubject")
+  grantedMemberships OrganizationMembership[] @relation("OrganizationMembershipGrantedBy")
+  revokedMemberships OrganizationMembership[] @relation("OrganizationMembershipRevokedBy")
+  grantedRoleAssignments RoleAssignment[] @relation("RoleAssignmentGrantedBy")
+  revokedRoleAssignments RoleAssignment[] @relation("RoleAssignmentRevokedBy")
   auditLogs      AuditLog[]
+  updatedPlatformFeatureFlags PlatformFeatureFlag[] @relation("PlatformFeatureFlagUpdatedBy")
+  updatedOrganizationFeatureOverrides OrganizationFeatureOverride[] @relation("OrganizationFeatureOverrideUpdatedBy")
+  requestedSupportAccessGrants SupportAccessGrant[] @relation("SupportAccessRequestedBy")
+  revokedSupportAccessGrants SupportAccessGrant[] @relation("SupportAccessRevokedBy")
+  platformAuditEvents PlatformAuditEvent[]
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
@@ -206,6 +236,143 @@ model User {
   @@index([organizationId, role])
   @@index([email])
   @@index([status])
+}
+
+model PlatformFeatureFlag {
+  key         String                       @id
+  enabled     Boolean                      @default(false)
+  description String?
+  updatedByUserId String?
+  updatedBy   User?                        @relation("PlatformFeatureFlagUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  updatedAt   DateTime                     @updatedAt
+  createdAt   DateTime                     @default(now())
+  overrides   OrganizationFeatureOverride[]
+
+  @@index([enabled])
+  @@index([updatedByUserId])
+}
+
+model OrganizationFeatureOverride {
+  id            String              @id @default(cuid())
+  organizationId String
+  organization  Organization        @relation(fields: [organizationId], references: [id])
+  featureKey    String
+  feature       PlatformFeatureFlag @relation(fields: [featureKey], references: [key])
+  enabled       Boolean
+  reason        String
+  updatedByUserId String?
+  updatedBy     User?               @relation("OrganizationFeatureOverrideUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@unique([organizationId, featureKey])
+  @@index([featureKey])
+  @@index([updatedByUserId])
+}
+
+model FeatureAdoptionEvent {
+  id            String       @id @default(cuid())
+  organizationId String
+  organization  Organization @relation(fields: [organizationId], references: [id])
+  featureKey    String
+  occurredAt    DateTime     @default(now())
+
+  @@index([featureKey, occurredAt])
+  @@index([organizationId, featureKey])
+}
+
+model SupportAccessGrant {
+  id                String                   @id @default(cuid())
+  organizationId    String
+  organization      Organization             @relation(fields: [organizationId], references: [id])
+  requestedByUserId String
+  requestedBy       User                     @relation("SupportAccessRequestedBy", fields: [requestedByUserId], references: [id])
+  reason            String
+  dataDomains       String[]
+  readOnly          Boolean                  @default(true)
+  startsAt          DateTime
+  expiresAt         DateTime
+  status            SupportAccessGrantStatus @default(Active)
+  revokedAt         DateTime?
+  revokedByUserId   String?
+  revokedBy         User?                    @relation("SupportAccessRevokedBy", fields: [revokedByUserId], references: [id], onDelete: SetNull)
+  revokedReason     String?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  @@index([organizationId, status, expiresAt])
+  @@index([requestedByUserId])
+  @@index([revokedByUserId])
+}
+
+model PlatformAuditEvent {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  actor       User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  entityType  String
+  entityId    String
+  action      String
+  payload     Json?
+  description String?
+  createdAt   DateTime @default(now())
+
+  @@index([actorUserId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model OrganizationMembership {
+  id            String                     @id @default(cuid())
+  organizationId String
+  organization  Organization               @relation(fields: [organizationId], references: [id])
+  userId        String
+  user          User                       @relation("OrganizationMembershipSubject", fields: [userId], references: [id])
+  status        OrganizationMembershipStatus @default(Active)
+  effectiveFrom DateTime                   @default(now())
+  effectiveTo   DateTime?
+  revokedAt     DateTime?
+  revokedByUserId String?
+  revokedByUser User?                      @relation("OrganizationMembershipRevokedBy", fields: [revokedByUserId], references: [id], onDelete: SetNull)
+  revokedReason String?
+  grantedByUserId String?
+  grantedByUser User?                      @relation("OrganizationMembershipGrantedBy", fields: [grantedByUserId], references: [id], onDelete: SetNull)
+  grantReason   String?
+  roleAssignments RoleAssignment[]
+  createdAt     DateTime                   @default(now())
+  updatedAt     DateTime                   @updatedAt
+
+  @@unique([organizationId, userId])
+  @@index([userId, status])
+  @@index([organizationId, status])
+  @@index([effectiveFrom, effectiveTo])
+  @@index([grantedByUserId])
+  @@index([revokedByUserId])
+}
+
+model RoleAssignment {
+  id            String                 @id @default(cuid())
+  membershipId  String
+  membership    OrganizationMembership @relation(fields: [membershipId], references: [id])
+  role          UserRole
+  locationId    String?
+  location      Location?              @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  effectiveFrom DateTime               @default(now())
+  effectiveTo   DateTime?
+  revokedAt     DateTime?
+  revokedByUserId String?
+  revokedByUser User?                @relation("RoleAssignmentRevokedBy", fields: [revokedByUserId], references: [id], onDelete: SetNull)
+  revokedReason String?
+  grantedByUserId String?
+  grantedByUser User?                @relation("RoleAssignmentGrantedBy", fields: [grantedByUserId], references: [id], onDelete: SetNull)
+  grantReason   String?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+
+  @@index([membershipId, role])
+  @@index([locationId])
+  @@index([effectiveFrom, effectiveTo])
+  @@index([grantedByUserId])
+  @@index([revokedByUserId])
 }
 
 model UserSession {
@@ -276,6 +443,13 @@ model Customer {
   riskLabel      String          @default("Routine")
   patientCode    String?
   lastVisitAt    DateTime?
+  archivedAt     DateTime?
+  archivedByUserId String?
+  archivedByUser User?          @relation("CustomerArchivedBy", fields: [archivedByUserId], references: [id], onDelete: SetNull)
+  archiveReason  String?
+  retentionUntil DateTime?
+  legalHoldAt    DateTime?
+  legalHoldReason String?
   appointments   Appointment[]
   followUpTasks  FollowUpTask[]
   communications CommunicationLog[]
@@ -292,6 +466,9 @@ model Customer {
   @@index([organizationId, fullName])
   @@index([organizationId, email])
   @@index([userId])
+  @@index([organizationId, archivedAt])
+  @@index([retentionUntil])
+  @@index([legalHoldAt])
 }
 
 model Service {

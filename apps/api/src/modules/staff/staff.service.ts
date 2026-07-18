@@ -83,7 +83,7 @@ export class StaffService {
 
   async create(dto: CreateStaffDto, authorization?: string) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicAdmin(session.role);
+    assertClinicAdmin(session);
     this.assertSameOrganization(session, dto.organizationId);
 
     const email = dto.email.toLowerCase();
@@ -181,7 +181,7 @@ export class StaffService {
 
   async update(id: string, dto: UpdateStaffDto, authorization?: string) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicAdmin(session.role);
+    assertClinicAdmin(session);
     this.assertSameOrganization(session, dto.organizationId);
 
     const existing = await this.prisma.user.findFirst({
@@ -327,7 +327,7 @@ export class StaffService {
     authorization?: string,
   ) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicAdmin(session.role);
+    assertClinicAdmin(session);
 
     const staff = await this.prisma.user.findFirst({
       where: { id, organizationId: session.organizationId },
@@ -360,7 +360,7 @@ export class StaffService {
 
   async deactivate(id: string, authorization?: string) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicAdmin(session.role);
+    assertClinicAdmin(session);
 
     const staff = await this.prisma.user.findFirst({
       where: { id, organizationId: session.organizationId },
@@ -415,7 +415,7 @@ export class StaffService {
 
   async restore(id: string, authorization?: string) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicAdmin(session.role);
+    assertClinicAdmin(session);
 
     const staff = await this.prisma.user.findFirst({
       where: { id, organizationId: session.organizationId },

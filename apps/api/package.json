@@ -8,7 +8,10 @@
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:tenancy": "node --import tsx --test src/modules/customers/customers.tenancy.spec.ts",
-    "test:auth": "node --import tsx --test src/http-security.spec.ts src/modules/auth/session-auth.guard.spec.ts src/modules/auth/csrf.guard.spec.ts src/modules/auth/phase-one-tenancy.spec.ts src/modules/auth/server-sessions.spec.ts src/modules/auth/request-session.spec.ts",
+    "test:auth": "node --import tsx --test src/http-security.spec.ts src/modules/auth/session-auth.guard.spec.ts src/modules/auth/csrf.guard.spec.ts src/modules/auth/phase-one-tenancy.spec.ts src/modules/auth/server-sessions.spec.ts src/modules/auth/request-session.spec.ts src/modules/auth/authorization-policy.spec.ts src/modules/auth/role-governance.service.spec.ts src/modules/auth/role-enforcement.spec.ts",
+    "test:archive": "node --import tsx --test src/modules/customers/customer-archive.service.spec.ts",
+    "test:platform": "node --import tsx --test src/modules/platform/platform.service.spec.ts",
+    "test:v1": "node --import tsx --test src/modules/api-v1/dashboard-bootstrap.service.spec.ts",
     "test:phase-one-http": "node --import tsx --test src/integration/phase-one-http.integration.spec.ts"
   },
   "dependencies": {

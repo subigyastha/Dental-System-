@@ -15,7 +15,7 @@ export class FollowupsService {
 
   async close(id: string, authorization?: string) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicOperator(session.role);
+    assertClinicOperator(session);
     const task = await this.prisma.followUpTask.findFirst({
       where: { id, organizationId: session.organizationId },
       select: { id: true },

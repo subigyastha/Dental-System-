@@ -452,7 +452,7 @@ export class BillingService {
 
   private async requireFinance(authorization?: string) {
     const session = await this.auth.requireSession(authorization);
-    assertFinanceOperator(session.role);
+    assertFinanceOperator(session);
     return session;
   }
 

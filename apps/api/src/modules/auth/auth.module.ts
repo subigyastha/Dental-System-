@@ -2,14 +2,19 @@ import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 
 import { AuthController } from "./auth.controller";
+import { AuthorizationPolicyService } from "./authorization-policy.service";
+import { RoleGovernanceController } from "./role-governance.controller";
+import { RoleGovernanceService } from "./role-governance.service";
 import { AuthService } from "./auth.service";
 import { CsrfGuard } from "./csrf.guard";
 import { SessionAuthGuard } from "./session-auth.guard";
 
 @Module({
-  controllers: [AuthController],
+  controllers: [AuthController, RoleGovernanceController],
   providers: [
     AuthService,
+    AuthorizationPolicyService,
+    RoleGovernanceService,
     {
       provide: APP_GUARD,
       useClass: SessionAuthGuard,
@@ -19,6 +24,6 @@ import { SessionAuthGuard } from "./session-auth.guard";
       useClass: CsrfGuard,
     },
   ],
-  exports: [AuthService],
+  exports: [AuthService, AuthorizationPolicyService],
 })
 export class AuthModule {}

@@ -2,51 +2,98 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
+  Bell,
+  ArchiveRestore,
   CalendarDays,
   CircleDollarSign,
+  CircleUserRound,
   LayoutGrid,
   LogOut,
-  Bell,
-  CircleUserRound,
   Settings,
   Stethoscope,
-  Users,
   UserSquare2,
+  Users,
+  type LucideIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { CalendarModeToggle } from "@/components/calendar-ui";
 import { KoiPageLoader } from "@/components/koi-loader";
-import { Button } from "@/components/ui";
+import {
+  MobileWorkspaceBottomNav,
+  MobileWorkspaceMoreSheet,
+} from "@/components/workspace/mobile-workspace-nav";
 import { useWorkspaceApp } from "@/components/workspace/app-state";
+import type { SessionUser } from "@/lib/domain";
 
 type NavItem = {
   href: string;
+  icon: LucideIcon;
   label: string;
-  icon: ComponentType<{ size?: number; className?: string }>;
-  roles?: string[];
+  roles?: SessionUser["role"][];
   requiresProvider?: boolean;
 };
 
-const navItems: NavItem[] = [
-  { href: "/dashboard", label: "Overview", icon: LayoutGrid },
-  { href: "/reservations", label: "Reservations", icon: CalendarDays },
-  { href: "/my-schedule", label: "My schedule", icon: Stethoscope, requiresProvider: true },
-  { href: "/patients", label: "Patients", icon: UserSquare2 },
-  { href: "/staff", label: "Staff", icon: Users, roles: ["Owner", "Admin", "Manager"] },
-  {
-    href: "/billing",
-    label: "Billing",
-    icon: CircleDollarSign,
-    roles: ["Owner", "Admin", "Manager", "Receptionist", "Scheduler"],
-  },
-  { href: "/settings", label: "Settings", icon: Settings, roles: ["Owner", "Admin", "Manager"] },
+type NavGroup = {
+  items: NavItem[];
+  label: string;
+};
+
+const financeRoles: SessionUser["role"][] = [
+  "Owner",
+  "Admin",
+  "Manager",
+  "Receptionist",
+  "Scheduler",
 ];
+const practiceRoles: SessionUser["role"][] = ["Owner", "Admin", "Manager"];
+const archiveRoles: SessionUser["role"][] = ["Owner", "Admin"];
+
+const navigationGroups: NavGroup[] = [
+  {
+    label: "Today",
+    items: [
+      { href: "/dashboard", icon: LayoutGrid, label: "Overview" },
+      { href: "/my-schedule", icon: Stethoscope, label: "My schedule", requiresProvider: true },
+    ],
+  },
+  {
+    label: "Care",
+    items: [
+      { href: "/reservations", icon: CalendarDays, label: "Reservations" },
+      { href: "/patients", icon: UserSquare2, label: "Clients" },
+    ],
+  },
+  {
+    label: "Finance",
+    items: [{ href: "/billing", icon: CircleDollarSign, label: "Billing", roles: financeRoles }],
+  },
+  {
+    label: "Practice",
+    items: [
+      { href: "/staff", icon: Users, label: "Staff", roles: practiceRoles },
+      { href: "/archive", icon: ArchiveRestore, label: "Archive center", roles: archiveRoles },
+      { href: "/settings", icon: Settings, label: "Settings", roles: practiceRoles },
+    ],
+  },
+];
+
+function isVisible(item: NavItem, user: SessionUser) {
+  if (item.requiresProvider && !user.providerId) {
+    return false;
+  }
+  return !item.roles || item.roles.includes(user.role);
+}
+
+function isCurrentPath(pathname: string, href: string) {
+  return pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
+}
 
 export function WorkspaceShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const {
     calendarMode,
     setCalendarMode,
@@ -58,6 +105,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     clearToast,
   } = useWorkspaceApp();
   const [activePopover, setActivePopover] = useState<"notifications" | "profile" | null>(null);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
 
   useEffect(() => {
     if (!toast) {
@@ -68,15 +116,16 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timer);
   }, [clearToast, toast]);
 
-  const visibleNavItems = navItems.filter((item) => {
-    if (item.requiresProvider && !sessionUser?.providerId) {
-      return false;
+  const visibleNavigationGroups = useMemo(() => {
+    if (!sessionUser) {
+      return [];
     }
-    if (item.roles && (!sessionUser || !item.roles.includes(sessionUser.role))) {
-      return false;
-    }
-    return true;
-  });
+
+    return navigationGroups
+      .map((group) => ({ ...group, items: group.items.filter((item) => isVisible(item, sessionUser)) }))
+      .filter((group) => group.items.length > 0);
+  }, [sessionUser]);
+  const visibleNavItems = visibleNavigationGroups.flatMap((group) => group.items);
   const notifications = useMemo(() => {
     const today = new Date();
     const tomorrow = new Date();
@@ -101,10 +150,6 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
       })),
     ];
   }, [data.appointments, data.followUps]);
-  const hasModuleOwnedMobileNav =
-    pathname.startsWith("/dashboard") ||
-    pathname.startsWith("/reservations") ||
-    pathname.startsWith("/my-schedule");
 
   if (isAuthenticating || !sessionUser) {
     return (
@@ -114,79 +159,136 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     );
   }
 
+  const hasModuleOwnedMobileNav =
+    pathname.startsWith("/dashboard") ||
+    pathname.startsWith("/reservations") ||
+    pathname.startsWith("/my-schedule");
+  const hasBillingAccess = financeRoles.includes(sessionUser.role);
+  const hasSettingsAccess = practiceRoles.includes(sessionUser.role);
+  const hasArchiveAccess = archiveRoles.includes(sessionUser.role);
+  const scheduleHref = sessionUser.providerId ? "/my-schedule" : "/reservations";
+  const pageTitle = visibleNavItems.find((item) => isCurrentPath(pathname, item.href))?.label ?? "Workspace";
+  const locationName = data.locations[0]?.name;
+
   return (
     <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
-      <div className="grid min-h-screen lg:grid-cols-[240px_minmax(0,1fr)]">
-        <aside className="hidden border-r border-[var(--border)] bg-[var(--sidebar)] px-4 py-5 text-white lg:flex lg:flex-col">
-          <div className="border-b border-white/10 pb-5">
-            <Image
-              alt="Nepal Koi Tech"
-              className="h-auto w-full"
-              height={72}
-              src="/with-text.svg"
-              width={320}
-            />
-            <div className="mt-3 text-lg font-semibold">{data.organization.name}</div>
-            <div className="mt-1 text-sm text-white/60">{data.organization.address ?? "Clinic workspace"}</div>
+      <div className="grid min-h-screen lg:grid-cols-[56px_272px_minmax(0,1fr)]">
+        <aside
+          aria-label="Workspace utility rail"
+          className="hidden border-r border-[var(--border)] bg-[var(--surface)] py-3 lg:flex lg:flex-col lg:items-center"
+        >
+          <div className="flex size-9 items-center justify-center rounded-md bg-[var(--color-selected)]" title={data.organization.name}>
+            <Image alt="DentalFlow workspace" className="size-6" height={24} src="/just-icon.svg" width={24} />
           </div>
 
-          <nav className="mt-5 flex-1 space-y-1">
-            {visibleNavItems.map((item) => {
-              const active =
-                pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
+          <nav aria-label="Global destinations" className="mt-6 flex flex-1 flex-col items-center gap-2">
+            {visibleNavItems.slice(0, 4).map((item) => {
               const Icon = item.icon;
-
+              const active = isCurrentPath(pathname, item.href);
               return (
                 <Link
-                  className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm transition ${
+                  aria-current={active ? "page" : undefined}
+                  aria-label={item.label}
+                  className={`flex size-9 items-center justify-center rounded-md transition-colors ${
                     active
-                      ? "bg-white/12 text-white"
-                      : "text-white/68 hover:bg-white/8 hover:text-white"
+                      ? "bg-[var(--color-selected)] text-[var(--color-primary-hover)]"
+                      : "text-[var(--text-muted)] hover:bg-[var(--color-hover)] hover:text-[var(--foreground)]"
                   }`}
                   href={item.href}
                   key={item.href}
+                  title={item.label}
                 >
-                  <Icon size={17} />
-                  <span>{item.label}</span>
+                  <Icon aria-hidden="true" size={18} />
                 </Link>
               );
             })}
           </nav>
 
-          <div className="border-t border-white/10 pt-4">
-            <div className="text-sm font-medium">{sessionUser.name}</div>
-            <div className="mt-1 text-xs uppercase tracking-[0.08em] text-white/50">
-              {sessionUser.role}
+          <button
+            aria-label="Open profile menu"
+            className="flex size-9 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--color-hover)] hover:text-[var(--foreground)]"
+            onClick={() => setActivePopover("profile")}
+            title="Profile menu"
+            type="button"
+          >
+            <CircleUserRound aria-hidden="true" size={19} />
+          </button>
+        </aside>
+
+        <aside className="hidden border-r border-[var(--border)] bg-[var(--sidebar)] px-3 py-5 lg:flex lg:flex-col">
+          <div className="border-b border-[var(--border)] px-2 pb-4">
+            <div className="text-sm font-semibold text-[var(--foreground)]">{data.organization.name}</div>
+            <div className="mt-1 text-xs text-[var(--text-muted)]">
+              {locationName ? `Location: ${locationName}` : "Clinic workspace"}
             </div>
+          </div>
+
+          <nav aria-label="Workspace navigation" className="mt-4 flex-1 space-y-5">
+            {visibleNavigationGroups.map((group) => (
+              <section aria-labelledby={`nav-group-${group.label}`} key={group.label}>
+                <h2
+                  className="px-2 text-xs font-semibold text-[var(--text-muted)]"
+                  id={`nav-group-${group.label}`}
+                >
+                  {group.label}
+                </h2>
+                <div className="mt-1 space-y-0.5">
+                  {group.items.map((item) => {
+                    const Icon = item.icon;
+                    const active = isCurrentPath(pathname, item.href);
+                    return (
+                      <Link
+                        aria-current={active ? "page" : undefined}
+                        className={`flex min-h-9 items-center gap-3 rounded-md px-2.5 py-2 text-sm transition-colors ${
+                          active
+                            ? "bg-[var(--color-selected)] font-medium text-[var(--color-primary-hover)]"
+                            : "text-[var(--foreground)] hover:bg-[var(--color-hover)]"
+                        }`}
+                        href={item.href}
+                        key={item.href}
+                      >
+                        <Icon aria-hidden="true" size={16} />
+                        <span>{item.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+          </nav>
+
+          <div className="border-t border-[var(--border)] px-2 pt-4">
+            <div className="text-sm font-medium text-[var(--foreground)]">{sessionUser.name}</div>
+            <div className="mt-1 text-xs text-[var(--text-muted)]">{sessionUser.role}</div>
           </div>
         </aside>
 
         <div className="flex min-w-0 flex-col">
           <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-[var(--surface)]/95 backdrop-blur">
-            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 lg:px-6">
-              <div>
-                <div className="flex items-center gap-2">
-                  <Image alt="Nepal Koi Tech" className="h-6 w-6" height={24} src="/just-icon.svg" width={24} />
-                  <div className="text-sm font-medium text-[var(--foreground)]">{data.organization.name}</div>
-                </div>
-                <div className="text-xs text-[var(--text-muted)]">
-                  {sessionUser.role} workspace
+            <div className="flex min-h-14 items-center justify-between gap-3 px-4 py-2 lg:px-6">
+              <div className="min-w-0">
+                <h1 className="truncate text-xl font-semibold leading-7 text-[var(--foreground)]">{pageTitle}</h1>
+                <div className="truncate text-xs text-[var(--text-muted)]">
+                  {data.organization.name}
+                  {locationName ? ` · ${locationName}` : ""}
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-1.5">
                 <CalendarModeToggle mode={calendarMode} onChange={setCalendarMode} />
                 <div className="relative">
-                  <Button
+                  <button
+                    aria-expanded={activePopover === "notifications"}
+                    aria-label="Open notifications"
+                    className="flex size-11 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--color-hover)] hover:text-[var(--foreground)] lg:size-9"
                     onClick={() =>
-                      setActivePopover((current) =>
-                        current === "notifications" ? null : "notifications",
-                      )
+                      setActivePopover((current) => (current === "notifications" ? null : "notifications"))
                     }
-                    variant="ghost"
+                    title="Notifications"
+                    type="button"
                   >
-                    <Bell size={16} />
-                  </Button>
+                    <Bell aria-hidden="true" size={17} />
+                  </button>
                   {activePopover === "notifications" ? (
                     <PopoverCard title="Notifications">
                       {notifications.length ? (
@@ -203,64 +305,72 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
                   ) : null}
                 </div>
                 <div className="relative">
-                  <Button
+                  <button
+                    aria-expanded={activePopover === "profile"}
+                    aria-label="Open profile menu"
+                    className="flex size-11 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--color-hover)] hover:text-[var(--foreground)] lg:size-9"
                     onClick={() => setActivePopover((current) => (current === "profile" ? null : "profile"))}
-                    variant="ghost"
+                    title="Profile menu"
+                    type="button"
                   >
-                    <CircleUserRound size={16} />
-                  </Button>
+                    <CircleUserRound aria-hidden="true" size={17} />
+                  </button>
                   {activePopover === "profile" ? (
                     <PopoverCard title="Profile">
                       <div className="px-3 py-3">
                         <div className="text-sm font-medium text-[var(--foreground)]">{sessionUser.name}</div>
-                        <div className="mt-1 text-xs uppercase tracking-[0.08em] text-[var(--text-muted)]">
-                          {sessionUser.role}
-                        </div>
+                        <div className="mt-1 text-xs text-[var(--text-muted)]">{sessionUser.role}</div>
                         <div className="mt-3 text-xs text-[var(--text-muted)]">{sessionUser.email}</div>
+                        <button
+                          className="mt-4 flex min-h-9 w-full items-center justify-center gap-2 rounded-md border border-[var(--border)] px-3 py-2 text-sm text-[var(--danger)] hover:bg-[var(--danger-soft)]"
+                          onClick={logout}
+                          type="button"
+                        >
+                          <LogOut aria-hidden="true" size={16} />
+                          Sign out
+                        </button>
                       </div>
                     </PopoverCard>
                   ) : null}
                 </div>
-                <Button onClick={logout} variant="ghost">
-                  <LogOut size={16} />
-                  Sign out
-                </Button>
-              </div>
-            </div>
-
-            <div
-              className={`border-t border-[var(--border)] bg-[var(--surface)] px-3 py-2 lg:hidden ${
-                hasModuleOwnedMobileNav ? "hidden" : ""
-              }`}
-            >
-              <div className="flex gap-2 overflow-x-auto scrollbar-quiet">
-                {visibleNavItems.map((item) => {
-                  const active =
-                    pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
-                  return (
-                    <Link
-                      className={`shrink-0 rounded-md px-3 py-2 text-sm ${
-                        active
-                          ? "bg-[var(--accent)] text-white"
-                          : "bg-[var(--surface-muted)] text-[var(--text-muted)]"
-                      }`}
-                      href={item.href}
-                      key={item.href}
-                    >
-                      {item.label}
-                    </Link>
-                  );
-                })}
               </div>
             </div>
           </header>
 
-          <main className="flex-1 px-4 py-5 lg:px-6 lg:py-6">{children}</main>
+          <main className="flex-1 px-4 py-5 pb-24 lg:px-6 lg:py-6">{children}</main>
         </div>
       </div>
 
+      {!hasModuleOwnedMobileNav ? (
+        <>
+          {mobileMoreOpen ? (
+            <MobileWorkspaceMoreSheet
+              hasBillingAccess={hasBillingAccess}
+              hasMySchedule={Boolean(sessionUser.providerId)}
+              hasArchiveAccess={hasArchiveAccess}
+              hasSettingsAccess={hasSettingsAccess}
+              onClose={() => setMobileMoreOpen(false)}
+              onLogout={logout}
+              onNavigate={(href) => {
+                setMobileMoreOpen(false);
+                router.push(href);
+              }}
+            />
+          ) : null}
+          <MobileWorkspaceBottomNav
+            active={pathname.startsWith("/reservations") || pathname.startsWith("/my-schedule") ? "schedule" : "more"}
+            onBook={() => router.push("/reservations?book=1")}
+            onMore={() => setMobileMoreOpen(true)}
+            onSchedule={() => router.push(scheduleHref)}
+          />
+        </>
+      ) : null}
+
       {toast ? (
-        <div className="fixed bottom-4 right-4 z-40 rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm shadow-[var(--card-shadow)]">
+        <div
+          aria-live="polite"
+          className="fixed bottom-24 right-4 z-40 rounded-md border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm shadow-[var(--card-shadow)] lg:bottom-4"
+        >
           {toast.message}
         </div>
       ) : null}
@@ -268,13 +378,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   );
 }
 
-function PopoverCard({
-  children,
-  title,
-}: {
-  children: ReactNode;
-  title: string;
-}) {
+function PopoverCard({ children, title }: { children: ReactNode; title: string }) {
   return (
     <div className="absolute right-0 top-[calc(100%+0.5rem)] z-30 w-72 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-[var(--card-shadow)]">
       <div className="border-b border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--foreground)]">

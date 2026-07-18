@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { CalendarRange, KeyRound, Plus, UserCog } from "lucide-react";
 
 import { Button, Panel } from "@/components/ui";
+import { AccessRolesPanel } from "@/components/workspace/access-roles-panel";
 import type { StaffMember } from "@/lib/domain";
 import {
   buildBlockedTimeIso,
@@ -46,6 +47,7 @@ export function StaffPage() {
     deactivateStaff,
     restoreStaff,
     resetStaffPassword,
+    sessionUser,
     updateProviderSchedule,
     updateStaff,
   } = useWorkspaceApp();
@@ -161,6 +163,8 @@ export function StaffPage() {
           </div>
         )}
       </Panel>
+
+      <AccessRolesPanel currentUser={sessionUser} locations={data.locations} staff={data.staff} />
 
       {isCreateOpen ? (
         <StaffFormModal

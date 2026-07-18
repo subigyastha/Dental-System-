@@ -2,6 +2,7 @@ import {
   Inject,
   Injectable,
   InternalServerErrorException,
+  Optional,
   UnauthorizedException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
@@ -9,8 +10,10 @@ import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from
 
 import { PrismaService } from "../prisma/prisma.service";
 import { LoginDto } from "./dto/login.dto";
+import { AuthorizationPolicyService } from "./authorization-policy.service";
 
 export const SESSION_COOKIE_NAME = "clinicflow_session";
+export const ROLE_ASSIGNMENT_ENFORCEMENT_ENV = "ROLE_ASSIGNMENT_ENFORCEMENT";
 const DEFAULT_SESSION_TTL_SECONDS = 60 * 60 * 8;
 
 export type AuthSession = {
@@ -20,6 +23,10 @@ export type AuthSession = {
   email: string;
   role: string;
   providerId?: string;
+  /** Effective organization roles: scalar only until the explicit rollout is enabled. */
+  effectiveRoles?: string[];
+  effectiveRoleScopes?: Array<{ role: string; locationId: string | null }>;
+  authorizationRoleSource?: "legacy_scalar" | "assignment_policy" | "legacy_dual_read" | "platform" | "no_effective_roles";
 };
 
 export type AuthSessionReference = AuthSession | string | undefined;
@@ -70,6 +77,9 @@ export class AuthService {
   constructor(
     @Inject(PrismaService)
     private readonly prisma: PrismaService,
+    @Optional()
+    @Inject(AuthorizationPolicyService)
+    private readonly policy?: AuthorizationPolicyService,
   ) {}
 
   async login(dto: LoginDto, metadata?: SessionMetadata) {
@@ -106,7 +116,7 @@ export class AuthService {
 
   async requireSession(reference?: AuthSessionReference): Promise<AuthSession> {
     if (reference && typeof reference !== "string") {
-      return reference;
+      return reference.effectiveRoles ? reference : this.withEffectiveRoles(reference);
     }
 
     const authorization = reference;
@@ -117,7 +127,7 @@ export class AuthService {
   async requireSessionToken(token?: string): Promise<AuthSession> {
     const persisted = await this.findActiveSession(token);
     this.touchSession(persisted.id);
-    return this.mapUser(persisted.user);
+    return this.withEffectiveRoles(this.mapUser(persisted.user));
   }
 
   async rotateCsrfToken(authorization?: string) {
@@ -144,7 +154,7 @@ export class AuthService {
     if (expected.length !== candidate.length || !timingSafeEqual(expected, candidate)) {
       throw new UnauthorizedException("Invalid CSRF token");
     }
-    return this.mapUser(persisted.user);
+    return this.withEffectiveRoles(this.mapUser(persisted.user));
   }
 
   async rotateSession(authorization?: string, metadata?: SessionMetadata): Promise<IssuedSession> {
@@ -193,7 +203,7 @@ export class AuthService {
       csrfToken: nextCsrfToken,
       sessionId: replacement.id,
       expiresAt,
-      user: this.mapUser(persisted.user),
+      user: await this.withEffectiveRoles(this.mapUser(persisted.user)),
     };
   }
 
@@ -289,7 +299,7 @@ export class AuthService {
       return session;
     });
 
-    return { token, csrfToken, sessionId: created.id, expiresAt, user: this.mapUser(user) };
+    return { token, csrfToken, sessionId: created.id, expiresAt, user: await this.withEffectiveRoles(this.mapUser(user)) };
   }
 
   private async findActiveSession(token?: string) {
@@ -351,6 +361,36 @@ export class AuthService {
       role: user.role,
       providerId: user.provider?.id,
     };
+  }
+
+  private async withEffectiveRoles(session: AuthSession): Promise<AuthSession> {
+    if (!this.isRoleAssignmentEnforcementEnabled()) {
+      return { ...session, effectiveRoles: [session.role], effectiveRoleScopes: [{ role: session.role, locationId: null }], authorizationRoleSource: "legacy_scalar" };
+    }
+    // Platform users do not participate in organization membership policy.
+    if (session.role === "SuperAdmin") {
+      return { ...session, effectiveRoles: [session.role], effectiveRoleScopes: [{ role: session.role, locationId: null }], authorizationRoleSource: "platform" };
+    }
+    if (!session.organizationId || !this.policy) {
+      // Under rollout, never silently fall back to a scalar role when the
+      // membership policy cannot be evaluated.
+      return { ...session, effectiveRoles: [], effectiveRoleScopes: [], authorizationRoleSource: "no_effective_roles" };
+    }
+    const context = await this.policy.resolveContext(session.id, session.organizationId);
+    return {
+      ...session,
+      effectiveRoles: context.roles,
+      effectiveRoleScopes: context.roleScopes,
+      authorizationRoleSource: context.source === "assignments"
+        ? "assignment_policy"
+        : context.source === "legacy-quarantined"
+          ? "legacy_dual_read"
+          : "no_effective_roles",
+    };
+  }
+
+  private isRoleAssignmentEnforcementEnabled() {
+    return process.env[ROLE_ASSIGNMENT_ENFORCEMENT_ENV] === "true";
   }
 
   private verifyPassword(password: string, stored: string) {

@@ -1,71 +1,56 @@
 "use client";
 
-import { CalendarPlus2, ChevronRight, Home, MoreHorizontal, Plus, Wallet } from "lucide-react";
+import { CalendarDays, ChevronRight, MoreHorizontal, Plus, X } from "lucide-react";
+import { useEffect } from "react";
 
 type MobileWorkspaceBottomNavProps = {
-  active: "overview" | "schedule" | "book" | "billing" | "more";
-  canViewBilling: boolean;
-  scheduleLabel: string;
-  onBilling: () => void;
+  active: "schedule" | "book" | "more";
   onBook: () => void;
   onMore: () => void;
-  onOverview: () => void;
   onSchedule: () => void;
 };
 
 export function MobileWorkspaceBottomNav({
   active,
-  canViewBilling,
-  scheduleLabel,
-  onBilling,
   onBook,
   onMore,
-  onOverview,
   onSchedule,
 }: MobileWorkspaceBottomNavProps) {
   const items: Array<{
     active?: boolean;
-    disabled?: boolean;
-    icon: typeof Home;
+    icon: typeof CalendarDays;
     label: string;
     onClick: () => void;
     primary?: boolean;
   }> = [
-    { active: active === "overview", icon: Home, label: "Overview", onClick: onOverview },
     {
       active: active === "schedule",
-      icon: CalendarPlus2,
-      label: scheduleLabel,
+      icon: CalendarDays,
+      label: "Schedule",
       onClick: onSchedule,
     },
     { active: active === "book", icon: Plus, label: "Book", onClick: onBook, primary: true },
-    {
-      active: active === "billing",
-      disabled: !canViewBilling,
-      icon: Wallet,
-      label: "Billing",
-      onClick: onBilling,
-    },
     { active: active === "more", icon: MoreHorizontal, label: "More", onClick: onMore },
   ];
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-20 border-t border-[var(--border)] bg-[var(--surface)]/96 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur md:hidden">
-      <div className="grid grid-cols-5 gap-2">
+    <nav
+      aria-label="Mobile workspace navigation"
+      className="fixed inset-x-0 bottom-0 z-20 border-t border-[var(--border)] bg-[var(--surface)]/96 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur lg:hidden"
+    >
+      <div className="grid grid-cols-3 gap-2">
         {items.map((item) => {
           const Icon = item.icon;
           return (
             <button
-              className={`flex flex-col items-center justify-center rounded-xl px-2 py-2 text-[11px] font-medium ${
+              aria-current={item.active ? "page" : undefined}
+              className={`flex min-h-11 flex-col items-center justify-center rounded-md px-2 py-2 text-xs font-medium ${
                 item.primary
-                  ? "bg-[var(--accent)] text-white"
+                  ? "bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)]"
                   : item.active
-                    ? "bg-[var(--accent-soft)] text-[var(--brand-strong)]"
-                    : item.disabled
-                      ? "text-[var(--text-muted)] opacity-45"
-                      : "text-[var(--text-muted)]"
+                    ? "bg-[var(--color-selected)] text-[var(--color-primary-hover)]"
+                    : "text-[var(--text-muted)] hover:bg-[var(--color-hover)]"
               }`}
-              disabled={item.disabled}
               key={item.label}
               onClick={item.onClick}
               type="button"
@@ -76,30 +61,58 @@ export function MobileWorkspaceBottomNav({
           );
         })}
       </div>
-    </div>
+    </nav>
   );
 }
 
 export function MobileWorkspaceMoreSheet({
   hasBillingAccess,
   hasMySchedule,
+  hasArchiveAccess,
+  hasSettingsAccess,
   onClose,
   onLogout,
   onNavigate,
 }: {
   hasBillingAccess: boolean;
   hasMySchedule: boolean;
+  hasArchiveAccess: boolean;
+  hasSettingsAccess: boolean;
   onClose: () => void;
   onLogout: () => void;
   onNavigate: (href: string) => void;
 }) {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-30 bg-black/30 md:hidden" onClick={onClose}>
+    <div className="fixed inset-0 z-30 bg-black/30 lg:hidden" onClick={onClose}>
       <div
-        className="absolute inset-x-0 bottom-0 rounded-t-3xl border-t border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--popover-shadow)]"
+        aria-label="More workspace options"
+        aria-modal="true"
+        className="absolute inset-x-0 bottom-0 rounded-t-lg border-t border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--popover-shadow)]"
+        role="dialog"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[var(--border)]" />
+        <div className="mb-4 flex items-center justify-between">
+          <div className="h-1.5 w-12 rounded-full bg-[var(--border)]" />
+          <button
+            aria-label="Close more options"
+            className="flex size-11 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--color-hover)]"
+            onClick={onClose}
+            type="button"
+          >
+            <X aria-hidden="true" size={18} />
+          </button>
+        </div>
         <div className="space-y-2">
           <MobileMoreSheetAction label="Patients" onClick={() => onNavigate("/patients")} />
           {hasMySchedule ? (
@@ -108,9 +121,14 @@ export function MobileWorkspaceMoreSheet({
           {hasBillingAccess ? (
             <MobileMoreSheetAction label="Billing" onClick={() => onNavigate("/billing")} />
           ) : null}
-          <MobileMoreSheetAction label="Settings" onClick={() => onNavigate("/settings")} />
+          {hasArchiveAccess ? (
+            <MobileMoreSheetAction label="Archive center" onClick={() => onNavigate("/archive")} />
+          ) : null}
+          {hasSettingsAccess ? (
+            <MobileMoreSheetAction label="Settings" onClick={() => onNavigate("/settings")} />
+          ) : null}
           <button
-            className="flex w-full items-center justify-between rounded-xl border border-[var(--border)] px-4 py-4 text-left text-[var(--danger)]"
+            className="flex min-h-11 w-full items-center justify-between rounded-md border border-[var(--border)] px-4 py-3 text-left text-[var(--danger)]"
             onClick={onLogout}
             type="button"
           >
@@ -132,7 +150,7 @@ function MobileMoreSheetAction({
 }) {
   return (
     <button
-      className="flex w-full items-center justify-between rounded-xl border border-[var(--border)] px-4 py-4 text-left"
+      className="flex min-h-11 w-full items-center justify-between rounded-md border border-[var(--border)] px-4 py-3 text-left hover:bg-[var(--color-hover)]"
       onClick={onClick}
       type="button"
     >

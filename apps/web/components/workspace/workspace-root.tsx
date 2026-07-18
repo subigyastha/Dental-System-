@@ -9,6 +9,8 @@ import { WorkspaceShell } from "@/components/workspace/workspace-shell";
 import { ApiRequestError, apiFetchJson } from "@/lib/api-client";
 import type { OperationalData } from "@/lib/database-data";
 import { resolveWorkspaceGate } from "@/lib/workspace-access";
+import { isPlatformOnlyUser } from "@/lib/session-routing";
+import type { SessionUser } from "@/lib/domain";
 
 export function WorkspaceRoot({
   children,
@@ -26,7 +28,11 @@ export function WorkspaceRoot({
     setRequiresSignIn(false);
     setError(null);
     try {
-      await apiFetchJson("/auth/me", { cache: "no-store" });
+      const user = await apiFetchJson<SessionUser>("/auth/me", { cache: "no-store" });
+      if (isPlatformOnlyUser(user)) {
+        router.replace("/platform");
+        return;
+      }
       const response = await apiFetchJson<OperationalData>(
         "/operational-data",
         { cache: "no-store" },

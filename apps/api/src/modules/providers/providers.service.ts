@@ -10,7 +10,7 @@ import { Prisma } from "@prisma/client";
 
 import { mapProviderToClient } from "../../lib/map-provider";
 import { AuthService } from "../auth/auth.service";
-import { assertClinicAdmin, assertClinicOperator, isClinicAdmin } from "../auth/authz";
+import { assertClinicAdmin, assertClinicOperator, assertClinicOperatorForLocation, isClinicAdmin } from "../auth/authz";
 import { PrismaService } from "../prisma/prisma.service";
 import { SchedulingService } from "../scheduling/scheduling.service";
 import { CreateProviderDto } from "./dto/create-provider.dto";
@@ -53,7 +53,7 @@ export class ProvidersService {
 
   async list(authorization?: string) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicOperator(session.role);
+    assertClinicOperator(session);
     const providers = await this.prisma.provider.findMany({
       where: { organizationId: session.organizationId },
       include: providerInclude,
@@ -65,7 +65,7 @@ export class ProvidersService {
 
   async getOne(id: string, authorization?: string) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicOperator(session.role);
+    assertClinicOperator(session);
     const provider = await this.prisma.provider.findFirst({
       where: { id, organizationId: session.organizationId },
       include: providerInclude,
@@ -80,7 +80,7 @@ export class ProvidersService {
 
   async create(dto: CreateProviderDto, authorization?: string) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicAdmin(session.role);
+    assertClinicAdmin(session);
     const provider = await this.prisma.provider.create({
       data: {
         organizationId: dto.organizationId,
@@ -115,7 +115,7 @@ export class ProvidersService {
 
   async remove(id: string, authorization?: string) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicAdmin(session.role);
+    assertClinicAdmin(session);
     const existing = await this.prisma.provider.findUnique({
       where: { id },
       select: { id: true, organizationId: true },
@@ -174,7 +174,7 @@ export class ProvidersService {
 
   async update(id: string, dto: UpdateProviderDto, authorization?: string) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicAdmin(session.role);
+    assertClinicAdmin(session);
     const provider = await this.prisma.provider.update({
       where: { id },
       data: {
@@ -209,7 +209,7 @@ export class ProvidersService {
 
   async getSchedule(id: string, authorization?: string) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicOperator(session.role);
+    assertClinicOperator(session);
     const provider = await this.prisma.provider.findFirst({
       where: { id, organizationId: session.organizationId },
       include: {
@@ -265,7 +265,7 @@ export class ProvidersService {
   }
 
   async listSlots(id: string, query: ListProviderSlotsDto, authorization?: string) {
-    await this.requireScheduleViewAccess(id, query.organizationId, authorization);
+    await this.requireScheduleViewAccess(id, query.organizationId, authorization, query.locationId);
     return this.scheduling.listProviderSlots({
       organizationId: query.organizationId,
       providerId: id,
@@ -288,7 +288,7 @@ export class ProvidersService {
     await this.requireScheduleGridViewAccess(
       query.organizationId,
       providerIds,
-      authorization,
+      authorization, query.locationId,
     );
 
     return this.scheduling.listScheduleGridForDay({
@@ -304,7 +304,7 @@ export class ProvidersService {
     query: ListProviderScheduleGridDto,
     authorization?: string,
   ) {
-    await this.requireScheduleViewAccess(id, query.organizationId, authorization);
+    await this.requireScheduleViewAccess(id, query.organizationId, authorization, query.locationId);
     return this.scheduling.listScheduleGridForDay({
       organizationId: query.organizationId,
       providerIds: [id],
@@ -838,7 +838,7 @@ export class ProvidersService {
       throw new NotFoundException("Provider not found");
     }
 
-    const isOwnerOrAdmin = isClinicAdmin(session.role);
+    const isOwnerOrAdmin = isClinicAdmin(session);
     const ownsSchedule = session.providerId === providerId;
     if (!isOwnerOrAdmin && !ownsSchedule) {
       throw new ForbiddenException("You are not allowed to change this schedule");
@@ -854,9 +854,11 @@ export class ProvidersService {
     providerId: string,
     organizationId: string,
     authorization?: string,
+    locationId?: string,
   ) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicOperator(session.role);
+    if (locationId) assertClinicOperatorForLocation(session, locationId);
+    else assertClinicOperator(session);
 
     if (session.organizationId !== organizationId) {
       throw new BadRequestException("Cross-organization schedule access is not allowed");
@@ -878,9 +880,11 @@ export class ProvidersService {
     organizationId: string,
     providerIds: string[] | undefined,
     authorization?: string,
+    locationId?: string,
   ) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicOperator(session.role);
+    if (locationId) assertClinicOperatorForLocation(session, locationId);
+    else assertClinicOperator(session);
 
     if (session.organizationId !== organizationId) {
       throw new BadRequestException("Cross-organization schedule access is not allowed");

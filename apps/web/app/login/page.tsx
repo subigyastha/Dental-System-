@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui";
 import { apiFetchJson, rememberCsrfToken } from "@/lib/api-client";
 import type { SessionUser } from "@/lib/domain";
+import { signedInRoute } from "@/lib/session-routing";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -28,7 +29,7 @@ export default function LoginPage() {
       });
 
       rememberCsrfToken(result.csrfToken);
-      router.replace(result.user.providerId && ["Provider", "Assistant"].includes(result.user.role) ? "/my-schedule" : "/dashboard");
+      router.replace(signedInRoute(result.user));
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Could not sign in");
     } finally {

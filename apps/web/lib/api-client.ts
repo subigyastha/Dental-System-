@@ -96,8 +96,14 @@ export async function apiFetchJson<T>(path: string, init?: RequestInit) {
     let message = fallbackMessage;
 
     try {
-      const payload = (await response.json()) as { error?: string; message?: string };
-      message = payload.error ?? payload.message ?? fallbackMessage;
+      const payload = (await response.json()) as {
+        error?: string | { message?: string };
+        message?: string;
+      };
+      message =
+        (typeof payload.error === "string" ? payload.error : payload.error?.message) ??
+        payload.message ??
+        fallbackMessage;
     } catch {
       // Keep fallback message.
     }
