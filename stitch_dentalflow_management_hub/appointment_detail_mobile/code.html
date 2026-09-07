@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>Central Dental - Appointment Details</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                "on-tertiary": "#ffffff",
+                "secondary": "#006d2f",
+                "secondary-fixed": "#95f8a5",
+                "sidebar": "#F1F5F9",
+                "secondary-container": "#95f8a5",
+                "on-primary": "#ffffff",
+                "brand-teal": "#7BC8C3",
+                "inverse-primary": "#84cfff",
+                "on-secondary-container": "#007433",
+                "surface-bright": "#f7f9ff",
+                "canvas": "#FFFFFF",
+                "surface-container-highest": "#d9e3f1",
+                "on-secondary-fixed": "#002109",
+                "primary-fixed": "#c7e7ff",
+                "text-muted": "#5C6B78",
+                "brand-lavender": "#C196C2",
+                "on-tertiary-fixed": "#291800",
+                "surface-container-high": "#dfe9f7",
+                "on-surface-variant": "#40484e",
+                "inverse-surface": "#27313c",
+                "tertiary-fixed-dim": "#fbbb58",
+                "tertiary": "#6d4800",
+                "tertiary-fixed": "#ffddb1",
+                "outline": "#70787f",
+                "on-surface": "#121c26",
+                "on-primary-fixed": "#001e2e",
+                "error-container": "#ffdad6",
+                "on-primary-container": "#cfeaff",
+                "border": "#D7E0E8",
+                "on-background": "#121c26",
+                "on-error-container": "#93000a",
+                "primary-container": "#0b6e99",
+                "surface": "#F8FAFC",
+                "on-tertiary-container": "#ffe2be",
+                "primary-fixed-dim": "#84cfff",
+                "on-error": "#ffffff",
+                "surface-variant": "#d9e3f1",
+                "surface-container": "#e4effd",
+                "tertiary-container": "#8d5e00",
+                "background": "#f7f9ff",
+                "primary": "#005578",
+                "surface-container-low": "#edf4ff",
+                "outline-variant": "#bfc7cf",
+                "surface-dim": "#d1dbe9",
+                "surface-container-lowest": "#ffffff",
+                "secondary-fixed-dim": "#7adb8c",
+                "inverse-on-surface": "#e8f2ff",
+                "on-secondary": "#ffffff",
+                "error": "#ba1a1a",
+                "danger": "#C2352B",
+                "on-tertiary-fixed-variant": "#624000",
+                "on-primary-fixed-variant": "#004c6c",
+                "on-secondary-fixed-variant": "#005322",
+                "surface-tint": "#00658e"
+            },
+            "borderRadius": {
+                "DEFAULT": "0.125rem",
+                "lg": "0.25rem",
+                "xl": "0.5rem",
+                "full": "0.75rem"
+            },
+            "spacing": {
+                "gutter": "16px",
+                "sidebar-collapsed": "72px",
+                "sidebar-width": "272px",
+                "margin-page": "24px",
+                "control-dense": "28px",
+                "unit": "4px",
+                "utility-rail": "56px",
+                "control-std": "36px"
+            },
+            "fontFamily": {
+                "label-caps": ["Inter"],
+                "base-body": ["Inter"],
+                "label-metadata": ["Inter"],
+                "section-title": ["Inter"],
+                "page-title": ["Inter"],
+                "dense-row": ["Inter"]
+            },
+            "fontSize": {
+                "label-caps": ["11px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                "base-body": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                "label-metadata": ["12px", {"lineHeight": "16px", "fontWeight": "400"}],
+                "section-title": ["14px", {"lineHeight": "20px", "fontWeight": "600"}],
+                "page-title": ["20px", {"lineHeight": "28px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                "dense-row": ["13px", {"lineHeight": "18px", "fontWeight": "400"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .bento-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+        .bento-item-full { grid-column: span 2; }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-surface">
+<!-- Top Navigation -->
+<header class="fixed top-0 w-full z-50 bg-canvas border-b border-border flex items-center justify-between px-margin-page h-control-std">
+<div class="flex items-center gap-3">
+<button class="text-primary active:scale-90 transition-transform">
+<span class="material-symbols-outlined">arrow_back</span>
+</button>
+<h1 class="font-page-title text-page-title text-primary">Appointment Detail</h1>
+</div>
+<button class="text-primary">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</header>
+<main class="pt-[60px] pb-32 px-gutter space-y-6">
+<!-- Patient Header & Alert -->
+<section class="mt-4">
+<div class="flex items-center gap-4 mb-4">
+<div class="w-16 h-16 rounded-full overflow-hidden bg-surface-container border border-border">
+<img class="w-full h-full object-cover" data-alt="A professional studio portrait of a middle-aged Asian man with a friendly smile, Robert Chen. He is wearing a clean casual button-down shirt. The background is a soft, out-of-focus medical office with high-key lighting and a professional dental clinical aesthetic, utilizing a clean white and soft teal color palette." src="https://lh3.googleusercontent.com/aida-public/AB6AXuArqVG_wsjAR0TWIOGg1dhg-ydaurVXgYBEEtm7J9vDp10YPalCib5_yHVkehXEFgYlreW-ku2ls0FY1lmBbAYdr-KkDM7G9QOr8V-fi3I2mAYiVA1DlNdUuU2DwqCzG-8TzSjTcy34ZaQgn58sD1WknLTkUa1ZUfJmCpbpJUakcCYP-f4LbZPKdRP64VmO6G5vwElb7QfOcNfam3J1-HSKmeIUtRCJ5fGRQT1glkVGfxt_pgEaX3uXIFHhOqQ8KNqcjtwulYX5DpY"/>
+</div>
+<div>
+<h2 class="font-page-title text-page-title">Robert Chen</h2>
+<p class="font-label-metadata text-label-metadata text-text-muted">ID: #44920-RC • Last Visit: 6mo ago</p>
+</div>
+</div>
+<!-- Clinical Alert -->
+<div class="bg-error-container border border-error/20 p-3 rounded-lg flex items-center gap-3 animate-pulse">
+<span class="material-symbols-outlined text-danger" style="font-variation-settings: 'FILL' 1;">warning</span>
+<span class="font-section-title text-section-title text-on-error-container">Penicillin Allergy</span>
+</div>
+</section>
+<!-- Appointment Context Bento -->
+<section class="bento-grid">
+<div class="bento-item-full bg-canvas p-4 border border-border rounded-xl flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">calendar_today</span>
+</div>
+<div>
+<p class="font-label-caps text-label-caps text-text-muted">SCHEDULED</p>
+<p class="font-section-title text-section-title text-primary">Today, 09:00 AM</p>
+</div>
+</div>
+<span class="bg-secondary-container text-on-secondary-container font-label-caps text-[10px] px-2 py-1 rounded-full">CONFIRMED</span>
+</div>
+<div class="bg-canvas p-4 border border-border rounded-xl">
+<p class="font-label-caps text-label-caps text-text-muted mb-2">PROCEDURE</p>
+<p class="font-section-title text-section-title">Prophylaxis</p>
+<p class="font-label-metadata text-label-metadata text-text-muted">Standard Cleaning</p>
+</div>
+<div class="bg-canvas p-4 border border-border rounded-xl">
+<p class="font-label-caps text-label-caps text-text-muted mb-2">PROVIDER</p>
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded-full overflow-hidden bg-brand-teal">
+<img class="w-full h-full object-cover" data-alt="Close up headshot of a female dentist, Dr. Moore, in professional blue clinical scrubs. She has a warm, confident expression. The lighting is bright and modern, suggesting a clean dental surgery environment. The color palette emphasizes professional whites and soft surgical teals." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAlpZGuhMT-jO4JgfHDvO9efVI01Itv6jGryKVs19APy4WRHuGR0Rn1Q8IjHuKipxh_64QJiq4AFo_PVKjPOalomorFYctE_nydZAvNflkPDG8u-B1oHrwDSoqwgPEclDzxQt7ov6RUMCl9E-KAd6UQAqAZjiObongP9EsvPgt-uMk131MMfjQtcDPVPfWbBLyQtKnuTARJDiuNOfkVJ2kOmJLv-BP_aPEp5pDFBUb7yk1MaVcJ1sboNKIvzuEI4F4bZTnficHZ3Xc"/>
+</div>
+<p class="font-section-title text-section-title">Dr. Moore</p>
+</div>
+<p class="font-label-metadata text-label-metadata text-text-muted">Operatory 4</p>
+</div>
+</section>
+<!-- Quick Actions -->
+<section class="space-y-3">
+<button class="w-full h-12 bg-primary text-on-primary rounded-xl font-section-title text-section-title flex items-center justify-center gap-2 active:scale-[0.98] transition-transform">
+<span class="material-symbols-outlined">how_to_reg</span>
+                Check In
+            </button>
+<div class="grid grid-cols-2 gap-3">
+<button class="h-11 bg-canvas border border-primary text-primary rounded-xl font-section-title text-section-title flex items-center justify-center gap-2 active:scale-[0.98] transition-transform">
+<span class="material-symbols-outlined">event_repeat</span>
+                    Reschedule
+                </button>
+<button class="h-11 bg-canvas border border-outline-variant text-text-muted rounded-xl font-section-title text-section-title flex items-center justify-center gap-2 active:scale-[0.98] transition-transform">
+<span class="material-symbols-outlined">cancel</span>
+                    Cancel
+                </button>
+</div>
+</section>
+<!-- Visit History Summary -->
+<section class="space-y-4">
+<div class="flex items-center justify-between">
+<h3 class="font-section-title text-section-title">Visit History</h3>
+<button class="text-primary font-label-metadata text-label-metadata">View Full Chart</button>
+</div>
+<div class="space-y-px overflow-hidden rounded-xl border border-border bg-border">
+<div class="bg-canvas p-3 flex items-center justify-between">
+<div>
+<p class="font-dense-row text-dense-row font-semibold">Mar 12, 2024</p>
+<p class="font-label-metadata text-label-metadata text-text-muted">Emergency Exam - Tooth #14</p>
+</div>
+<span class="material-symbols-outlined text-text-muted text-sm">chevron_right</span>
+</div>
+<div class="bg-canvas p-3 flex items-center justify-between">
+<div>
+<p class="font-dense-row text-dense-row font-semibold">Oct 24, 2023</p>
+<p class="font-label-metadata text-label-metadata text-text-muted">Restoration - Composite (2 Surf)</p>
+</div>
+<span class="material-symbols-outlined text-text-muted text-sm">chevron_right</span>
+</div>
+<div class="bg-canvas p-3 flex items-center justify-between">
+<div>
+<p class="font-dense-row text-dense-row font-semibold">Apr 15, 2023</p>
+<p class="font-label-metadata text-label-metadata text-text-muted">Prophylaxis - Recall</p>
+</div>
+<span class="material-symbols-outlined text-text-muted text-sm">chevron_right</span>
+</div>
+</div>
+</section>
+</main>
+<!-- Navigation Bar -->
+<nav class="fixed bottom-0 w-full z-50 bg-surface border-t border-border flex justify-around items-center h-utility-rail pb-safe w-full">
+<a class="flex flex-col items-center justify-center text-secondary font-bold" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">calendar_today</span>
+<span class="font-label-metadata text-label-metadata">Schedule</span>
+</a>
+<a class="flex flex-col items-center justify-center text-text-muted" href="#">
+<span class="material-symbols-outlined">add_circle</span>
+<span class="font-label-metadata text-label-metadata">Book</span>
+</a>
+<a class="flex flex-col items-center justify-center text-text-muted" href="#">
+<span class="material-symbols-outlined">more_horiz</span>
+<span class="font-label-metadata text-label-metadata">More</span>
+</a>
+</nav>
+<script>
+        // Micro-interaction for Check-in button
+        const checkInBtn = document.querySelector('button:has(span:contains("how_to_reg"))');
+        if (checkInBtn) {
+            checkInBtn.addEventListener('click', () => {
+                const icon = checkInBtn.querySelector('.material-symbols-outlined');
+                checkInBtn.innerHTML = '<span class="material-symbols-outlined animate-spin">refresh</span> Checking In...';
+                checkInBtn.classList.replace('bg-primary', 'bg-secondary');
+                
+                setTimeout(() => {
+                    checkInBtn.innerHTML = '<span class="material-symbols-outlined" style="font-variation-settings: \'FILL\' 1;">check_circle</span> Checked In';
+                }, 1500);
+            });
+        }
+
+        // Handle text selection/hover effects common in modern UI
+        document.querySelectorAll('.bg-canvas').forEach(card => {
+            card.addEventListener('touchstart', () => {
+                card.classList.add('bg-surface-container-low');
+            });
+            card.addEventListener('touchend', () => {
+                setTimeout(() => card.classList.remove('bg-surface-container-low'), 150);
+            });
+        });
+    </script>
+<!-- Custom selector for finding buttons containing specific text strings (Polyfill logic) -->
+<script>
+        // Helping the interaction script find the right button
+        const btns = document.querySelectorAll('button');
+        btns.forEach(btn => {
+            if (btn.innerText.includes('Check In')) {
+                btn.addEventListener('click', function(e) {
+                   const originalContent = this.innerHTML;
+                   this.innerHTML = '<span class="material-symbols-outlined animate-spin">sync</span> Processing...';
+                   this.disabled = true;
+                   setTimeout(() => {
+                       this.innerHTML = '<span class="material-symbols-outlined">verified</span> Arrived';
+                       this.classList.add('bg-secondary');
+                       this.classList.remove('bg-primary');
+                   }, 1200);
+                });
+            }
+        });
+    </script>
+</body></html>

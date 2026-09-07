@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, viewport-fit=cover" name="viewport"/>
+<title>Central Dental - More</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-tertiary": "#ffffff",
+                    "secondary": "#006d2f",
+                    "secondary-fixed": "#95f8a5",
+                    "sidebar": "#F1F5F9",
+                    "secondary-container": "#95f8a5",
+                    "on-primary": "#ffffff",
+                    "brand-teal": "#7BC8C3",
+                    "inverse-primary": "#84cfff",
+                    "on-secondary-container": "#007433",
+                    "surface-bright": "#f7f9ff",
+                    "canvas": "#FFFFFF",
+                    "surface-container-highest": "#d9e3f1",
+                    "on-secondary-fixed": "#002109",
+                    "primary-fixed": "#c7e7ff",
+                    "text-muted": "#5C6B78",
+                    "brand-lavender": "#C196C2",
+                    "on-tertiary-fixed": "#291800",
+                    "surface-container-high": "#dfe9f7",
+                    "on-surface-variant": "#40484e",
+                    "inverse-surface": "#27313c",
+                    "tertiary-fixed-dim": "#fbbb58",
+                    "tertiary": "#6d4800",
+                    "tertiary-fixed": "#ffddb1",
+                    "outline": "#70787f",
+                    "on-surface": "#121c26",
+                    "on-background": "#121c26",
+                    "on-error-container": "#93000a",
+                    "primary-container": "#0b6e99",
+                    "surface": "#F8FAFC",
+                    "on-tertiary-container": "#ffe2be",
+                    "primary-fixed-dim": "#84cfff",
+                    "on-error": "#ffffff",
+                    "surface-variant": "#d9e3f1",
+                    "surface-container": "#e4effd",
+                    "tertiary-container": "#8d5e00",
+                    "background": "#f7f9ff",
+                    "primary": "#005578",
+                    "surface-container-low": "#edf4ff",
+                    "outline-variant": "#bfc7cf",
+                    "surface-dim": "#d1dbe9",
+                    "surface-container-lowest": "#ffffff",
+                    "secondary-fixed-dim": "#7adb8c",
+                    "inverse-on-surface": "#e8f2ff",
+                    "on-secondary": "#ffffff",
+                    "error": "#ba1a1a",
+                    "danger": "#C2352B",
+                    "on-tertiary-fixed-variant": "#624000",
+                    "on-primary-fixed-variant": "#004c6c",
+                    "on-secondary-fixed-variant": "#005322",
+                    "surface-tint": "#00658e"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "spacing": {
+                    "gutter": "16px",
+                    "sidebar-collapsed": "72px",
+                    "sidebar-width": "272px",
+                    "margin-page": "24px",
+                    "control-dense": "28px",
+                    "unit": "4px",
+                    "utility-rail": "56px",
+                    "control-std": "36px"
+            },
+            "fontFamily": {
+                    "label-caps": ["Inter"],
+                    "base-body": ["Inter"],
+                    "label-metadata": ["Inter"],
+                    "section-title": ["Inter"],
+                    "page-title": ["Inter"],
+                    "dense-row": ["Inter"]
+            },
+            "fontSize": {
+                    "label-caps": ["11px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                    "base-body": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "label-metadata": ["12px", {"lineHeight": "16px", "fontWeight": "400"}],
+                    "section-title": ["14px", {"lineHeight": "20px", "fontWeight": "600"}],
+                    "page-title": ["20px", {"lineHeight": "28px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                    "dense-row": ["13px", {"lineHeight": "18px", "fontWeight": "400"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            display: inline-block;
+            line-height: 1;
+            text-transform: none;
+            letter-spacing: normal;
+            word-wrap: normal;
+            white-space: nowrap;
+            direction: ltr;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #F8FAFC;
+            color: #121c26;
+            -webkit-font-smoothing: antialiased;
+        }
+        .clinical-shadow {
+            box-shadow: 0 4px 12px rgba(18, 28, 38, 0.05);
+        }
+        .safe-bottom {
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-canvas border-b border-border flex items-center justify-between px-margin-page h-control-std w-full">
+<div class="flex items-center gap-3">
+<div class="w-7 h-7 rounded-full overflow-hidden bg-surface-container border border-outline-variant">
+<img class="w-full h-full object-cover" data-alt="A professional headshot of a female dentist, Dr. Julianne Moore, with a friendly expression. She is wearing a modern white clinical coat over a soft teal scrub top. The background is a clean, bright, and minimalist dental office with soft lighting and professional corporate aesthetics." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDEfp1QcXIeJ-JMuI5xAAcxEtPoxwhrp2TsUa6JMrP2dkGfuyQqQSu9yLjLCjCS-mJHBr2QW_51VIa-yRB0QsyI4-6E4fyF4Yt6X8FWc85Lho-SEYtllwEAfprq8GBOEkpSpXoq3hVr1QY5aQO0aKx8S2d3uj8IW2_GeKtHg4x5PpolQ139YOBNHWCg7bRa_4-I5MVNDv_fMU6YAY7KmsHL0-GPupXPDPC7T8ld2NNpqRLKrBCy88dgjRwjRGdgQ1l09DmMXQ3D4q8"/>
+</div>
+<h1 class="font-page-title text-page-title text-primary">Central Dental</h1>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary" data-icon="location_on">location_on</span>
+</div>
+</header>
+<!-- Content Canvas -->
+<main class="pt-[calc(theme(spacing.control-std)+16px)] pb-[calc(theme(spacing.utility-rail)+40px)] px-gutter">
+<!-- Profile Summary Header (Slack-inspired profile anchor) -->
+<section class="mb-6 flex items-center p-4 bg-canvas border border-border rounded-xl">
+<div class="w-12 h-12 rounded-full bg-primary-fixed flex items-center justify-center text-primary font-bold overflow-hidden mr-4">
+<img class="w-full h-full object-cover" data-alt="Close up portrait of Dr. Julianne Moore, mid-40s, professional and serene. High-key clinical lighting. The environment is a clean dental clinic with teals and purples in the decor. High-quality corporate photography style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCHPeBGF8plo2BxhriFee9H9_Ig-Jv0nr2WbJqpvU7mZOXaN6EM-upSj-JKnzzslczaqYNebplR17moQ8_qt-gJq93fsf8j_g3YguymgZ4SY2Ii-V2kM2HV0SFMaUV_IbBAUPqovWOPfv97cjvL4IJKVDyudoP1xAsIjRgfXrcFsoiovxBuCxYCz0PyDxUuhTLWM94Z_8TO9XUa2B26uVEZswCMsuI__WOI-94fiNABePlseNoz14mTuqQJHGD6KaM1XDqIY3H3Zp8"/>
+</div>
+<div class="flex-1">
+<h2 class="font-section-title text-section-title">Dr. Julianne Moore</h2>
+<p class="font-label-metadata text-label-metadata text-text-muted">Clinical Director · Active Now</p>
+</div>
+<span class="material-symbols-outlined text-outline" data-icon="chevron_right">chevron_right</span>
+</section>
+<!-- Search Persistent Entry -->
+<div class="mb-8">
+<div class="relative group">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline" data-icon="search">search</span>
+<input class="w-full h-control-std pl-10 pr-4 bg-canvas border border-border rounded-lg font-base-body text-base-body focus:ring-2 focus:ring-primary focus:ring-offset-2 transition-all outline-none" placeholder="Search patients or records..." type="text"/>
+</div>
+</div>
+<!-- Section: Clinical Operations -->
+<div class="mb-8">
+<h3 class="font-label-caps text-label-caps text-text-muted uppercase mb-3 px-1">Clinical Operations</h3>
+<div class="space-y-px bg-border rounded-xl overflow-hidden border border-border">
+<!-- Item: Attention Center -->
+<button class="w-full flex items-center p-4 bg-canvas hover:bg-surface-container transition-colors group">
+<div class="w-10 h-10 flex items-center justify-center rounded-lg bg-error-container text-on-error-container mr-4">
+<span class="material-symbols-outlined" data-icon="priority_high">priority_high</span>
+</div>
+<span class="flex-1 text-left font-base-body text-base-body">Attention Center</span>
+<div class="flex items-center">
+<span class="bg-error text-on-error px-2 py-0.5 rounded-full text-[10px] font-bold mr-3 leading-none">4</span>
+<span class="material-symbols-outlined text-outline group-hover:translate-x-1 transition-transform" data-icon="chevron_right">chevron_right</span>
+</div>
+</button>
+<!-- Item: Follow-ups -->
+<button class="w-full flex items-center p-4 bg-canvas hover:bg-surface-container transition-colors group">
+<div class="w-10 h-10 flex items-center justify-center rounded-lg bg-secondary-container text-on-secondary-container mr-4">
+<span class="material-symbols-outlined" data-icon="event_repeat">event_repeat</span>
+</div>
+<span class="flex-1 text-left font-base-body text-base-body">Follow-ups</span>
+<span class="material-symbols-outlined text-outline group-hover:translate-x-1 transition-transform" data-icon="chevron_right">chevron_right</span>
+</button>
+<!-- Item: Patient Search -->
+<button class="w-full flex items-center p-4 bg-canvas hover:bg-surface-container transition-colors group">
+<div class="w-10 h-10 flex items-center justify-center rounded-lg bg-surface-container-highest text-primary mr-4">
+<span class="material-symbols-outlined" data-icon="person_search">person_search</span>
+</div>
+<span class="flex-1 text-left font-base-body text-base-body">Patient Search</span>
+<span class="material-symbols-outlined text-outline group-hover:translate-x-1 transition-transform" data-icon="chevron_right">chevron_right</span>
+</button>
+</div>
+</div>
+<!-- Section: Administration -->
+<div class="mb-8">
+<h3 class="font-label-caps text-label-caps text-text-muted uppercase mb-3 px-1">Administration</h3>
+<div class="space-y-px bg-border rounded-xl overflow-hidden border border-border">
+<!-- Item: Billing Lookup -->
+<button class="w-full flex items-center p-4 bg-canvas hover:bg-surface-container transition-colors group">
+<div class="w-10 h-10 flex items-center justify-center rounded-lg bg-surface-container text-on-surface-variant mr-4">
+<span class="material-symbols-outlined" data-icon="payments">payments</span>
+</div>
+<span class="flex-1 text-left font-base-body text-base-body">Billing Lookup</span>
+<span class="material-symbols-outlined text-outline group-hover:translate-x-1 transition-transform" data-icon="chevron_right">chevron_right</span>
+</button>
+<!-- Item: Notifications -->
+<button class="w-full flex items-center p-4 bg-canvas hover:bg-surface-container transition-colors group">
+<div class="w-10 h-10 flex items-center justify-center rounded-lg bg-surface-container text-on-surface-variant mr-4">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</div>
+<span class="flex-1 text-left font-base-body text-base-body">Notifications</span>
+<span class="material-symbols-outlined text-outline group-hover:translate-x-1 transition-transform" data-icon="chevron_right">chevron_right</span>
+</button>
+</div>
+</div>
+<!-- Section: Preferences -->
+<div class="mb-8">
+<h3 class="font-label-caps text-label-caps text-text-muted uppercase mb-3 px-1">System</h3>
+<div class="space-y-px bg-border rounded-xl overflow-hidden border border-border">
+<!-- Item: Profile & Preferences -->
+<button class="w-full flex items-center p-4 bg-canvas hover:bg-surface-container transition-colors group">
+<div class="w-10 h-10 flex items-center justify-center rounded-lg bg-surface-container text-on-surface-variant mr-4">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</div>
+<span class="flex-1 text-left font-base-body text-base-body">Profile & Preferences</span>
+<span class="material-symbols-outlined text-outline group-hover:translate-x-1 transition-transform" data-icon="chevron_right">chevron_right</span>
+</button>
+<!-- Item: Support -->
+<button class="w-full flex items-center p-4 bg-canvas hover:bg-surface-container transition-colors group">
+<div class="w-10 h-10 flex items-center justify-center rounded-lg bg-surface-container text-on-surface-variant mr-4">
+<span class="material-symbols-outlined" data-icon="help_outline">help_outline</span>
+</div>
+<span class="flex-1 text-left font-base-body text-base-body">Help & Support</span>
+<span class="material-symbols-outlined text-outline group-hover:translate-x-1 transition-transform" data-icon="chevron_right">chevron_right</span>
+</button>
+</div>
+</div>
+<!-- Sign Out -->
+<button class="w-full p-4 border border-danger/20 rounded-xl text-danger font-section-title text-center hover:bg-error-container/20 transition-colors">
+            Sign Out
+        </button>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 w-full z-50 bg-surface border-t border-border flex justify-around items-center h-utility-rail pb-safe w-full">
+<!-- Tab: Schedule -->
+<a class="flex flex-col items-center justify-center text-text-muted dark:text-outline-variant hover:bg-surface-container-low transition-transform scale-95 active:scale-90" href="#">
+<span class="material-symbols-outlined" data-icon="calendar_today">calendar_today</span>
+<span class="font-label-metadata text-label-metadata">Schedule</span>
+</a>
+<!-- Tab: Book -->
+<a class="flex flex-col items-center justify-center text-text-muted dark:text-outline-variant hover:bg-surface-container-low transition-transform scale-95 active:scale-90" href="#">
+<span class="material-symbols-outlined" data-icon="add_circle">add_circle</span>
+<span class="font-label-metadata text-label-metadata">Book</span>
+</a>
+<!-- Tab: More (ACTIVE) -->
+<a class="flex flex-col items-center justify-center text-secondary font-bold hover:bg-surface-container-low transition-transform scale-95 active:scale-90" href="#">
+<span class="material-symbols-outlined" data-icon="more_horiz" style="font-variation-settings: 'FILL' 1;">more_horiz</span>
+<span class="font-label-metadata text-label-metadata">More</span>
+</a>
+</nav>
+<script>
+        // Micro-interaction: Subtle hover effects on buttons for a native app feel
+        document.querySelectorAll('button').forEach(button => {
+            button.addEventListener('touchstart', () => {
+                button.classList.add('opacity-80');
+            });
+            button.addEventListener('touchend', () => {
+                button.classList.remove('opacity-80');
+            });
+        });
+    </script>
+</body></html>

@@ -32,8 +32,14 @@ Use a local `.env.local` file for developer overrides and never commit it. The N
 | Variable | Required | Purpose | Notes |
 | --- | --- | --- | --- |
 | `DATABASE_URL` | Yes | Application PostgreSQL connection | Runtime database connection; use least-privilege credentials. |
-| `DIRECT_URL` | Yes for migrations | Direct PostgreSQL connection | Used by Prisma migration/deploy tooling, not normal pooled runtime traffic. |
+| `DIRECT_URL` | Yes for migrations | Migration PostgreSQL connection | Use the Supabase direct URL when IPv6 is available. On IPv4-only networks use the Supavisor Session Mode pooler on port 5432; do not use Transaction Mode port 6543 for migrations. |
+| `SUPABASE_POOL_MODE` | No | Runtime Supabase pool behavior | A supplied 6543 URL defaults to Transaction Mode with Prisma PgBouncer settings. Set `session` only where the pooler 5432 endpoint is reliably reachable. This never changes `DIRECT_URL`. |
+| `PRISMA_CONNECTION_LIMIT` | Recommended | Per-process Prisma pool size | Defaults to 5 for the persistent Nest process and is validated from 1–20. Divide the available database pool across all deployed API instances. |
 | `AUTH_SECRET` | Yes | Session/token signing secret | Long, unique secret from a secret manager; no development fallback in production. |
+| `CORS_ORIGINS` | Production | Approved browser origins | Comma-separated HTTPS origins. Startup fails if omitted in production. |
+| `SESSION_TTL_SECONDS` | Recommended | Absolute server-session lifetime | Defaults to 8 hours. |
+| `SESSION_IDLE_TIMEOUT_SECONDS` | Recommended | Inactive server-session timeout | Defaults to 30 minutes. |
+| `SESSION_TOUCH_INTERVAL_SECONDS` | Recommended | Session activity persistence interval | Defaults to 5 minutes and is capped at one-third of the idle timeout, preventing a database write on every protected read. |
 | `API_PORT` | Local API | Nest listener port | Current default is `4000`; production is platform-configured. |
 | `NEXT_PUBLIC_API_URL` | Web | Nest API base URL | Must point only to the approved API origin. |
 | `REDIS_URL` | Production/staging | Shared cache, queues, invalidation | Required once distributed scheduling/cache features ship. |
@@ -53,12 +59,12 @@ All provider credentials and webhook secrets are server-side secrets. They must 
 2. Create `.env.local` using the approved secret-management/local-development process and supply database/auth variables.
 3. Generate Prisma client if post-install did not do so: `npx prisma generate`.
 4. Apply local migrations: `npm run db:migrate:dev`.
-5. Seed only a disposable local database: `npm run db:seed`.
+5. Seed only a disposable local database, with a unique local passphrase: `$env:ALLOW_DEMO_SEED="true"; $env:DEMO_SEED_PASSWORD="a-unique-15-character-minimum-passphrase"; npm.cmd run db:seed`.
 6. Start API: `npm run dev:api`.
 7. Start web in a second terminal: `npm run dev:web`.
 8. Verify API health/readiness after health endpoints are implemented, sign in with approved local test data, and confirm the web calls Nest—not Prisma directly.
 
-Seed data is for local/demo use only. It is not a fallback when an API or database is unavailable.
+Seed data is for local/demo use only. It is not a fallback when an API or database is unavailable. It is deliberately opt-in and never contains a committed default password. Do not reuse its passphrase outside the disposable database.
 
 ## 5. Common commands
 
@@ -122,3 +128,9 @@ Prefer a reviewed forward repair: identify the last successfully applied migrati
 ## 8. Development acceptance checklist
 
 Before opening a pull request, run typecheck, relevant unit/integration tests, lint, and builds. Test both an allowed and denied organization/location action. Verify no client-terminology regressions, direct web Prisma path, secret, or real client data in fixtures, logs, or commits.
+The web application deliberately writes development artifacts to
+`apps/web/.next-dev` and production builds to `apps/web/.next`. This prevents a
+running `next dev` process and `next build` from replacing each other's chunks,
+which otherwise presents as a persistent HTTP 500 with `Cannot find module
+'./<chunk>.js'`. Restart the web development server once after upgrading from a
+checkout that predates this isolation.

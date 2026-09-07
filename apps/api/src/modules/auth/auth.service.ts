@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Inject,
   Injectable,
   InternalServerErrorException,
@@ -6,7 +7,7 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 
 import { PrismaService } from "../prisma/prisma.service";
 import { LoginDto } from "./dto/login.dto";
@@ -15,6 +16,40 @@ import { AuthorizationPolicyService } from "./authorization-policy.service";
 export const SESSION_COOKIE_NAME = "clinicflow_session";
 export const ROLE_ASSIGNMENT_ENFORCEMENT_ENV = "ROLE_ASSIGNMENT_ENFORCEMENT";
 const DEFAULT_SESSION_TTL_SECONDS = 60 * 60 * 8;
+const DEFAULT_SESSION_IDLE_TIMEOUT_SECONDS = 60 * 30;
+const DEFAULT_SESSION_TOUCH_INTERVAL_SECONDS = 60 * 5;
+const SESSION_LOOKUP_CACHE_TTL_MS = 5_000;
+const MAX_SESSION_LOOKUP_CACHE_ENTRIES = 500;
+const PASSWORD_MIN_LENGTH = 15;
+const PASSWORD_MAX_LENGTH = 128;
+const SCRYPT_N = 2 ** 17;
+const SCRYPT_R = 8;
+const SCRYPT_P = 1;
+const SCRYPT_KEY_LENGTH = 64;
+const SCRYPT_MAX_MEMORY = 256 * 1024 * 1024;
+const COMMON_PASSWORDS = new Set([
+  "demo-password",
+  "password",
+  "password123",
+  "12345678",
+  "qwerty123",
+  "welcome123",
+  "admin123",
+]);
+
+function deriveScrypt(
+  password: string,
+  salt: string,
+  keyLength: number,
+  options: { N: number; r: number; p: number; maxmem: number },
+) {
+  return new Promise<Buffer>((resolve, reject) => {
+    scrypt(password, salt, keyLength, options, (error, derivedKey) => {
+      if (error) reject(error);
+      else resolve(derivedKey);
+    });
+  });
+}
 
 export type AuthSession = {
   id: string;
@@ -72,8 +107,21 @@ const authUserSelect = {
   },
 } as const;
 
+type PersistedAuthSession = Prisma.UserSessionGetPayload<{
+  include: { user: { select: typeof authUserSelect } };
+}>;
+
+type SessionLookupCacheEntry = {
+  value: PersistedAuthSession;
+  expiresAt: number;
+};
+
 @Injectable()
 export class AuthService {
+  private readonly pendingSessionTouches = new Map<string, Promise<unknown>>();
+  private readonly pendingSessionLookups = new Map<string, Promise<PersistedAuthSession>>();
+  private readonly sessionLookupCache = new Map<string, SessionLookupCacheEntry>();
+
   constructor(
     @Inject(PrismaService)
     private readonly prisma: PrismaService,
@@ -83,16 +131,31 @@ export class AuthService {
   ) {}
 
   async login(dto: LoginDto, metadata?: SessionMetadata) {
-    const user = await this.prisma.user.findFirst({
+    const matchingUsers = await this.prisma.user.findMany({
       where: {
         email: dto.email.toLowerCase(),
         status: "Active",
       },
       select: authUserSelect,
+      take: 2,
     });
+    // An email can currently exist in more than one organization. Never select
+    // an arbitrary tenant record during authentication; an explicit tenant
+    // selector / global identity is required before supporting that scenario.
+    const user = matchingUsers.length === 1 ? matchingUsers[0] : undefined;
 
-    if (!user?.passwordHash || !this.verifyPassword(dto.password, user.passwordHash)) {
+    const password = user?.passwordHash
+      ? await this.verifyPassword(dto.password, user.passwordHash)
+      : { valid: false, needsUpgrade: false };
+    if (!user || !password.valid) {
       throw new UnauthorizedException("Invalid email or password");
+    }
+
+    if (password.needsUpgrade) {
+      // Legacy credentials are re-hashed after a successful sign-in without
+      // retroactively locking out a user. New or reset passwords always pass
+      // the current policy through the public hashPassword method.
+      await this.prisma.user.update({ where: { id: user.id }, data: { passwordHash: await this.hashPasswordValue(dto.password) } });
     }
 
     const issued = await this.createSession(user, metadata);
@@ -126,7 +189,7 @@ export class AuthService {
 
   async requireSessionToken(token?: string): Promise<AuthSession> {
     const persisted = await this.findActiveSession(token);
-    this.touchSession(persisted.id);
+    this.touchSession(persisted.id, persisted.lastSeenAt);
     return this.withEffectiveRoles(this.mapUser(persisted.user));
   }
 
@@ -135,12 +198,13 @@ export class AuthService {
   }
 
   async rotateCsrfTokenForSessionToken(token?: string) {
-    const persisted = await this.findActiveSession(token);
+    const persisted = await this.findActiveSession(token, false);
     const csrfToken = this.newCsrfToken();
     await this.prisma.userSession.update({
       where: { id: persisted.id },
       data: { csrfTokenHash: this.hashSessionToken(csrfToken), lastSeenAt: new Date() },
     });
+    this.invalidateSessionLookup(token);
     return csrfToken;
   }
 
@@ -148,7 +212,7 @@ export class AuthService {
     if (!csrfToken) {
       throw new UnauthorizedException("Missing CSRF token");
     }
-    const persisted = await this.findActiveSession(sessionToken);
+    const persisted = await this.findActiveSession(sessionToken, false);
     const expected = Buffer.from(persisted.csrfTokenHash, "hex");
     const candidate = Buffer.from(this.hashSessionToken(csrfToken), "hex");
     if (expected.length !== candidate.length || !timingSafeEqual(expected, candidate)) {
@@ -159,7 +223,8 @@ export class AuthService {
 
   async rotateSession(authorization?: string, metadata?: SessionMetadata): Promise<IssuedSession> {
     const token = this.extractBearerToken(authorization);
-    const persisted = await this.findActiveSession(token);
+    const persisted = await this.findActiveSession(token, false);
+    this.invalidateSessionLookup(token);
     const now = new Date();
     const nextToken = this.newSessionToken();
     const nextCsrfToken = this.newCsrfToken();
@@ -212,7 +277,8 @@ export class AuthService {
   }
 
   async logoutSessionToken(token?: string, reason = "logout") {
-    const persisted = await this.findActiveSession(token);
+    const persisted = await this.findActiveSession(token, false);
+    this.invalidateSessionLookup(token);
     const now = new Date();
     await this.prisma.$transaction(async (tx) => {
       await tx.userSession.update({
@@ -225,10 +291,18 @@ export class AuthService {
   }
 
   async revokeAllSessionsForUser(userId: string, reason = "security_reset") {
-    return this.prisma.userSession.updateMany({
+    const result = await this.prisma.userSession.updateMany({
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date(), revokedReason: reason },
     });
+    for (const [key, entry] of this.sessionLookupCache) {
+      if (entry.value.userId === userId) this.sessionLookupCache.delete(key);
+    }
+    // A pending lookup has not produced a user projection yet, so it cannot be
+    // filtered safely. Clearing the small map prevents it from repopulating a
+    // just-revoked session cache.
+    this.pendingSessionLookups.clear();
+    return result;
   }
 
   issueSessionCookie(token: string, expiresAt: Date): SessionCookie {
@@ -261,10 +335,20 @@ export class AuthService {
     };
   }
 
-  hashPassword(password: string) {
-    const salt = randomBytes(8).toString("hex");
-    const hash = scryptSync(password, salt, 64).toString("hex");
-    return `scrypt:${salt}:${hash}`;
+  async hashPassword(password: string) {
+    this.assertPasswordPolicy(password);
+    return this.hashPasswordValue(password);
+  }
+
+  private async hashPasswordValue(password: string) {
+    const salt = randomBytes(16).toString("hex");
+    const hash = await deriveScrypt(
+      password,
+      salt,
+      SCRYPT_KEY_LENGTH,
+      this.scryptOptions(),
+    );
+    return `scrypt$v1$${SCRYPT_N}$${SCRYPT_R}$${SCRYPT_P}$${salt}$${hash.toString("hex")}`;
   }
 
   private async createSession(
@@ -302,25 +386,100 @@ export class AuthService {
     return { token, csrfToken, sessionId: created.id, expiresAt, user: await this.withEffectiveRoles(this.mapUser(user)) };
   }
 
-  private async findActiveSession(token?: string) {
+  private async findActiveSession(token?: string, allowCache = true) {
     if (!token) {
       throw new UnauthorizedException("Missing session token");
     }
-    const persisted = await this.prisma.userSession.findUnique({
-      where: { tokenHash: this.hashSessionToken(token) },
+    const tokenHash = this.hashSessionToken(token);
+    if (allowCache) {
+      const cached = this.readSessionLookupCache(tokenHash);
+      if (cached) {
+        return this.assertActiveSession(cached);
+      }
+      const activeRequest = this.pendingSessionLookups.get(tokenHash);
+      if (activeRequest) return activeRequest;
+    }
+
+    const request = this.prisma.userSession.findUnique({
+      where: { tokenHash },
       include: { user: { select: authUserSelect } },
+    }).then((persisted) => {
+      const active = this.assertActiveSession(persisted);
+      if (allowCache && this.pendingSessionLookups.get(tokenHash) === request) {
+        this.writeSessionLookupCache(tokenHash, active);
+      }
+      return active;
+    }).finally(() => {
+      if (this.pendingSessionLookups.get(tokenHash) === request) {
+        this.pendingSessionLookups.delete(tokenHash);
+      }
     });
-    if (!persisted || persisted.revokedAt || persisted.expiresAt <= new Date() || persisted.user.status !== "Active") {
+    if (allowCache) this.pendingSessionLookups.set(tokenHash, request);
+    return request;
+  }
+
+  private assertActiveSession(persisted: PersistedAuthSession | null) {
+    const now = new Date();
+    if (!persisted || persisted.revokedAt || persisted.expiresAt <= now || this.isSessionIdle(persisted.lastSeenAt, now) || persisted.user.status !== "Active") {
       throw new UnauthorizedException("Invalid session");
     }
     return persisted;
   }
 
-  private touchSession(sessionId: string) {
-    void this.prisma.userSession.update({
-      where: { id: sessionId },
-      data: { lastSeenAt: new Date() },
-    }).catch(() => undefined);
+  private readSessionLookupCache(tokenHash: string) {
+    const entry = this.sessionLookupCache.get(tokenHash);
+    if (!entry) return null;
+    if (entry.expiresAt <= Date.now()) {
+      this.sessionLookupCache.delete(tokenHash);
+      return null;
+    }
+    this.sessionLookupCache.delete(tokenHash);
+    this.sessionLookupCache.set(tokenHash, entry);
+    return entry.value;
+  }
+
+  private writeSessionLookupCache(tokenHash: string, value: PersistedAuthSession) {
+    this.sessionLookupCache.delete(tokenHash);
+    this.sessionLookupCache.set(tokenHash, {
+      value,
+      expiresAt: Date.now() + SESSION_LOOKUP_CACHE_TTL_MS,
+    });
+    while (this.sessionLookupCache.size > MAX_SESSION_LOOKUP_CACHE_ENTRIES) {
+      const oldest = this.sessionLookupCache.keys().next().value as string | undefined;
+      if (!oldest) break;
+      this.sessionLookupCache.delete(oldest);
+    }
+  }
+
+  private invalidateSessionLookup(token?: string) {
+    if (!token) return;
+    const tokenHash = this.hashSessionToken(token);
+    this.sessionLookupCache.delete(tokenHash);
+    this.pendingSessionLookups.delete(tokenHash);
+  }
+
+  private touchSession(sessionId: string, lastSeenAt: Date | null) {
+    const now = new Date();
+    const intervalMs = this.sessionTouchIntervalSeconds() * 1_000;
+    if (lastSeenAt && lastSeenAt.getTime() + intervalMs > now.getTime()) {
+      return;
+    }
+    if (this.pendingSessionTouches.has(sessionId)) {
+      return;
+    }
+
+    const staleBefore = new Date(now.getTime() - intervalMs);
+    const request = this.prisma.userSession.updateMany({
+      where: {
+        id: sessionId,
+        revokedAt: null,
+        OR: [{ lastSeenAt: null }, { lastSeenAt: { lte: staleBefore } }],
+      },
+      data: { lastSeenAt: now },
+    }).catch(() => undefined).finally(() => {
+      this.pendingSessionTouches.delete(sessionId);
+    });
+    this.pendingSessionTouches.set(sessionId, request);
   }
 
   private async writeSessionAudit(
@@ -393,14 +552,74 @@ export class AuthService {
     return process.env[ROLE_ASSIGNMENT_ENFORCEMENT_ENV] === "true";
   }
 
-  private verifyPassword(password: string, stored: string) {
+  private async verifyPassword(password: string, stored: string) {
+    const versioned = stored.split("$");
+    if (versioned.length === 7 && versioned[0] === "scrypt" && versioned[1] === "v1") {
+      const [, , rawN, rawR, rawP, salt, hash] = versioned;
+      return {
+        valid: await this.matchesScryptHash(password, salt, hash, Number(rawN), Number(rawR), Number(rawP)),
+        needsUpgrade: Number(rawN) !== SCRYPT_N || Number(rawR) !== SCRYPT_R || Number(rawP) !== SCRYPT_P,
+      };
+    }
+
+    // Backward compatibility for deployed `scrypt:<salt>:<hash>` records. A
+    // successful legacy login is transparently re-hashed with the current cost.
     const [scheme, salt, hash] = stored.split(":");
-    if (scheme !== "scrypt" || !salt || !hash) {
+    return {
+      valid: scheme === "scrypt" && Boolean(salt) && Boolean(hash) && await this.matchesScryptHash(password, salt, hash, 2 ** 14, 8, 1),
+      needsUpgrade: true,
+    };
+  }
+
+  private async matchesScryptHash(password: string, salt: string, hash: string, N: number, r: number, p: number) {
+    if (!salt || !hash || !Number.isInteger(N) || !Number.isInteger(r) || !Number.isInteger(p) || N < 2 ** 14 || N > SCRYPT_N || r < 8 || r > 16 || p < 1 || p > 4) {
       return false;
     }
-    const candidate = scryptSync(password, salt, 64);
-    const expected = Buffer.from(hash, "hex");
-    return expected.length === candidate.length && timingSafeEqual(candidate, expected);
+    try {
+      const candidate = await deriveScrypt(
+        password,
+        salt,
+        SCRYPT_KEY_LENGTH,
+        this.scryptOptions(N, r, p),
+      );
+      const expected = Buffer.from(hash, "hex");
+      return expected.length === candidate.length && timingSafeEqual(candidate, expected);
+    } catch {
+      return false;
+    }
+  }
+
+  private assertPasswordPolicy(password: string) {
+    if (password.length < PASSWORD_MIN_LENGTH || password.length > PASSWORD_MAX_LENGTH || password.includes("\0") || COMMON_PASSWORDS.has(password.toLowerCase())) {
+      throw new BadRequestException(`Password must be ${PASSWORD_MIN_LENGTH}-${PASSWORD_MAX_LENGTH} characters and must not be a commonly used password`);
+    }
+  }
+
+  private scryptOptions(N = SCRYPT_N, r = SCRYPT_R, p = SCRYPT_P) {
+    return { N, r, p, maxmem: SCRYPT_MAX_MEMORY };
+  }
+
+  private isSessionIdle(lastSeenAt: Date | null, now: Date) {
+    return Boolean(lastSeenAt && lastSeenAt.getTime() + this.sessionIdleTimeoutSeconds() * 1_000 <= now.getTime());
+  }
+
+  private sessionIdleTimeoutSeconds() {
+    const configured = Number(process.env.SESSION_IDLE_TIMEOUT_SECONDS ?? DEFAULT_SESSION_IDLE_TIMEOUT_SECONDS);
+    return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_SESSION_IDLE_TIMEOUT_SECONDS;
+  }
+
+  private sessionTouchIntervalSeconds() {
+    const configured = Number(
+      process.env.SESSION_TOUCH_INTERVAL_SECONDS ??
+        DEFAULT_SESSION_TOUCH_INTERVAL_SECONDS,
+    );
+    const requested = Number.isFinite(configured) && configured > 0
+      ? Math.floor(configured)
+      : DEFAULT_SESSION_TOUCH_INTERVAL_SECONDS;
+    return Math.max(
+      1,
+      Math.min(requested, Math.floor(this.sessionIdleTimeoutSeconds() / 3)),
+    );
   }
 
   private extractBearerToken(authorization?: string) {

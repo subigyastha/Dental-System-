@@ -3,6 +3,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  NotFoundException,
 } from "@nestjs/common";
 import { AppointmentStatus, Prisma } from "@prisma/client";
 
@@ -16,6 +17,7 @@ import {
   minutesToTimeLabel,
 } from "../../lib/nepal-time";
 import { PrismaService } from "../prisma/prisma.service";
+import { isValidAdDateKey } from "./ad-date-key";
 import { ScheduleCacheService } from "./schedule-cache.service";
 
 const blockingStatuses: AppointmentStatus[] = [
@@ -23,9 +25,10 @@ const blockingStatuses: AppointmentStatus[] = [
   "Confirmed",
   "CheckedIn",
   "InProgress",
-  "FollowUpRequired",
 ];
-const STANDARD_SLOT_MINUTES = 60;
+// The planner is a 15-minute AD-first grid. Service duration and buffers still
+// decide whether a particular grid point can be booked.
+const STANDARD_SLOT_MINUTES = 15;
 
 type ServiceTimingParams = {
   organizationId: string;
@@ -45,12 +48,22 @@ type SlotAvailabilityParams = {
   excludeAppointmentId?: string;
 };
 
+type EffectiveSlotTimingParams = {
+  organizationId: string;
+  providerId: string;
+  locationId?: string;
+  serviceId: string;
+  startsAtIso: string;
+  excludeAppointmentId?: string;
+};
+
 type ProviderSlotParams = {
   organizationId: string;
   providerId: string;
   dateKey: string;
   locationId?: string;
   serviceId?: string;
+  durationMinutes?: number;
   excludeAppointmentId?: string;
 };
 
@@ -128,6 +141,13 @@ type ProviderSlotsResult = {
   }>;
 };
 
+type ScheduleConfiguration = {
+  businessDayStartsAt: string;
+  businessDayEndsAt: string;
+  slotStartIntervalMinutes: number;
+  version: number;
+};
+
 @Injectable()
 export class SchedulingService {
   constructor(
@@ -137,13 +157,17 @@ export class SchedulingService {
     private readonly cache: ScheduleCacheService,
   ) {}
 
-  async getServiceTiming(params: ServiceTimingParams) {
+  async getServiceTiming(
+    params: ServiceTimingParams,
+    transactionClient?: Prisma.TransactionClient,
+  ) {
     if (!params.serviceIds.length) {
       throw new BadRequestException("At least one service is required");
     }
 
+    const db = transactionClient ?? this.prisma;
     const [services, providerServices] = await Promise.all([
-      this.prisma.service.findMany({
+      db.service.findMany({
         where: {
           organizationId: params.organizationId,
           id: { in: params.serviceIds },
@@ -155,15 +179,15 @@ export class SchedulingService {
           bufferMinutes: true,
         },
       }),
-      this.prisma.providerService.findMany({
+      db.providerService.findMany({
         where: {
           providerId: params.providerId,
-          serviceId: { in: params.serviceIds },
           isActive: true,
           OR: [{ locationId: params.locationId }, { locationId: null }],
         },
         select: {
           serviceId: true,
+          locationId: true,
           customDurationMinutes: true,
         },
       }),
@@ -174,7 +198,20 @@ export class SchedulingService {
     }
 
     const hasExplicitProviderServiceScope = providerServices.length > 0;
-    const supportedServiceIds = new Set(providerServices.map((item) => item.serviceId));
+    const effectiveProviderServices = new Map<
+      string,
+      (typeof providerServices)[number]
+    >();
+    for (const providerService of providerServices) {
+      const current = effectiveProviderServices.get(providerService.serviceId);
+      if (!current || providerService.locationId === params.locationId) {
+        effectiveProviderServices.set(
+          providerService.serviceId,
+          providerService,
+        );
+      }
+    }
+    const supportedServiceIds = new Set(effectiveProviderServices.keys());
     if (
       hasExplicitProviderServiceScope &&
       params.serviceIds.some((serviceId) => !supportedServiceIds.has(serviceId))
@@ -185,13 +222,9 @@ export class SchedulingService {
     }
 
     const serviceMap = new Map(services.map((service) => [service.id, service]));
-    const providerServiceMap = new Map(
-      providerServices.map((item) => [item.serviceId, item]),
-    );
-
     const durationMinutes = params.serviceIds.reduce((sum, serviceId) => {
       const service = serviceMap.get(serviceId)!;
-      const providerService = providerServiceMap.get(serviceId);
+      const providerService = effectiveProviderServices.get(serviceId);
       return sum + (providerService?.customDurationMinutes ?? service.durationMinutes);
     }, 0);
 
@@ -203,20 +236,26 @@ export class SchedulingService {
     };
   }
 
-  async assertSlotAvailable(params: SlotAvailabilityParams) {
+  async assertSlotAvailable(
+    params: SlotAvailabilityParams,
+    transactionClient?: Prisma.TransactionClient,
+  ) {
     const startsAt = new Date(params.startsAtIso);
     if (Number.isNaN(startsAt.getTime())) {
       throw new BadRequestException("Invalid appointment start time");
     }
 
-    const scheduleContext = await this.getProviderScheduleContext({
-      organizationId: params.organizationId,
-      providerId: params.providerId,
-      locationId: params.locationId,
-      dateKey: getNepalAdDateKeyFromIso(params.startsAtIso),
-      resourceId: params.resourceId,
-      excludeAppointmentId: params.excludeAppointmentId,
-    });
+    const scheduleContext = await this.getProviderScheduleContext(
+      {
+        organizationId: params.organizationId,
+        providerId: params.providerId,
+        locationId: params.locationId,
+        dateKey: getNepalAdDateKeyFromIso(params.startsAtIso),
+        resourceId: params.resourceId,
+        excludeAppointmentId: params.excludeAppointmentId,
+      },
+      transactionClient,
+    );
 
     if (!scheduleContext.providerIsBookable) {
       throw new ConflictException("Selected provider is not currently bookable");
@@ -233,8 +272,82 @@ export class SchedulingService {
     );
   }
 
+  async getEffectiveSlotTiming(
+    params: EffectiveSlotTimingParams,
+    transactionClient?: Prisma.TransactionClient,
+  ) {
+    const timing = await this.getServiceTiming(
+      {
+        organizationId: params.organizationId,
+        providerId: params.providerId,
+        locationId: params.locationId,
+        serviceIds: [params.serviceId],
+      },
+      transactionClient,
+    );
+    const scheduleContext = await this.getProviderScheduleContext(
+      {
+        organizationId: params.organizationId,
+        providerId: params.providerId,
+        locationId: params.locationId,
+        dateKey: getNepalAdDateKeyFromIso(params.startsAtIso),
+        excludeAppointmentId: params.excludeAppointmentId,
+      },
+      transactionClient,
+    );
+    if (!scheduleContext.providerIsBookable) {
+      throw new ConflictException("Selected provider is not currently bookable");
+    }
+
+    const availableBuffers = scheduleContext.availability
+      .map((window) =>
+        Math.max(window.bufferMinutes, timing.serviceBufferMinutes),
+      )
+      .filter((bufferMinutes, index) =>
+        this.isWindowOpen(
+          params.startsAtIso,
+          timing.durationMinutes,
+          bufferMinutes,
+          [scheduleContext.availability[index]],
+          scheduleContext.recurringBlocks,
+          scheduleContext.blockedTimes,
+          scheduleContext.possibleConflicts,
+        ),
+      );
+    if (!availableBuffers.length) {
+      throw new ConflictException("Appointment is outside provider availability");
+    }
+
+    return {
+      durationMinutes: timing.durationMinutes,
+      bufferMinutes: Math.min(...availableBuffers),
+    };
+  }
+
   async listProviderSlots(params: ProviderSlotParams): Promise<ProviderSlotsResult> {
-    const cacheKey = this.buildProviderSlotsCacheKey(params);
+    if (!isValidAdDateKey(params.dateKey)) {
+      throw new BadRequestException(
+        "Date must be a real Gregorian AD date in YYYY-MM-DD format",
+      );
+    }
+    if (
+      params.durationMinutes !== undefined &&
+      (!Number.isInteger(params.durationMinutes) ||
+        params.durationMinutes < 1 ||
+        params.durationMinutes > 1440)
+    ) {
+      throw new BadRequestException(
+        "Duration must be a whole number between 1 and 1440 minutes",
+      );
+    }
+
+    const configuration = await this.getScheduleConfiguration(
+      params.organizationId,
+    );
+    const cacheKey = this.buildProviderSlotsCacheKey(
+      params,
+      configuration.version,
+    );
     const cached = this.cache.get<ProviderSlotsResult>(cacheKey);
     if (cached) {
       return cached;
@@ -261,7 +374,8 @@ export class SchedulingService {
       return {
         providerId: params.providerId,
         dateKey: params.dateKey,
-        durationMinutes: timing?.durationMinutes ?? 0,
+        durationMinutes:
+          timing?.durationMinutes ?? params.durationMinutes ?? STANDARD_SLOT_MINUTES,
         bufferMinutes: timing?.serviceBufferMinutes ?? 0,
         slots: [] as Array<{
           startsAtIso: string;
@@ -278,10 +392,12 @@ export class SchedulingService {
       timeLabel: string;
       dateKey: string;
     }> = [];
+    const requestedDurationMinutes =
+      timing?.durationMinutes ?? params.durationMinutes ?? STANDARD_SLOT_MINUTES;
 
     for (const window of scheduleContext.availability) {
-      const slotStepMinutes = STANDARD_SLOT_MINUTES;
-      const durationMinutes = timing?.durationMinutes ?? STANDARD_SLOT_MINUTES;
+      const slotStepMinutes = configuration.slotStartIntervalMinutes;
+      const durationMinutes = requestedDurationMinutes;
       const bufferMinutes = Math.max(window.bufferMinutes, timing?.serviceBufferMinutes ?? 0);
       const windowStart = inputTimeToMinutes(window.startsAtLocal);
       const windowEnd = inputTimeToMinutes(window.endsAtLocal);
@@ -320,7 +436,7 @@ export class SchedulingService {
     const response: ProviderSlotsResult = {
       providerId: params.providerId,
       dateKey: params.dateKey,
-      durationMinutes: timing?.durationMinutes ?? 0,
+      durationMinutes: requestedDurationMinutes,
       bufferMinutes: timing?.serviceBufferMinutes ?? 0,
       slots,
     };
@@ -650,7 +766,13 @@ export class SchedulingService {
   }
 
   async listScheduleGridForDay(params: ScheduleGridParams) {
-    const cacheKey = this.buildScheduleGridCacheKey(params);
+    const configuration = await this.getScheduleConfiguration(
+      params.organizationId,
+    );
+    const cacheKey = this.buildScheduleGridCacheKey(
+      params,
+      configuration.version,
+    );
     const cached = this.cache.get<ScheduleGridResult>(cacheKey);
     if (cached) {
       return cached;
@@ -658,7 +780,7 @@ export class SchedulingService {
 
     const providerIds =
       params.providerIds && params.providerIds.length
-        ? params.providerIds
+        ? [...new Set(params.providerIds)]
         : (
             await this.prisma.provider.findMany({
               where: {
@@ -671,25 +793,18 @@ export class SchedulingService {
             })
           ).map((provider) => provider.id);
 
-    const [scheduleContexts, providerRows, appointments] = await Promise.all([
+    const dayRange = getNepalDayRangeFromDateKey(params.dateKey);
+    // These are independent read-model projections. With a bounded Prisma
+    // pool they should overlap the remote database RTT instead of paying it
+    // three times in series. Booking commands still re-check authoritatively
+    // inside their transaction.
+    const [scheduleContexts, appointments] = await Promise.all([
       this.getProviderScheduleContexts({
         organizationId: params.organizationId,
         providerIds,
         dateKey: params.dateKey,
         locationId: params.locationId,
-      }),
-      this.prisma.provider.findMany({
-        where: {
-          organizationId: params.organizationId,
-          id: { in: providerIds },
-        },
-        select: {
-          id: true,
-          displayName: true,
-          color: true,
-          specialty: true,
-        },
-        orderBy: { displayName: "asc" },
+        includeConflicts: false,
       }),
       this.prisma.appointment.findMany({
         where: {
@@ -697,8 +812,8 @@ export class SchedulingService {
           providerId: { in: providerIds },
           status: { in: blockingStatuses },
           startsAt: {
-            gte: getNepalDayRangeFromDateKey(params.dateKey).startsAt,
-            lte: getNepalDayRangeFromDateKey(params.dateKey).endsAt,
+            gte: dayRange.startsAt,
+            lte: dayRange.endsAt,
           },
         },
         select: {
@@ -722,6 +837,10 @@ export class SchedulingService {
       }),
     ]);
 
+    if (providerIds.some((providerId) => !scheduleContexts.get(providerId)?.providerExists)) {
+      throw new NotFoundException("One or more providers were not found");
+    }
+
     const appointmentsByProvider = new Map<string, typeof appointments>();
     for (const appointment of appointments) {
       const list = appointmentsByProvider.get(appointment.providerId) ?? [];
@@ -729,13 +848,13 @@ export class SchedulingService {
       appointmentsByProvider.set(appointment.providerId, list);
     }
 
-    const providers = providerRows.map((provider) => {
-        const scheduleContext = scheduleContexts.get(provider.id);
+    const providers = providerIds.map((providerId) => {
+        const scheduleContext = scheduleContexts.get(providerId);
         if (!scheduleContext) {
           return null;
         }
 
-        const slotStepMinutes = STANDARD_SLOT_MINUTES;
+        const slotStepMinutes = configuration.slotStartIntervalMinutes;
         const daySlots: Array<{
           startTime: string;
           endTime: string;
@@ -748,9 +867,25 @@ export class SchedulingService {
           };
         }> = [];
 
-        const providerAppointments = appointmentsByProvider.get(provider.id) ?? [];
+        const providerAppointments = appointmentsByProvider.get(providerId) ?? [];
 
-        for (let minutes = 8 * 60; minutes <= 19 * 60; minutes += slotStepMinutes) {
+        const gridStarts = inputTimeToMinutes(configuration.businessDayStartsAt);
+        const gridEnds = inputTimeToMinutes(configuration.businessDayEndsAt);
+        const candidateMinutes = new Set<number>();
+        for (
+          let minutes = gridStarts;
+          minutes < gridEnds;
+          minutes += slotStepMinutes
+        ) {
+          candidateMinutes.add(minutes);
+        }
+        for (const appointment of providerAppointments) {
+          candidateMinutes.add(
+            getNepalMinutesFromIso(appointment.startsAt.toISOString()),
+          );
+        }
+
+        for (const minutes of [...candidateMinutes].sort((left, right) => left - right)) {
           const time = minutesToTimeLabel(minutes);
           const startTime = buildNepalIsoFromDateAndTime(params.dateKey, time);
           const appointment = providerAppointments.find(
@@ -809,10 +944,10 @@ export class SchedulingService {
         }
 
         return {
-          providerId: provider.id,
-          providerName: provider.displayName,
-          providerColor: provider.color,
-          specialty: provider.specialty,
+          providerId,
+          providerName: scheduleContext.providerName,
+          providerColor: scheduleContext.providerColor,
+          specialty: scheduleContext.specialty,
           slots: daySlots,
         };
       });
@@ -858,6 +993,21 @@ export class SchedulingService {
       locationId: params.locationId,
       clearSummaries: true,
     });
+  }
+
+  invalidateOrganizationSchedulePlanning(organizationId: string) {
+    const prefixes = [
+      `schedule:configuration:${organizationId}`,
+      `schedule:slots:${organizationId}:`,
+      `schedule:day-summary:${organizationId}:`,
+      `schedule:week-summary:${organizationId}:`,
+      `schedule:grid:${organizationId}:`,
+    ];
+    for (const key of this.cache.keys()) {
+      if (prefixes.some((prefix) => key.startsWith(prefix))) {
+        this.cache.delete(key);
+      }
+    }
   }
 
   private buildDateKeys(fromDateKey: string, toDateKey: string) {
@@ -918,7 +1068,10 @@ export class SchedulingService {
       if (params.locationId && locationId && params.locationId !== locationId) {
         continue;
       }
-      if (!providerIds.some((providerId) => providerIdSet.has(providerId))) {
+      if (
+        providerIds.length > 0 &&
+        !providerIds.some((providerId) => providerIdSet.has(providerId))
+      ) {
         continue;
       }
       this.cache.delete(key);
@@ -940,18 +1093,32 @@ export class SchedulingService {
     }
   }
 
-  private buildProviderSlotsCacheKey(params: ProviderSlotParams) {
-    const serviceOrDuration = params.serviceId ?? "duration:none";
-    return `schedule:slots:${params.organizationId}:${params.providerId}:${params.dateKey}:${serviceOrDuration}:${params.locationId ?? "location:none"}:${params.excludeAppointmentId ?? "exclude:none"}`;
+  private buildProviderSlotsCacheKey(
+    params: ProviderSlotParams,
+    configurationVersion: number,
+  ) {
+    const serviceOrDuration = params.serviceId
+      ? `service=${params.serviceId}`
+      : `duration=${params.durationMinutes ?? STANDARD_SLOT_MINUTES}`;
+    const location = params.locationId
+      ? `location=${params.locationId}`
+      : "location=none";
+    const exclusion = params.excludeAppointmentId
+      ? `exclude=${params.excludeAppointmentId}`
+      : "exclude=none";
+    return `schedule:slots:${params.organizationId}:${params.providerId}:${params.dateKey}:${serviceOrDuration}:${location}:${exclusion}:config=${configurationVersion}`;
   }
 
   private parseProviderSlotsCacheKey(key: string) {
-    const [, , organizationId, providerId, dateKey, , locationId] = key.split(":");
+    const [, , organizationId, providerId, dateKey, , location] = key.split(":");
     return {
       organizationId,
       providerId,
       dateKey,
-      locationId: locationId === "location:none" ? undefined : locationId,
+      locationId:
+        location === "location=none"
+          ? undefined
+          : location?.replace(/^location=/, ""),
     };
   }
 
@@ -963,9 +1130,39 @@ export class SchedulingService {
     return `schedule:week-summary:${params.organizationId}:${params.fromDateKey}:${params.toDateKey}:${params.providerId ?? "provider:none"}:${params.locationId ?? "location:none"}`;
   }
 
-  private buildScheduleGridCacheKey(params: ScheduleGridParams) {
+  private buildScheduleGridCacheKey(
+    params: ScheduleGridParams,
+    configurationVersion: number,
+  ) {
     const providerIds = [...(params.providerIds ?? [])].sort().join(",");
-    return `schedule:grid:${params.organizationId}:${params.dateKey}:${providerIds || "providers:all"}:${params.locationId ?? "location:none"}`;
+    return `schedule:grid:${params.organizationId}:${params.dateKey}:${providerIds || "providers:all"}:${params.locationId ?? "location:none"}:config=${configurationVersion}`;
+  }
+
+  private async getScheduleConfiguration(
+    organizationId: string,
+  ): Promise<ScheduleConfiguration> {
+    return this.cache.getOrLoad(
+      `schedule:configuration:${organizationId}`,
+      async () => {
+        const settings = await this.prisma.organizationSetting.findUnique({
+          where: { organizationId },
+          select: {
+            businessDayStartsAt: true,
+            businessDayEndsAt: true,
+            slotStartIntervalMinutes: true,
+            scheduleConfigurationVersion: true,
+          },
+        });
+        return {
+          businessDayStartsAt: settings?.businessDayStartsAt ?? "08:00",
+          businessDayEndsAt: settings?.businessDayEndsAt ?? "18:00",
+          slotStartIntervalMinutes:
+            settings?.slotStartIntervalMinutes ?? STANDARD_SLOT_MINUTES,
+          version: settings?.scheduleConfigurationVersion ?? 1,
+        };
+      },
+      60_000,
+    );
   }
 
   private parseScheduleGridCacheKey(key: string) {
@@ -986,17 +1183,21 @@ export class SchedulingService {
     locationId?: string;
     resourceId?: string;
     excludeAppointmentId?: string;
-  }) {
-    const contexts = await this.getProviderScheduleContexts({
-      organizationId: params.organizationId,
-      providerIds: [params.providerId],
-      dateKey: params.dateKey,
-      locationId: params.locationId,
-      resourceId: params.resourceId,
-      excludeAppointmentId: params.excludeAppointmentId,
-    });
+  }, transactionClient?: Prisma.TransactionClient) {
+    const contexts = await this.getProviderScheduleContexts(
+      {
+        organizationId: params.organizationId,
+        providerIds: [params.providerId],
+        dateKey: params.dateKey,
+        locationId: params.locationId,
+        resourceId: params.resourceId,
+        excludeAppointmentId: params.excludeAppointmentId,
+      },
+      transactionClient,
+    );
 
     return contexts.get(params.providerId) ?? {
+      providerExists: false,
       providerIsBookable: false,
       availability: [],
       recurringBlocks: [],
@@ -1012,7 +1213,8 @@ export class SchedulingService {
     locationId?: string;
     resourceId?: string;
     excludeAppointmentId?: string;
-  }) {
+    includeConflicts?: boolean;
+  }, transactionClient?: Prisma.TransactionClient) {
     const dayRange = getNepalDayRangeFromDateKey(params.dateKey);
     const dayOfWeek = new Date(`${params.dateKey}T12:00:00+05:45`).getUTCDay();
 
@@ -1020,9 +1222,9 @@ export class SchedulingService {
 
     // Phase 2: replace these live queries with snapshot reads when snapshot layer exists
     // Invalidation hooks are already in place via invalidateAppointmentPlanning
-    const [providers, availabilityRows, recurringBlockRows, blockedTimeRows, conflictRows] =
-      await Promise.all([
-        this.prisma.provider.findMany({
+    const db = transactionClient ?? this.prisma;
+    const queries = [
+        db.provider.findMany({
           where: {
             id: { in: providerIds },
             organizationId: params.organizationId,
@@ -1030,6 +1232,9 @@ export class SchedulingService {
           select: {
             id: true,
             status: true,
+            displayName: true,
+            color: true,
+            specialty: true,
             user: {
               select: {
                 status: true,
@@ -1037,13 +1242,18 @@ export class SchedulingService {
             },
           },
         }),
-        this.prisma.providerAvailability.findMany({
+        db.providerAvailability.findMany({
           where: {
             providerId: { in: providerIds },
             organizationId: params.organizationId,
             dayOfWeek,
             isActive: true,
-            OR: [{ locationId: params.locationId }, { locationId: null }],
+            effectiveFrom: { lte: dayRange.endsAt },
+            OR: [
+              { effectiveTo: null },
+              { effectiveTo: { gte: dayRange.startsAt } },
+            ],
+            AND: [{ OR: [{ locationId: params.locationId }, { locationId: null }] }],
           },
           select: {
             id: true,
@@ -1055,7 +1265,7 @@ export class SchedulingService {
           },
           orderBy: [{ startsAtLocal: "asc" }],
         }),
-        this.prisma.providerRecurringBlock.findMany({
+        db.providerRecurringBlock.findMany({
           where: {
             providerId: { in: providerIds },
             organizationId: params.organizationId,
@@ -1072,7 +1282,7 @@ export class SchedulingService {
           },
           orderBy: [{ startsAtLocal: "asc" }],
         }),
-        this.prisma.blockedTime.findMany({
+        db.blockedTime.findMany({
           where: {
             organizationId: params.organizationId,
             OR: [
@@ -1091,7 +1301,7 @@ export class SchedulingService {
           },
           orderBy: [{ startsAt: "asc" }],
         }),
-        this.prisma.appointment.findMany({
+        params.includeConflicts === false ? Promise.resolve([]) : db.appointment.findMany({
           where: {
             organizationId: params.organizationId,
             id: params.excludeAppointmentId ? { not: params.excludeAppointmentId } : undefined,
@@ -1112,7 +1322,9 @@ export class SchedulingService {
             bufferMinutes: true,
           },
         }),
-      ]);
+      ] as const;
+    const [providers, availabilityRows, recurringBlockRows, blockedTimeRows, conflictRows] =
+      await Promise.all(queries);
 
     const providersById = new Map(providers.map((provider) => [provider.id, provider]));
     const availabilityByProvider = this.groupByProviderId(availabilityRows);
@@ -1129,7 +1341,11 @@ export class SchedulingService {
     const contexts = new Map<
       string,
       {
+        providerExists: boolean;
         providerIsBookable: boolean;
+        providerName: string;
+        providerColor: string;
+        specialty: string | null;
         availability: Array<{
           id: string;
           providerId: string;
@@ -1166,12 +1382,16 @@ export class SchedulingService {
     for (const providerId of providerIds) {
       const provider = providersById.get(providerId);
       contexts.set(providerId, {
+        providerExists: Boolean(provider),
         providerIsBookable: Boolean(
           provider &&
             provider.status !== "Inactive" &&
             provider.user?.status !== "Inactive" &&
             provider.user?.status !== "Suspended",
         ),
+        providerName: provider?.displayName ?? "Unknown provider",
+        providerColor: provider?.color ?? "#0f766e",
+        specialty: provider?.specialty ?? null,
         availability: availabilityByProvider.get(providerId) ?? [],
         recurringBlocks: recurringBlocksByProvider.get(providerId) ?? [],
         blockedTimes: [

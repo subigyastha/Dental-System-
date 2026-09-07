@@ -4,7 +4,7 @@
 | --- | --- |
 | Status | Normative production target |
 | Version | 0.1 (draft) |
-| Last updated | 2026-07-18 |
+| Last updated | 2026-08-15 |
 | Authority | NestJS APIs and PostgreSQL remain the source of truth |
 
 ## 1. Purpose
@@ -79,12 +79,14 @@ Invalidation is event-driven and includes the organization and affected location
 ## 7. Performance objectives
 
 - Normal authorized API reads: p95 under 500 ms.
-- Day/week schedule read models: p95 under 1.5 seconds.
+- Day/week schedule read models: p95 under 500 ms at the documented representative clinic volume.
 - UI feedback to an interaction: under 100 ms; core route/module usable under 2.5 seconds on normal clinic broadband.
 - Appointment commit correctness takes precedence over latency. Under contention, return a clear conflict response and refreshed alternatives.
 
 ## 8. Current deviations and release criteria
 
-The current application has an oversized unauthenticated operational-data path, direct web Prisma fallback, unbounded browser Maps, and an in-process schedule `Map` without TTL or shared invalidation. These are shipping blockers.
+The dashboard, Client routes, and Schedule startup now use authenticated, purpose-specific `/api/v1` read models; production web code has no Prisma access. Schedule startup is bounded to scoped provider schedule references and services, visible calendar data is range-owned, identical in-flight planning reads remain deduplicated even when a React consumer aborts, and mutation invalidation is revision-safe. The process-local schedule cache now has TTL, LRU bounds, per-key single-flight, stale-load protection, and configuration invalidation. API processing time is exposed through `Server-Timing`/`x-response-time-ms` for evidence capture.
+
+Remaining deviations are shipping gates: some secondary workspace routes still depend on the legacy operational aggregate; the day response retains one compatible rich/grid appointment duplication; browser planning Maps are LRU-bounded but do not yet have elapsed-time TTL; multi-instance cache invalidation/Redis is not implemented; and representative-volume p50/p95, payload, query-count, and query-plan evidence must be re-recorded after the Supabase connection identity is repaired.
 
 Before release, the team must prove that read models are authenticated/scoped; direct Prisma and seed fallbacks are removed from production paths; Redis failure is safe; mutation invalidation works across API instances; and performance/load tests meet the objectives above.

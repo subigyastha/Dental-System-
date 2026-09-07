@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { X } from "lucide-react";
+import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode } from "react";
 
 import { Button, Panel } from "@/components/ui";
 
@@ -83,25 +84,160 @@ export function Modal({
   title,
   subtitle,
 }: {
-  children: ReactNode;
+  children?: ReactNode;
   onClose: () => void;
   title: string;
   subtitle?: string;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 p-4 backdrop-blur-sm">
-      <div className="h-[100dvh] w-full overflow-auto rounded-none border-0 bg-[var(--surface)] shadow-[var(--popover-shadow)] sm:max-h-[90vh] sm:max-w-3xl sm:rounded-xl sm:border sm:border-[var(--border)]">
-        <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
-          <div>
-            <h2 className="text-lg font-semibold text-[var(--foreground)]">{title}</h2>
-            {subtitle ? <p className="mt-1 text-sm text-[var(--text-muted)]">{subtitle}</p> : null}
+    <Drawer context={subtitle} onClose={onClose} title={title}>
+      {children}
+    </Drawer>
+  );
+}
+
+export function Drawer({
+  children,
+  closeDisabled = false,
+  context,
+  hidden = false,
+  onClose,
+  stepLabel,
+  title,
+  width = "default",
+}: {
+  children?: ReactNode;
+  closeDisabled?: boolean;
+  context?: string;
+  hidden?: boolean;
+  onClose: () => void;
+  stepLabel?: string;
+  title: string;
+  width?: "default" | "wide";
+}) {
+  const titleId = useId();
+  const contextId = useId();
+  const panelRef = useRef<HTMLElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (hidden) return;
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const focusTimer = window.setTimeout(() => {
+      const preferredFocus = contentRef.current?.querySelector<HTMLElement>(
+        "[data-drawer-autofocus], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), a[href]",
+      );
+      (preferredFocus ?? panelRef.current)?.focus();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.body.style.overflow = previousBodyOverflow;
+      previouslyFocused?.focus();
+    };
+  }, [hidden]);
+
+  function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (!closeDisabled) {
+        onClose();
+      }
+      return;
+    }
+
+    if (event.key !== "Tab" || !panelRef.current) {
+      return;
+    }
+
+    const focusableElements = Array.from(
+      panelRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    ).filter((element) => !element.hasAttribute("aria-hidden"));
+
+    if (focusableElements.length === 0) {
+      event.preventDefault();
+      panelRef.current.focus();
+      return;
+    }
+
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+    const activeElement = document.activeElement;
+
+    if (event.shiftKey && activeElement === firstElement) {
+      event.preventDefault();
+      lastElement.focus();
+    } else if (!event.shiftKey && activeElement === lastElement) {
+      event.preventDefault();
+      firstElement.focus();
+    }
+  }
+
+  if (hidden) return null;
+
+  return (
+    <div className="fixed inset-0 z-[70]">
+      <button
+        aria-label={`Close ${title}`}
+        className="absolute inset-0 bg-slate-950/30"
+        disabled={closeDisabled}
+        onClick={onClose}
+        tabIndex={-1}
+        type="button"
+      />
+      <section
+        aria-describedby={context ? contextId : undefined}
+        aria-labelledby={titleId}
+        aria-modal="true"
+        className={`absolute inset-x-0 bottom-0 flex max-h-[min(92dvh,900px)] w-full flex-col rounded-t-2xl bg-[var(--surface)] shadow-[0_-16px_40px_rgba(15,23,42,0.2)] sm:inset-y-0 sm:left-auto sm:right-0 sm:max-h-none sm:rounded-none sm:shadow-[-16px_0_40px_rgba(15,23,42,0.2)] ${
+          width === "wide" ? "sm:w-[min(720px,100vw)]" : "sm:w-[480px]"
+        }`}
+        data-testid="workspace-drawer"
+        onKeyDown={handleKeyDown}
+        ref={panelRef}
+        role="dialog"
+        tabIndex={-1}
+      >
+        <header className="shrink-0 border-b border-[var(--border)] px-5 py-4">
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="text-base font-bold text-[var(--foreground)]" id={titleId}>
+              {title}
+            </h2>
+            <button
+              aria-label="Close"
+              className="flex size-7 items-center justify-center rounded-md bg-[var(--sidebar)] text-[var(--text-muted)] hover:text-[var(--foreground)] disabled:cursor-wait disabled:opacity-50"
+              disabled={closeDisabled}
+              onClick={onClose}
+              type="button"
+            >
+              <X aria-hidden="true" size={16} />
+            </button>
           </div>
-          <Button onClick={onClose} variant="ghost">
-            Close
-          </Button>
+          {context ? (
+            <p className="mt-1 text-xs text-[var(--text-muted)]" id={contextId}>
+              {context}
+            </p>
+          ) : null}
+          {stepLabel ? (
+            <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.02em] text-[var(--accent)]">
+              {stepLabel}
+            </p>
+          ) : null}
+        </header>
+        <div
+          className="scrollbar-quiet min-h-0 flex-1 overflow-y-auto p-5"
+          ref={contentRef}
+        >
+          {children}
         </div>
-        <div className="p-5">{children}</div>
-      </div>
+      </section>
     </div>
   );
 }

@@ -6,6 +6,10 @@ export class CreateAppointmentDto {
   @IsString()
   id?: string;
 
+  @IsOptional()
+  @IsString()
+  holdId?: string;
+
   @IsString()
   organizationId!: string;
 

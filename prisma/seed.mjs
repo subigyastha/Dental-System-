@@ -5,7 +5,27 @@ const prisma = new PrismaClient();
 
 const organizationId = "org-koi-dental";
 const locationId = "location-main-kathmandu";
-const demoPasswordHash = hashPassword("demo-password", "koi-demo-salt");
+const demoSeedPassword = process.env.DEMO_SEED_PASSWORD;
+
+if (process.env.ALLOW_DEMO_SEED !== "true") {
+  throw new Error("Refusing to seed demo accounts. Set ALLOW_DEMO_SEED=true only in an isolated development environment.");
+}
+
+if (!demoSeedPassword || demoSeedPassword.length < 15 || ["demo-password", "password", "password123", "12345678", "qwerty123", "welcome123", "admin123"].includes(demoSeedPassword.toLowerCase())) {
+  throw new Error("DEMO_SEED_PASSWORD must be a unique, non-common passphrase of at least 15 characters.");
+}
+
+const demoPasswordHash = hashPassword(demoSeedPassword);
+
+function normalizeClientPhone(value) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  if (digits.startsWith("977") && digits.length >= 10) return digits;
+  if (digits.length === 10 && digits.startsWith("9")) return `977${digits}`;
+  if (digits.length >= 8 && digits.length <= 10 && digits.startsWith("0")) {
+    return `977${digits.slice(1)}`;
+  }
+  return digits;
+}
 
 const users = [
   ["user-owner", "Darrell Steward", "owner@zendenta.local", "Owner", null],
@@ -157,7 +177,7 @@ await prisma.organization.create({
     id: organizationId,
     name: "Koi Dental Coordination Center",
     timezone: "Asia/Kathmandu",
-    primaryCalendar: "BS",
+    primaryCalendar: "AD",
     settings: {
       create: {
         defaultBufferMinutes: 10,
@@ -224,7 +244,9 @@ await prisma.customer.createMany({
     organizationId,
     fullName,
     phone,
+    normalizedPhone: normalizeClientPhone(phone),
     email,
+    normalizedEmail: email?.trim().toLowerCase() ?? null,
     gender,
     dateOfBirth: new Date(dateOfBirth),
     address,
@@ -234,6 +256,21 @@ await prisma.customer.createMany({
     medicalNotes,
     riskLabel,
     lastVisitAt: new Date(lastVisitAt),
+  })),
+});
+
+await prisma.clientPhone.createMany({
+  data: customers.map(([customerId, , phone]) => ({
+    id: `seed-phone-${customerId}`,
+    organizationId,
+    customerId,
+    rawValue: phone,
+    normalizedValue: normalizeClientPhone(phone),
+    normalizationVersion: "np-v1",
+    type: "Mobile",
+    isPrimary: true,
+    verificationStatus: "Unverified",
+    source: "DemoSeed",
   })),
 });
 
@@ -382,8 +419,13 @@ await prisma.$disconnect();
 
 console.log("Seeded Koi workflow operational data.");
 
-function hashPassword(password, fixedSalt) {
-  const salt = fixedSalt ?? randomBytes(16).toString("hex");
-  const hash = scryptSync(password, salt, 64).toString("hex");
-  return `scrypt:${salt}:${hash}`;
+function hashPassword(password) {
+  const salt = randomBytes(16).toString("hex");
+  const hash = scryptSync(password, salt, 64, {
+    N: 2 ** 17,
+    r: 8,
+    p: 1,
+    maxmem: 256 * 1024 * 1024,
+  }).toString("hex");
+  return `scrypt$v1$131072$8$1$${salt}$${hash}`;
 }

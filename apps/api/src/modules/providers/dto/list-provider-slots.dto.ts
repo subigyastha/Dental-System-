@@ -1,11 +1,13 @@
 import { Type } from "class-transformer";
-import { IsInt, IsOptional, IsString, Min } from "class-validator";
+import { IsInt, IsOptional, IsString, Max, Min } from "class-validator";
+
+import { IsAdDateKey } from "../../scheduling/ad-date-key";
 
 export class ListProviderSlotsDto {
   @IsString()
   organizationId!: string;
 
-  @IsString()
+  @IsAdDateKey()
   date!: string;
 
   @IsOptional()
@@ -20,6 +22,7 @@ export class ListProviderSlotsDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(1440)
   durationMinutes?: number;
 
   @IsOptional()

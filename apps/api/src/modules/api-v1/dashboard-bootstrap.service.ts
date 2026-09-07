@@ -2,8 +2,9 @@ import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
 
 import { AuthService, type AuthSession, type AuthSessionReference } from "../auth/auth.service";
-import { assertClinicOperator } from "../auth/authz";
+import { assertClinicOperator, clinicOperatorRoles } from "../auth/authz";
 import { PrismaService } from "../prisma/prisma.service";
+import { boundedInteger } from "./bounded-integer";
 
 const dashboardCapabilities = [
   "dashboard.read",
@@ -22,28 +23,49 @@ export class DashboardBootstrapService {
     @Inject(AuthService) private readonly auth: AuthService,
   ) {}
 
-  async getBootstrap(limit: number, authorization?: AuthSessionReference, now = new Date()) {
+  async getBootstrap(limit: number | string, authorization?: AuthSessionReference, now = new Date()) {
     const actor = await this.requireClinicOperator(authorization);
+    const pageLimit = boundedInteger(limit, {
+      defaultValue: 12,
+      field: "limit",
+      max: 25,
+    });
     const to = new Date(now.getTime() + 24 * 60 * 60_000);
     const roles = actor.effectiveRoles ?? [actor.role as UserRole];
     const roleSource = actor.authorizationRoleSource ?? "legacy_scalar";
-    const upcomingTake = limit + 1;
-    const followUpTake = limit + 1;
+    const permittedLocationIds = this.permittedLocationIds(actor);
+    const appointmentLocationScope = permittedLocationIds
+      ? { locationId: { in: permittedLocationIds } }
+      : {};
+    const followUpLocationScope = permittedLocationIds
+      ? { appointment: { is: { locationId: { in: permittedLocationIds } } } }
+      : {};
+    const upcomingTake = pageLimit + 1;
+    const followUpTake = pageLimit + 1;
 
-    const [organization, activeClientCount, upcomingAppointmentCount, dueFollowUpCount, upcoming, followUps] = await Promise.all([
+    const [organization, upcomingAppointmentCount, dueFollowUpCount, upcoming, followUps] = await Promise.all([
       this.prisma.organization.findFirst({
         where: { id: actor.organizationId },
-        select: { id: true, name: true, timezone: true, primaryCalendar: true },
+        select: {
+          id: true,
+          name: true,
+          timezone: true,
+          primaryCalendar: true,
+          _count: {
+            select: {
+              customers: { where: { archivedAt: null } },
+            },
+          },
+        },
       }),
-      this.prisma.customer.count({ where: { organizationId: actor.organizationId, archivedAt: null } }),
       this.prisma.appointment.count({
-        where: { organizationId: actor.organizationId, startsAt: { gte: now, lt: to }, status: { in: [...activeAppointmentStatuses] } },
+        where: { organizationId: actor.organizationId, ...appointmentLocationScope, startsAt: { gte: now, lt: to }, status: { in: [...activeAppointmentStatuses] } },
       }),
       this.prisma.followUpTask.count({
-        where: { organizationId: actor.organizationId, dueAt: { lte: now }, status: { in: [...openFollowUpStatuses] } },
+        where: { organizationId: actor.organizationId, ...followUpLocationScope, dueAt: { lte: now }, status: { in: [...openFollowUpStatuses] } },
       }),
       this.prisma.appointment.findMany({
-        where: { organizationId: actor.organizationId, startsAt: { gte: now, lt: to }, status: { in: [...activeAppointmentStatuses] } },
+        where: { organizationId: actor.organizationId, ...appointmentLocationScope, startsAt: { gte: now, lt: to }, status: { in: [...activeAppointmentStatuses] } },
         select: {
           id: true, startsAt: true, endsAt: true, status: true, priority: true,
           customer: { select: { id: true, fullName: true, patientCode: true } },
@@ -54,7 +76,7 @@ export class DashboardBootstrapService {
         take: upcomingTake,
       }),
       this.prisma.followUpTask.findMany({
-        where: { organizationId: actor.organizationId, dueAt: { lte: now }, status: { in: [...openFollowUpStatuses] } },
+        where: { organizationId: actor.organizationId, ...followUpLocationScope, dueAt: { lte: now }, status: { in: [...openFollowUpStatuses] } },
         select: {
           id: true, dueAt: true, status: true, priority: true, type: true, summary: true, nextAction: true,
           customer: { select: { id: true, fullName: true, patientCode: true } },
@@ -77,12 +99,12 @@ export class DashboardBootstrapService {
         actor: { id: actor.id, name: actor.name, roles, roleSource, capabilities: [...dashboardCapabilities] },
       },
       summary: {
-        activeClientCount,
+        activeClientCount: organization._count.customers,
         appointmentsNext24Hours: upcomingAppointmentCount,
         overdueFollowUpCount: dueFollowUpCount,
         generatedAtIso: now.toISOString(),
       },
-      schedule: this.page(upcoming, limit, (appointment) => ({
+      schedule: this.page(upcoming, pageLimit, (appointment) => ({
         id: appointment.id,
         startsAtIso: appointment.startsAt.toISOString(),
         endsAtIso: appointment.endsAt.toISOString(),
@@ -92,7 +114,7 @@ export class DashboardBootstrapService {
         provider: { id: appointment.provider.id, name: appointment.provider.displayName },
         location: appointment.location ? { id: appointment.location.id, name: appointment.location.name } : null,
       })),
-      followUps: this.page(followUps, limit, (task) => ({
+      followUps: this.page(followUps, pageLimit, (task) => ({
         id: task.id,
         dueAtIso: task.dueAt.toISOString(),
         status: task.status,
@@ -109,6 +131,21 @@ export class DashboardBootstrapService {
     const actor = await this.auth.requireSession(authorization);
     assertClinicOperator(actor);
     return actor;
+  }
+
+  private permittedLocationIds(actor: AuthSession): string[] | null {
+    if (!actor.effectiveRoleScopes) return null;
+    const operatorScopes = actor.effectiveRoleScopes.filter((scope) =>
+      clinicOperatorRoles.has(scope.role),
+    );
+    if (operatorScopes.some((scope) => scope.locationId === null)) return null;
+    return [
+      ...new Set(
+        operatorScopes.flatMap((scope) =>
+          scope.locationId ? [scope.locationId] : [],
+        ),
+      ),
+    ];
   }
 
   private page<T, R>(items: T[], limit: number, map: (item: T) => R) {

@@ -1,4 +1,4 @@
-import { PatientDetailPage } from "@/components/workspace/patient-detail-page";
+import { redirect } from "next/navigation";
 
 export default async function PatientDetailRoute({
   params,
@@ -6,5 +6,5 @@ export default async function PatientDetailRoute({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  return <PatientDetailPage customerId={id} />;
+  redirect("/clients/" + id);
 }

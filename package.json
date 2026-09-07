@@ -12,7 +12,7 @@
     "start": "npm run start -w web",
     "start:api": "npm run start -w api",
     "test:calendar": "npm run test:calendar -w web",
-    "test": "npm run test:calendar && npm run test:workspace-boundary -w web && npm run test:api-client -w web && npm run test:phase-two -w web && npm run test:tenancy -w api && npm run test:auth -w api && npm run test:archive -w api && npm run test:platform -w api && npm run test:v1 -w api && npm run test:phase-one-http -w api",
+    "test": "npm run test:calendar && npm run test:workspace-boundary -w web && npm run test:api-client -w web && npm run test:phase-two -w web && npm run test:tenancy -w api && npm run test:auth -w api && npm run test:archive -w api && npm run test:platform -w api && npm run test:scheduling -w api && npm run test:v1 -w api && npm run test:phase-one-http -w api",
     "lint": "npm run lint -w web",
     "format:check": "node scripts/check-format.mjs",
     "typecheck": "npm run typecheck -w web && npm run typecheck -w api",
@@ -27,6 +27,7 @@
     "db:migrate:resolve": "prisma migrate resolve",
     "db:push": "prisma db push",
     "db:seed": "node prisma/seed.mjs",
+    "platform:admin:provision": "node scripts/provision-super-admin.mjs",
     "postinstall": "prisma generate"
   },
   "devDependencies": {

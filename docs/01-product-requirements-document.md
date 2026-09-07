@@ -54,7 +54,7 @@ ClinicFlow authorizes work through additive roles. A user may hold more than one
 | Manager | Day-to-day clinic lead | Manages clinic operations, schedules, staff coordination, follow-ups, and reporting. |
 | Receptionist | Front-desk operator | Registers and manages clients, books and updates appointments, manages confirmations, and records payments. |
 | Scheduler | Scheduling specialist | Manages availability, resources, appointments, reschedules, and schedule communication. |
-| Provider | Dentist or other clinical provider | Views assigned work and relevant client history; records clinical visit outcomes and chart revisions within authorized scope. |
+| Provider | Dentist or other clinical provider | Views assigned work and relevant client history; may register a new caller as a Client and append the caller's number after governed duplicate review; records clinical visit outcomes and chart revisions within authorized scope. General Client profile correction, archive, merge, and identity-review resolution remain administrative workflows. |
 | Assistant | Clinical support staff | Supports check-in, chair/workflow activities, and permitted clinical documentation; no independent financial administration by default. |
 | Finance | Billing specialist | Manages invoices, payments, refunds/voids as permitted, reconciliations, finance reports, and payment-provider operations. |
 | Inventory Manager | Stock custodian | Manages items, suppliers, stock movement, counts, reorder settings, and inventory reporting. |

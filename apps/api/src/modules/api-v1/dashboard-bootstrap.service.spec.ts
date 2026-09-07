@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { ForbiddenException } from "@nestjs/common";
+import {
+  ConflictException,
+  ForbiddenException,
+} from "@nestjs/common";
 import { UserRole } from "@prisma/client";
 
 import { DashboardBootstrapService } from "./dashboard-bootstrap.service";
@@ -19,8 +22,7 @@ test("v1 dashboard bootstrap is tenant-scoped, bounded, and includes role contex
   const observed: unknown[] = [];
   const now = new Date("2030-01-01T08:00:00.000Z");
   const prisma = {
-    organization: { findFirst: async (query: unknown) => { observed.push(query); return { id: "clinic-a", name: "Clinic A", timezone: "Asia/Kathmandu", primaryCalendar: "AD" }; } },
-    customer: { count: async (query: unknown) => { observed.push(query); return 8; } },
+    organization: { findFirst: async (query: unknown) => { observed.push(query); return { id: "clinic-a", name: "Clinic A", timezone: "Asia/Kathmandu", primaryCalendar: "AD", _count: { customers: 8 } }; } },
     appointment: {
       count: async (query: unknown) => { observed.push(query); return 3; },
       findMany: async (query: unknown) => {
@@ -43,7 +45,17 @@ test("v1 dashboard bootstrap is tenant-scoped, bounded, and includes role contex
   };
   const service = new DashboardBootstrapService(
     prisma as never,
-    { requireSession: async () => ({ ...actor, effectiveRoles: [UserRole.Provider, UserRole.Finance], authorizationRoleSource: "assignment_policy" }) } as never,
+    {
+      requireSession: async () => ({
+        ...actor,
+        effectiveRoles: [UserRole.Provider, UserRole.Finance],
+        effectiveRoleScopes: [
+          { role: UserRole.Provider, locationId: "location-a" },
+          { role: UserRole.Finance, locationId: "location-b" },
+        ],
+        authorizationRoleSource: "assignment_policy",
+      }),
+    } as never,
   );
 
   const result = await service.getBootstrap(2, actor, now);
@@ -62,6 +74,27 @@ test("v1 dashboard bootstrap is tenant-scoped, bounded, and includes role contex
   assert.ok(observed.every((query) => JSON.stringify(query).includes("clinic-a")), "every data query must use the actor's organization scope");
   const scheduleQuery = observed.find((query) => JSON.stringify(query).includes('"take":3')) as { take: number };
   assert.equal(scheduleQuery.take, 3, "collection reads request only limit + 1 rows");
+  const serializedQueries = observed.map((query) => JSON.stringify(query));
+  const appointmentQueries = serializedQueries.filter((query) =>
+    query.includes('"startsAt"'),
+  );
+  const followUpQueries = serializedQueries.filter((query) =>
+    query.includes('"dueAt"'),
+  );
+  assert.ok(
+    appointmentQueries.every((query) =>
+      query.includes('"locationId":{"in":["location-a"]}'),
+    ),
+    "appointment reads must use only the actor's clinic-operator location scope",
+  );
+  assert.ok(
+    followUpQueries.every((query) =>
+      query.includes(
+        '"appointment":{"is":{"locationId":{"in":["location-a"]}}}',
+      ),
+    ),
+    "follow-up reads must be related to an appointment in the permitted location",
+  );
 });
 
 test("v1 dashboard rejects non-clinic users", async () => {
@@ -70,6 +103,45 @@ test("v1 dashboard rejects non-clinic users", async () => {
     { requireSession: async () => ({ ...actor, role: UserRole.Client }) } as never,
   );
   await assert.rejects(service.getBootstrap(12, actor), ForbiddenException);
+});
+
+test("v1 dashboard normalizes an HTTP query-string limit before passing it to Prisma", async () => {
+  const takes: unknown[] = [];
+  const now = new Date("2030-01-01T08:00:00.000Z");
+  const service = new DashboardBootstrapService(
+    {
+      organization: {
+        findFirst: async () => ({
+          id: "clinic-a",
+          name: "Clinic A",
+          timezone: "Asia/Kathmandu",
+          primaryCalendar: "AD",
+          _count: { customers: 0 },
+        }),
+      },
+      appointment: {
+        count: async () => 0,
+        findMany: async ({ take }: { take: unknown }) => {
+          takes.push(take);
+          return [];
+        },
+      },
+      followUpTask: {
+        count: async () => 0,
+        findMany: async ({ take }: { take: unknown }) => {
+          takes.push(take);
+          return [];
+        },
+      },
+    } as never,
+    { requireSession: async () => actor } as never,
+  );
+
+  const result = await service.getBootstrap("12", actor, now);
+
+  assert.deepEqual(takes, [13, 13]);
+  assert.equal(result.schedule.page.limit, 12);
+  assert.equal(result.followUps.page.limit, 12);
 });
 
 test("v1 envelope and errors have stable versioned shapes", () => {
@@ -83,5 +155,20 @@ test("v1 envelope and errors have stable versioned shapes", () => {
       error: { code: "forbidden", message: "Denied" },
       meta: { apiVersion: "v1", requestId: "request-1" },
     },
+  });
+});
+
+test("v1 errors preserve safe domain reasons without replacing the stable code", () => {
+  const result = v1ErrorBody(
+    new ConflictException({
+      code: "HOLD_EXPIRED",
+      message: "The selected hold expired.",
+    }),
+    "request-2",
+  );
+  assert.deepEqual(result.body.error, {
+    code: "conflict",
+    reason: "HOLD_EXPIRED",
+    message: "The selected hold expired.",
   });
 });

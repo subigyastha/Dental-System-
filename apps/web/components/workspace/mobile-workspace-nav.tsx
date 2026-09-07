@@ -5,6 +5,7 @@ import { useEffect } from "react";
 
 type MobileWorkspaceBottomNavProps = {
   active: "schedule" | "book" | "more";
+  canBook: boolean;
   onBook: () => void;
   onMore: () => void;
   onSchedule: () => void;
@@ -12,6 +13,7 @@ type MobileWorkspaceBottomNavProps = {
 
 export function MobileWorkspaceBottomNav({
   active,
+  canBook,
   onBook,
   onMore,
   onSchedule,
@@ -29,7 +31,9 @@ export function MobileWorkspaceBottomNav({
       label: "Schedule",
       onClick: onSchedule,
     },
-    { active: active === "book", icon: Plus, label: "Book", onClick: onBook, primary: true },
+    ...(canBook
+      ? [{ active: active === "book", icon: Plus, label: "Book", onClick: onBook, primary: true }]
+      : []),
     { active: active === "more", icon: MoreHorizontal, label: "More", onClick: onMore },
   ];
 
@@ -38,7 +42,7 @@ export function MobileWorkspaceBottomNav({
       aria-label="Mobile workspace navigation"
       className="fixed inset-x-0 bottom-0 z-20 border-t border-[var(--border)] bg-[var(--surface)]/96 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur lg:hidden"
     >
-      <div className="grid grid-cols-3 gap-2">
+      <div className={`grid gap-2 ${canBook ? "grid-cols-3" : "grid-cols-2"}`}>
         {items.map((item) => {
           const Icon = item.icon;
           return (
@@ -67,17 +71,25 @@ export function MobileWorkspaceBottomNav({
 
 export function MobileWorkspaceMoreSheet({
   hasBillingAccess,
+  hasInventoryAccess,
   hasMySchedule,
   hasArchiveAccess,
   hasSettingsAccess,
+  hasStaffAccess,
+  isLogoutBlocked,
+  isLoggingOut,
   onClose,
   onLogout,
   onNavigate,
 }: {
   hasBillingAccess: boolean;
+  hasInventoryAccess: boolean;
   hasMySchedule: boolean;
   hasArchiveAccess: boolean;
   hasSettingsAccess: boolean;
+  hasStaffAccess: boolean;
+  isLogoutBlocked: boolean;
+  isLoggingOut: boolean;
   onClose: () => void;
   onLogout: () => void;
   onNavigate: (href: string) => void;
@@ -114,12 +126,18 @@ export function MobileWorkspaceMoreSheet({
           </button>
         </div>
         <div className="space-y-2">
-          <MobileMoreSheetAction label="Patients" onClick={() => onNavigate("/patients")} />
+          <MobileMoreSheetAction label="Clients" onClick={() => onNavigate("/clients")} />
           {hasMySchedule ? (
             <MobileMoreSheetAction label="My schedule" onClick={() => onNavigate("/my-schedule")} />
           ) : null}
           {hasBillingAccess ? (
-            <MobileMoreSheetAction label="Billing" onClick={() => onNavigate("/billing")} />
+            <MobileMoreSheetAction label="Finance" onClick={() => onNavigate("/billing")} />
+          ) : null}
+          {hasInventoryAccess ? (
+            <MobileMoreSheetAction label="Inventory" onClick={() => onNavigate("/inventory")} />
+          ) : null}
+          {hasStaffAccess ? (
+            <MobileMoreSheetAction label="Staff" onClick={() => onNavigate("/staff")} />
           ) : null}
           {hasArchiveAccess ? (
             <MobileMoreSheetAction label="Archive center" onClick={() => onNavigate("/archive")} />
@@ -128,11 +146,14 @@ export function MobileWorkspaceMoreSheet({
             <MobileMoreSheetAction label="Settings" onClick={() => onNavigate("/settings")} />
           ) : null}
           <button
-            className="flex min-h-11 w-full items-center justify-between rounded-md border border-[var(--border)] px-4 py-3 text-left text-[var(--danger)]"
+            className="flex min-h-11 w-full items-center justify-between rounded-md border border-[var(--border)] px-4 py-3 text-left text-[var(--danger)] disabled:cursor-wait disabled:opacity-60"
+            disabled={isLogoutBlocked || isLoggingOut}
             onClick={onLogout}
             type="button"
           >
-            <span className="font-medium">Sign out</span>
+            <span className="font-medium">
+              {isLoggingOut ? "Signing out…" : isLogoutBlocked ? "Finishing booking…" : "Sign out"}
+            </span>
             <ChevronRight size={16} />
           </button>
         </div>

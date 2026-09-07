@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, Injectable } from "@nestjs/common";
+import { CanActivate, ExecutionContext, Inject, Injectable } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 
 import { AuthService } from "./auth.service";
@@ -16,7 +16,9 @@ type RequestWithCookies = {
 @Injectable()
 export class CsrfGuard implements CanActivate {
   constructor(
+    @Inject(Reflector)
     private readonly reflector: Reflector,
+    @Inject(AuthService)
     private readonly auth: AuthService,
   ) {}
 

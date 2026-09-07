@@ -10,5 +10,6 @@ import { ProvidersService } from "./providers.service";
   imports: [PrismaModule, AuthModule, SchedulingModule],
   controllers: [ProvidersController],
   providers: [ProvidersService],
+  exports: [ProvidersService],
 })
 export class ProvidersModule {}

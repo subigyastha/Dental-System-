@@ -11,8 +11,8 @@ import { signedInRoute } from "@/lib/session-routing";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("owner@zendenta.local");
-  const [password, setPassword] = useState("demo-password");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -53,7 +53,7 @@ export default function LoginPage() {
               Dental operations, without the visual noise.
             </h1>
             <p className="mt-4 text-sm leading-6 text-[var(--text-muted)]">
-              Reservations, patients, staff, billing, and clinic settings live in one calm workspace.
+              Reservations, Clients, staff, Finance, and clinic settings live in one calm workspace.
             </p>
           </div>
         </section>
@@ -70,7 +70,7 @@ export default function LoginPage() {
               Open the clinic workspace
             </h2>
             <p className="mt-2 text-sm text-[var(--text-muted)]">
-              Use the owner or staff account already seeded in the system.
+              Use your clinic staff account to continue.
             </p>
 
             <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
@@ -79,6 +79,8 @@ export default function LoginPage() {
                 <input
                   className="h-11 w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 text-sm outline-none"
                   onChange={(event) => setEmail(event.target.value)}
+                  autoComplete="username"
+                  required
                   type="email"
                   value={email}
                 />
@@ -89,6 +91,8 @@ export default function LoginPage() {
                 <input
                   className="h-11 w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 text-sm outline-none"
                   onChange={(event) => setPassword(event.target.value)}
+                  autoComplete="current-password"
+                  required
                   type="password"
                   value={password}
                 />
@@ -104,10 +108,6 @@ export default function LoginPage() {
                 {isSubmitting ? "Signing in..." : "Sign in"}
               </Button>
             </form>
-
-            <div className="mt-6 rounded-md border border-[var(--border)] bg-[var(--surface-muted)] p-3 text-sm text-[var(--text-muted)]">
-              Demo owner: <span className="font-medium text-[var(--foreground)]">owner@zendenta.local</span>
-            </div>
           </div>
         </section>
       </div>

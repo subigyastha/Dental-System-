@@ -19,11 +19,49 @@ export function buildAppointmentView(
   providers: Provider[],
   services: Service[],
 ) {
+  const customer =
+    customers.find((item) => item.id === appointment.customerId) ??
+    (appointment.clientSummary
+      ? {
+          id: appointment.clientSummary.id,
+          name: appointment.clientSummary.name,
+          patientCode: appointment.clientSummary.patientCode,
+          phone: "",
+          age: 0,
+          risk: "Routine" as const,
+          lastVisitIso: appointment.startsAtIso,
+        }
+      : undefined);
+  const provider =
+    providers.find((item) => item.id === appointment.providerId) ??
+    (appointment.providerSummary
+      ? {
+          id: appointment.providerSummary.id,
+          name: appointment.providerSummary.name,
+          roleLabel: "Provider",
+          specialty: appointment.providerSummary.specialty ?? "General service",
+          color: appointment.providerSummary.color,
+          capacityMinutes: 0,
+          bookedMinutes: 0,
+          status: "Available" as const,
+          availability: [],
+          recurringBlocks: [],
+          blockedTimes: [],
+          serviceIds: [],
+        }
+      : undefined);
+  const serviceMap = new Map([
+    ...appointment.serviceSummaries?.map((service) => [service.id, service] as const) ?? [],
+    ...services.map((service) => [service.id, service] as const),
+  ]);
   return {
     ...appointment,
-    customer: customers.find((customer) => customer.id === appointment.customerId),
-    provider: providers.find((provider) => provider.id === appointment.providerId),
-    services: services.filter((service) => appointment.serviceIds.includes(service.id)),
+    customer,
+    provider,
+    services: appointment.serviceIds.flatMap((serviceId) => {
+      const service = serviceMap.get(serviceId);
+      return service ? [service] : [];
+    }),
   };
 }
 

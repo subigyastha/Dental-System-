@@ -1,7 +1,12 @@
 "use client";
 
-const configuredApiBase = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+import { publishSessionEnd } from "@/lib/session-events";
+
+// API calls stay same-origin. Next proxies this path to the Nest API before
+// its intentionally disabled legacy route handlers can return 410.
+const configuredApiBase = "/api";
 const UNSAFE_METHODS = new Set(["DELETE", "PATCH", "POST", "PUT"]);
+const DEFAULT_API_TIMEOUT_MS = 8_000;
 
 let csrfToken: string | null = null;
 
@@ -9,6 +14,8 @@ export class ApiRequestError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly reason?: string,
+    readonly requestId?: string,
   ) {
     super(message);
     this.name = "ApiRequestError";
@@ -28,8 +35,25 @@ function isUnsafeRequest(path: string, method?: string) {
 }
 
 function emitSessionExpired() {
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event("clinicflow:session-expired"));
+  publishSessionEnd("expired");
+}
+
+async function fetchWithDeadline(url: string, init?: RequestInit) {
+  const timeoutSignal = AbortSignal.timeout(DEFAULT_API_TIMEOUT_MS);
+  const signal = init?.signal
+    ? AbortSignal.any([init.signal, timeoutSignal])
+    : timeoutSignal;
+  try {
+    return await fetch(url, { ...init, signal });
+  } catch (error) {
+    if (timeoutSignal.aborted && !init?.signal?.aborted) {
+      throw new ApiRequestError(
+        "The server took too long to respond. Please try again.",
+        408,
+        "REQUEST_TIMEOUT",
+      );
+    }
+    throw error;
   }
 }
 
@@ -38,11 +62,15 @@ async function ensureCsrfToken() {
     return csrfToken;
   }
 
-  const response = await fetch(apiUrl("/auth/csrf"), {
+  const response = await fetchWithDeadline(apiUrl("/auth/csrf"), {
     credentials: "include",
     cache: "no-store",
   });
   if (!response.ok) {
+    if (response.status === 401) {
+      csrfToken = null;
+      emitSessionExpired();
+    }
     throw new ApiRequestError("Could not establish a protected session request.", response.status);
   }
 
@@ -74,7 +102,7 @@ export async function apiFetch(path: string, init?: RequestInit) {
     headers.set("x-csrf-token", await ensureCsrfToken());
   }
 
-  const response = await fetch(apiUrl(path), {
+  const response = await fetchWithDeadline(apiUrl(path), {
     ...init,
     headers,
     credentials: "include",
@@ -94,21 +122,34 @@ export async function apiFetchJson<T>(path: string, init?: RequestInit) {
   if (!response.ok) {
     const fallbackMessage = `Request failed with status ${response.status}`;
     let message = fallbackMessage;
+    let reason: string | undefined;
+    let requestId: string | undefined;
 
     try {
       const payload = (await response.json()) as {
-        error?: string | { message?: string };
+        error?: string | { message?: string; reason?: string };
         message?: string;
+        meta?: { requestId?: string };
       };
       message =
         (typeof payload.error === "string" ? payload.error : payload.error?.message) ??
         payload.message ??
         fallbackMessage;
+      reason =
+        typeof payload.error === "object"
+          ? payload.error.reason
+          : undefined;
+      requestId = payload.meta?.requestId;
     } catch {
       // Keep fallback message.
     }
 
-    throw new ApiRequestError(message, response.status);
+    throw new ApiRequestError(
+      message,
+      response.status,
+      reason,
+      requestId,
+    );
   }
 
   return (await response.json()) as T;

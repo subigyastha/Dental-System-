@@ -12,7 +12,9 @@ export class OperationalDataController {
   ) {}
 
   @Get()
-  getOperationalData(@ServiceSession() authorization?: string) {
+  getOperationalData(
+    @ServiceSession() authorization?: string,
+  ) {
     return this.operationalData.getOperationalData(authorization);
   }
 }

@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -25,6 +26,7 @@ export class StaffService {
 
   async list(includeInactive = false, authorization?: string) {
     const session = await this.auth.requireSession(authorization);
+    this.assertOrganizationStaffAdmin(session);
     const staff = await this.prisma.user.findMany({
       where: {
         organizationId: session.organizationId,
@@ -54,6 +56,7 @@ export class StaffService {
 
   async getOne(id: string, authorization?: string) {
     const session = await this.auth.requireSession(authorization);
+    this.assertOrganizationStaffAdmin(session);
     const staff = await this.prisma.user.findFirst({
       where: { id, organizationId: session.organizationId },
       include: {
@@ -83,8 +86,9 @@ export class StaffService {
 
   async create(dto: CreateStaffDto, authorization?: string) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicAdmin(session);
+    this.assertOrganizationStaffAdmin(session);
     this.assertSameOrganization(session, dto.organizationId);
+    this.assertCanManageOwnerRole(session, dto.role);
 
     const email = dto.email.toLowerCase();
     const existing = await this.prisma.user.findFirst({
@@ -96,6 +100,7 @@ export class StaffService {
       throw new ConflictException("A staff account already exists for this email");
     }
 
+    const passwordHash = await this.auth.hashPassword(dto.password);
     const created = await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
@@ -115,7 +120,7 @@ export class StaffService {
           notes: dto.notes,
           status: dto.status,
           isSchedulable: dto.isSchedulable,
-          passwordHash: this.auth.hashPassword(dto.password),
+          passwordHash,
         },
       });
 
@@ -181,7 +186,7 @@ export class StaffService {
 
   async update(id: string, dto: UpdateStaffDto, authorization?: string) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicAdmin(session);
+    this.assertOrganizationStaffAdmin(session);
     this.assertSameOrganization(session, dto.organizationId);
 
     const existing = await this.prisma.user.findFirst({
@@ -200,6 +205,8 @@ export class StaffService {
     if (!existing) {
       throw new NotFoundException("Staff account not found");
     }
+    this.assertCanManageOwnerRole(session, existing.role);
+    this.assertCanManageOwnerRole(session, dto.role);
 
     const email = dto.email.toLowerCase();
     const duplicate = await this.prisma.user.findFirst({
@@ -327,40 +334,46 @@ export class StaffService {
     authorization?: string,
   ) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicAdmin(session);
+    this.assertOrganizationStaffAdmin(session);
 
     const staff = await this.prisma.user.findFirst({
       where: { id, organizationId: session.organizationId },
-      select: { id: true, organizationId: true },
+      select: { id: true, organizationId: true, role: true },
     });
 
     if (!staff) {
       throw new NotFoundException("Staff account not found");
     }
+    this.assertCanManageOwnerRole(session, staff.role);
 
-    await this.prisma.$transaction([
-      this.prisma.user.update({
+    const passwordHash = await this.auth.hashPassword(dto.password);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
         where: { id },
-        data: { passwordHash: this.auth.hashPassword(dto.password) },
-      }),
-      this.prisma.auditLog.create({
+        data: { passwordHash },
+      });
+      await tx.userSession.updateMany({
+        where: { userId: id, revokedAt: null },
+        data: { revokedAt: new Date(), revokedReason: "password_reset" },
+      });
+      await tx.auditLog.create({
         data: {
           organizationId: staff.organizationId ?? session.organizationId,
           actorId: session.id,
           entityType: "staff_user",
           entityId: id,
           action: "password_reset",
-          description: "Staff password updated by clinic administrator",
+          description: "Staff password updated and active sessions revoked by clinic administrator",
         },
-      }),
-    ]);
+      });
+    });
 
     return { ok: true };
   }
 
   async deactivate(id: string, authorization?: string) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicAdmin(session);
+    this.assertOrganizationStaffAdmin(session);
 
     const staff = await this.prisma.user.findFirst({
       where: { id, organizationId: session.organizationId },
@@ -370,6 +383,7 @@ export class StaffService {
     if (!staff) {
       throw new NotFoundException("Staff account not found");
     }
+    this.assertCanManageOwnerRole(session, staff.role);
 
     if (staff.role === "Owner") {
       const ownerCount = await this.prisma.user.count({
@@ -415,7 +429,7 @@ export class StaffService {
 
   async restore(id: string, authorization?: string) {
     const session = await this.auth.requireSession(authorization);
-    assertClinicAdmin(session);
+    this.assertOrganizationStaffAdmin(session);
 
     const staff = await this.prisma.user.findFirst({
       where: { id, organizationId: session.organizationId },
@@ -425,6 +439,7 @@ export class StaffService {
     if (!staff) {
       throw new NotFoundException("Staff account not found");
     }
+    this.assertCanManageOwnerRole(session, staff.role);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.user.update({
@@ -462,6 +477,38 @@ export class StaffService {
   private assertSameOrganization(session: AuthSession, organizationId: string) {
     if (session.organizationId !== organizationId) {
       throw new BadRequestException("Cross-organization staff management is not allowed");
+    }
+  }
+
+  private assertOrganizationStaffAdmin(session: AuthSession) {
+    if (!session.effectiveRoleScopes) {
+      assertClinicAdmin(session);
+      return;
+    }
+    const allowed = session.effectiveRoleScopes.some(
+      (scope) =>
+        scope.locationId === null &&
+        (scope.role === "Owner" || scope.role === "Admin"),
+    );
+    if (!allowed) {
+      throw new ForbiddenException(
+        "Organization-wide Owner or Admin access is required to manage clinic staff",
+      );
+    }
+  }
+
+  private assertCanManageOwnerRole(session: AuthSession, targetRole: string) {
+    if (targetRole !== "Owner") return;
+
+    const isOrganizationOwner = session.effectiveRoleScopes
+      ? session.effectiveRoleScopes.some(
+          (scope) => scope.locationId === null && scope.role === "Owner",
+        )
+      : session.role === "Owner";
+    if (!isOrganizationOwner) {
+      throw new ForbiddenException(
+        "Only an organization Owner can manage Owner accounts",
+      );
     }
   }
 

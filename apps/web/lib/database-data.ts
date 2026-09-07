@@ -18,6 +18,8 @@ import type {
  * seed data, or a different organization when that request is unavailable.
  */
 export type OperationalData = {
+  /** Temporary compatibility marker while route-owned v1 read models replace this aggregate. */
+  dataScope?: "shell" | "schedule" | "operational";
   organization: Organization;
   providers: Provider[];
   staff: StaffMember[];

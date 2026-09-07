@@ -1,6 +1,7 @@
 import {
   CanActivate,
   ExecutionContext,
+  Inject,
   Injectable,
   Logger,
 } from "@nestjs/common";
@@ -23,7 +24,9 @@ export class SessionAuthGuard implements CanActivate {
   private readonly logger = new Logger(SessionAuthGuard.name);
 
   constructor(
+    @Inject(Reflector)
     private readonly reflector: Reflector,
+    @Inject(AuthService)
     private readonly auth: AuthService,
   ) {}
 

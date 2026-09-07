@@ -13,7 +13,6 @@ import {
 import {
   EmptyState,
   Modal,
-  PageHeader,
   inputClassName,
 } from "@/components/workspace/elements";
 import { ReservationsPage } from "@/components/workspace/reservations-page";
@@ -29,18 +28,14 @@ export function MySchedulePage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        action={
-          provider ? (
-            <Button onClick={() => setIsEditingSchedule(true)} variant="secondary">
-              <CalendarRange size={16} />
-              Edit schedule
-            </Button>
-          ) : undefined
-        }
-        subtitle="Your booked work and your own availability live together here."
-        title="My schedule"
-      />
+      {provider ? (
+        <div className="flex justify-end">
+          <Button onClick={() => setIsEditingSchedule(true)} variant="secondary">
+            <CalendarRange size={16} />
+            Edit availability
+          </Button>
+        </div>
+      ) : null}
 
       <ReservationsPage
         visibleProviderScope={sessionUser?.providerId}

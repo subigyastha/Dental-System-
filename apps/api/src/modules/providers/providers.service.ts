@@ -272,6 +272,7 @@ export class ProvidersService {
       dateKey: query.date,
       locationId: query.locationId,
       serviceId: query.serviceId,
+      durationMinutes: query.durationMinutes,
       excludeAppointmentId: query.excludeAppointmentId,
     });
   }
@@ -888,21 +889,6 @@ export class ProvidersService {
 
     if (session.organizationId !== organizationId) {
       throw new BadRequestException("Cross-organization schedule access is not allowed");
-    }
-
-    if (!providerIds?.length) {
-      return session;
-    }
-
-    const count = await this.prisma.provider.count({
-      where: {
-        organizationId,
-        id: { in: providerIds },
-      },
-    });
-
-    if (count !== providerIds.length) {
-      throw new NotFoundException("One or more providers were not found");
     }
 
     return session;

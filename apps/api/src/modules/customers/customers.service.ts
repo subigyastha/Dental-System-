@@ -1,21 +1,30 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { Prisma, UserRole } from "@prisma/client";
 
 import { AuthService } from "../auth/auth.service";
-import { assertClinicOperator } from "../auth/authz";
+import { assertClinicOperator, hasAnyRole } from "../auth/authz";
 import { PrismaService } from "../prisma/prisma.service";
+import { normalizeClientPhone } from "./client-phone-normalization";
 import { CreateCustomerDto } from "./dto/create-customer.dto";
 import { MatchCustomersDto } from "./dto/match-customers.dto";
 import { MergeCustomerDto } from "./dto/merge-customer.dto";
 import { ResolveCustomerForAppointmentDto } from "./dto/resolve-customer-for-appointment.dto";
 import { UpdateCustomerDto } from "./dto/update-customer.dto";
 import { UpsertVisitReportDto } from "./dto/upsert-visit-report.dto";
+
+const clientWriterRoles = new Set<UserRole>([
+  UserRole.Owner,
+  UserRole.Admin,
+  UserRole.Manager,
+  UserRole.Receptionist,
+]);
 
 @Injectable()
 export class CustomersService {
@@ -29,7 +38,11 @@ export class CustomersService {
   async list(authorization?: string) {
     const session = await this.requireOperator(authorization);
     const customers = await this.prisma.customer.findMany({
-      where: { organizationId: session.organizationId },
+      where: {
+        organizationId: session.organizationId,
+        archivedAt: null,
+        mergedIntoCustomerId: null,
+      },
       include: {
         dentalChart: true,
       },
@@ -42,7 +55,12 @@ export class CustomersService {
   async getOne(id: string, authorization?: string) {
     const session = await this.requireOperator(authorization);
     const customer = await this.prisma.customer.findFirst({
-      where: { id, organizationId: session.organizationId },
+      where: {
+        id,
+        organizationId: session.organizationId,
+        archivedAt: null,
+        mergedIntoCustomerId: null,
+      },
       include: {
         dentalChart: true,
       },
@@ -55,41 +73,37 @@ export class CustomersService {
     return this.mapCustomer(customer);
   }
 
-  async create(dto: CreateCustomerDto, authorization?: string) {
+  async create(
+    dto: CreateCustomerDto | ResolveCustomerForAppointmentDto,
+    authorization?: string,
+  ) {
     const session = await this.requireOperator(authorization);
+    this.assertClientWriter(session);
     this.assertSameOrganization(session.organizationId, dto.organizationId);
-
-    const existing = await this.prisma.customer.findFirst({
-      where: {
-        organizationId: dto.organizationId,
-        ...(dto.patientCode
-          ? {
-              patientCode: dto.patientCode.trim().toUpperCase(),
-            }
-          : {
-              id: "__no_patient_code_conflict__",
-            }),
-      },
-      select: { id: true, patientCode: true },
-    });
-
-    if (existing) {
-      throw new ConflictException("A patient with the same patient code already exists");
-    }
+    this.assertValidPhone(dto.phone);
+    const priorVisitedClinic =
+      "priorVisitedClinic" in dto && Boolean(dto.priorVisitedClinic);
+    const skippedPossibleMatches =
+      "skippedPossibleMatchClientIds" in dto &&
+      Boolean(dto.skippedPossibleMatchClientIds?.length);
+    const identityCandidates =
+      priorVisitedClinic || skippedPossibleMatches
+        ? await this.findIdentityCandidates(dto.organizationId, dto.name, dto.phone)
+        : [];
 
     const customer = await this.prisma.$transaction(async (tx) => {
-      const patientCode =
-        dto.patientCode?.trim().toUpperCase() ??
-        (await this.generatePatientCode(tx, dto.organizationId));
+      const patientCode = await this.generatePatientCode(tx, dto.organizationId);
 
       const created = await tx.customer.create({
         data: {
-          id: dto.id,
+          id: "id" in dto ? dto.id : undefined,
           organizationId: dto.organizationId,
           fullName: dto.name,
           patientCode,
           phone: dto.phone,
+          normalizedPhone: normalizeClientPhone(dto.phone) || null,
           email: dto.email?.toLowerCase(),
+          normalizedEmail: dto.email ? dto.email.trim().toLowerCase() : null,
           gender: dto.gender,
           dateOfBirth: dto.dateOfBirthIso ? new Date(dto.dateOfBirthIso) : undefined,
           address: dto.address,
@@ -109,6 +123,38 @@ export class CustomersService {
           dentalChart: true,
         },
       });
+      await tx.clientPhone.create({
+        data: {
+          organizationId: dto.organizationId,
+          customerId: created.id,
+          rawValue: dto.phone.trim(),
+          normalizedValue: normalizeClientPhone(dto.phone),
+          normalizationVersion: "np-v1",
+          type: "Mobile",
+          isPrimary: true,
+          source: "LegacyCustomerCreate",
+          createdByUserId: session.id,
+        },
+      });
+      if (priorVisitedClinic || skippedPossibleMatches) {
+        await tx.clientIdentityReview.create({
+          data: {
+            organizationId: dto.organizationId,
+            customerId: created.id,
+            reason: priorVisitedClinic ? "PriorVisitClaim" : "SkippedPossibleMatches",
+            candidateSnapshot: identityCandidates,
+            context: {
+              triggers: [
+                ...(priorVisitedClinic ? ["prior_visit_claim"] : []),
+                ...(skippedPossibleMatches ? ["skipped_possible_matches"] : []),
+              ],
+              source: "booking_resolution",
+              normalizationVersion: "np-v1",
+            },
+            createdByUserId: session.id,
+          },
+        });
+      }
 
       await tx.auditLog.create({
         data: {
@@ -135,14 +181,25 @@ export class CustomersService {
     const candidates = await this.prisma.customer.findMany({
       where: {
         organizationId: dto.organizationId,
+        archivedAt: null,
+        mergedIntoCustomerId: null,
         OR: [
-          { phone: { contains: dto.phone } },
+          { normalizedPhone: normalizeClientPhone(dto.phone) },
+          {
+            phones: {
+              some: {
+                normalizedValue: normalizeClientPhone(dto.phone),
+                archivedAt: null,
+              },
+            },
+          },
           { fullName: { contains: dto.name, mode: "insensitive" } },
           ...(dto.email ? [{ email: dto.email.toLowerCase() }] : []),
         ],
       },
       include: {
         dentalChart: true,
+        phones: { where: { archivedAt: null }, select: { normalizedValue: true } },
       },
       take: 12,
       orderBy: [{ updatedAt: "desc" }],
@@ -165,9 +222,14 @@ export class CustomersService {
   ) {
     const session = await this.requireOperator(authorization);
     this.assertSameOrganization(session.organizationId, dto.organizationId);
+    this.assertValidPhone(dto.phone);
 
     if (dto.mode !== "create_new" && !dto.existingCustomerId) {
       throw new BadRequestException("Existing customer is required for this resolution mode");
+    }
+
+    if (dto.mode === "create_new" || dto.mode === "update_existing") {
+      this.assertClientWriter(session);
     }
 
     if (dto.mode === "use_existing") {
@@ -175,6 +237,8 @@ export class CustomersService {
         where: {
           id: dto.existingCustomerId,
           organizationId: dto.organizationId,
+          archivedAt: null,
+          mergedIntoCustomerId: null,
         },
         include: {
           dentalChart: true,
@@ -185,16 +249,14 @@ export class CustomersService {
         throw new NotFoundException("Patient not found");
       }
 
-      await this.prisma.auditLog.create({
-        data: {
-          organizationId: dto.organizationId,
-          actorId: session.id,
-          entityType: "customer",
-          entityId: existing.id,
-          action: "matched_existing_for_appointment",
-          newValue: this.customerAuditPayload(dto, existing.patientCode ?? undefined),
-          description: "Existing patient selected during appointment booking",
-        },
+      await this.recordBookingIdentitySelection({
+        customerId: existing.id,
+        patientCode: existing.patientCode,
+        dto,
+        actorId: session.id,
+        mayAppendPhone: hasAnyRole(session, clientWriterRoles),
+        action: "matched_existing_for_appointment",
+        description: "Existing Client selected during appointment booking",
       });
 
       return this.mapCustomer(existing);
@@ -205,6 +267,8 @@ export class CustomersService {
         where: {
           id: dto.existingCustomerId,
           organizationId: dto.organizationId,
+          archivedAt: null,
+          mergedIntoCustomerId: null,
         },
         include: {
           dentalChart: true,
@@ -215,31 +279,17 @@ export class CustomersService {
         throw new NotFoundException("Patient not found");
       }
 
-      const updated = await this.prisma.$transaction(async (tx) => {
-        const customer = await tx.customer.update({
-          where: { id: existing.id },
-          data: this.buildMergeFillData(existing, dto),
-          include: {
-            dentalChart: true,
-          },
-        });
-
-        await tx.auditLog.create({
-          data: {
-            organizationId: dto.organizationId,
-            actorId: session.id,
-            entityType: "customer",
-            entityId: existing.id,
-            action: "updated_from_booking_resolution",
-            newValue: this.customerAuditPayload(dto, customer.patientCode ?? undefined),
-            description: "Existing patient updated from appointment booking",
-          },
-        });
-
-        return customer;
+      await this.recordBookingIdentitySelection({
+        customerId: existing.id,
+        patientCode: existing.patientCode,
+        dto,
+        actorId: session.id,
+        mayAppendPhone: true,
+        action: "updated_from_booking_resolution",
+        description: "Booking contact appended without silently correcting Client identity",
       });
 
-      return this.mapCustomer(updated);
+      return this.mapCustomer(existing);
     }
 
     return this.create(dto, authorization);
@@ -247,44 +297,40 @@ export class CustomersService {
 
   async update(id: string, dto: UpdateCustomerDto, authorization?: string) {
     const session = await this.requireOperator(authorization);
+    this.assertClientWriter(session);
     this.assertSameOrganization(session.organizationId, dto.organizationId);
+    this.assertValidPhone(dto.phone);
 
     const existing = await this.prisma.customer.findFirst({
-      where: { id, organizationId: dto.organizationId },
+      where: {
+        id,
+        organizationId: dto.organizationId,
+        archivedAt: null,
+        mergedIntoCustomerId: null,
+      },
     });
 
     if (!existing) {
       throw new NotFoundException("Patient not found");
     }
 
-    const patientCode = dto.patientCode?.trim().toUpperCase() ?? existing.patientCode ?? undefined;
-    const duplicate = await this.prisma.customer.findFirst({
-      where: {
-        organizationId: dto.organizationId,
-        id: { not: id },
-        ...(patientCode
-          ? {
-              patientCode,
-            }
-          : {
-              id: "__no_patient_code_conflict__",
-            }),
-      },
-      select: { id: true },
-    });
-
-    if (duplicate) {
-      throw new ConflictException("Another patient already uses this patient code");
-    }
+    const patientCode = existing.patientCode ?? undefined;
 
     const updated = await this.prisma.$transaction(async (tx) => {
-      const customer = await tx.customer.update({
-        where: { id },
+      const changed = await tx.customer.updateMany({
+        where: {
+          id,
+          organizationId: dto.organizationId,
+          archivedAt: null,
+          mergedIntoCustomerId: null,
+        },
         data: {
           fullName: dto.name,
           patientCode,
           phone: dto.phone,
+          normalizedPhone: normalizeClientPhone(dto.phone) || null,
           email: dto.email?.toLowerCase() ?? null,
+          normalizedEmail: dto.email ? dto.email.trim().toLowerCase() : null,
           gender: dto.gender ?? null,
           dateOfBirth: dto.dateOfBirthIso ? new Date(dto.dateOfBirthIso) : null,
           address: dto.address ?? null,
@@ -294,9 +340,12 @@ export class CustomersService {
           medicalNotes: dto.medicalNotes ?? null,
           riskLabel: dto.risk,
         },
-        include: {
-          dentalChart: true,
-        },
+      });
+      if (changed.count !== 1) throw new NotFoundException("Active Client not found");
+      await this.syncPrimaryPhone(tx, id, dto.organizationId, dto.phone, session.id);
+      const customer = await tx.customer.findUniqueOrThrow({
+        where: { id },
+        include: { dentalChart: true },
       });
 
       await tx.auditLog.create({
@@ -329,114 +378,12 @@ export class CustomersService {
   }
 
   async merge(id: string, dto: MergeCustomerDto, authorization?: string) {
-    const session = await this.requireOperator(authorization);
-    this.assertSameOrganization(session.organizationId, dto.organizationId);
-
-    if (id === dto.secondaryCustomerId) {
-      throw new BadRequestException("Primary and duplicate patient cannot be the same record");
-    }
-
-    const [primary, secondary] = await Promise.all([
-      this.prisma.customer.findFirst({
-        where: { id, organizationId: dto.organizationId },
-        include: { dentalChart: true },
-      }),
-      this.prisma.customer.findFirst({
-        where: { id: dto.secondaryCustomerId, organizationId: dto.organizationId },
-        include: { dentalChart: true },
-      }),
-    ]);
-
-    if (!primary || !secondary) {
-      throw new NotFoundException("One or both patient records were not found");
-    }
-
-    const merged = await this.prisma.$transaction(async (tx) => {
-      const primaryAfterFill = await tx.customer.update({
-        where: { id: primary.id },
-        data: this.buildMergeFillData(primary, secondary),
-        include: { dentalChart: true },
-      });
-
-      await Promise.all([
-        tx.appointment.updateMany({
-          where: { customerId: secondary.id },
-          data: { customerId: primary.id },
-        }),
-        tx.appointmentSession.updateMany({
-          where: { customerId: secondary.id },
-          data: { customerId: primary.id },
-        }),
-        tx.followUpTask.updateMany({
-          where: { customerId: secondary.id },
-          data: { customerId: primary.id },
-        }),
-        tx.communicationLog.updateMany({
-          where: { customerId: secondary.id },
-          data: { customerId: primary.id },
-        }),
-        tx.invoice.updateMany({
-          where: { customerId: secondary.id },
-          data: { customerId: primary.id },
-        }),
-        tx.payment.updateMany({
-          where: { customerId: secondary.id },
-          data: { customerId: primary.id },
-        }),
-        tx.dentalChartRevision.updateMany({
-          where: { customerId: secondary.id },
-          data: { customerId: primary.id },
-        }),
-      ]);
-
-      if (secondary.dentalChart) {
-        if (!primaryAfterFill.dentalChart) {
-          await tx.patientDentalChart.update({
-            where: { id: secondary.dentalChart.id },
-            data: {
-              customerId: primary.id,
-            },
-          });
-        } else {
-          await tx.dentalChartRevision.create({
-            data: {
-              customerId: primary.id,
-              chartData: secondary.dentalChart.chartData as Prisma.InputJsonValue,
-              note: `Merged duplicate chart from ${secondary.fullName}`,
-            },
-          });
-          await tx.patientDentalChart.delete({
-            where: { id: secondary.dentalChart.id },
-          });
-        }
-      }
-
-      await tx.auditLog.create({
-        data: {
-          organizationId: dto.organizationId,
-          actorId: session.id,
-          entityType: "customer",
-          entityId: primary.id,
-          action: "merged_duplicate",
-          oldValue: {
-            secondaryCustomerId: secondary.id,
-            secondaryName: secondary.fullName,
-          },
-          description: "Duplicate patient merged into primary patient record",
-        },
-      });
-
-      await tx.customer.delete({
-        where: { id: secondary.id },
-      });
-
-      return tx.customer.findUniqueOrThrow({
-        where: { id: primary.id },
-        include: { dentalChart: true },
-      });
-    });
-
-    return this.mapCustomer(merged);
+    void id;
+    void dto;
+    void authorization;
+    throw new BadRequestException(
+      "Legacy customer merge is disabled. Use the governed /api/v1/clients merge workflow.",
+    );
   }
 
   async listVisitReports(customerId: string, authorization?: string) {
@@ -698,6 +645,216 @@ export class CustomersService {
     return session;
   }
 
+  private assertClientWriter(session: { role: string; effectiveRoles?: string[] }) {
+    if (!hasAnyRole(session, clientWriterRoles)) {
+      throw new ForbiddenException("You are not allowed to create or change Client identity");
+    }
+  }
+
+  private assertValidPhone(value: string) {
+    const normalized = normalizeClientPhone(value);
+    if (normalized.length < 7 || normalized.length > 15) {
+      throw new BadRequestException("Phone number must contain 7 to 15 digits");
+    }
+    return normalized;
+  }
+
+  private async appendSecondaryPhone(
+    tx: Prisma.TransactionClient,
+    customerId: string,
+    organizationId: string,
+    rawValue: string,
+    actorId: string,
+  ) {
+    const normalizedValue = normalizeClientPhone(rawValue);
+    if (!normalizedValue) return false;
+    const existing = await tx.clientPhone.findFirst({
+      where: { customerId, normalizedValue, archivedAt: null },
+      select: { id: true },
+    });
+    if (existing) return false;
+    await tx.clientPhone.create({
+      data: {
+        organizationId,
+        customerId,
+        rawValue: rawValue.trim(),
+        normalizedValue,
+        normalizationVersion: "np-v1",
+        type: "Mobile",
+        isPrimary: false,
+        source: "BookingResolution",
+        createdByUserId: actorId,
+      },
+    });
+    return true;
+  }
+
+  private async recordBookingIdentitySelection(input: {
+    customerId: string;
+    patientCode: string | null;
+    dto: ResolveCustomerForAppointmentDto;
+    actorId: string;
+    mayAppendPhone: boolean;
+    action: string;
+    description: string;
+  }) {
+    const run = () => this.prisma.$transaction(async (tx) => {
+      const phoneAdded = input.mayAppendPhone
+        ? await this.appendSecondaryPhone(
+            tx,
+            input.customerId,
+            input.dto.organizationId,
+            input.dto.phone,
+            input.actorId,
+          )
+        : false;
+      await tx.auditLog.create({
+        data: {
+          organizationId: input.dto.organizationId,
+          actorId: input.actorId,
+          entityType: "customer",
+          entityId: input.customerId,
+          action: input.action,
+          newValue: {
+            patientCode: input.patientCode,
+            phoneAdded,
+            normalizationVersion: "np-v1",
+          },
+          description: input.description,
+        },
+      });
+    });
+    try {
+      await run();
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        await run();
+        return;
+      }
+      throw error;
+    }
+  }
+
+  private async findIdentityCandidates(
+    organizationId: string,
+    name: string,
+    phone: string,
+  ): Promise<Prisma.InputJsonObject[]> {
+    const normalizedValue = normalizeClientPhone(phone);
+    const candidateSelect = {
+      id: true,
+      fullName: true,
+      normalizedPhone: true,
+      phones: {
+        where: { archivedAt: null, normalizedValue },
+        select: { id: true },
+      },
+    } satisfies Prisma.CustomerSelect;
+    const exactRows = await this.prisma.customer.findMany({
+      where: {
+        organizationId,
+        archivedAt: null,
+        mergedIntoCustomerId: null,
+        OR: [
+          { normalizedPhone: normalizedValue },
+          { phones: { some: { normalizedValue, archivedAt: null } } },
+        ],
+      },
+      select: candidateSelect,
+      take: 6,
+    });
+    const exactIds = exactRows.map((row) => row.id);
+    const nameRows = exactRows.length < 6
+      ? await this.prisma.customer.findMany({
+          where: {
+            organizationId,
+            archivedAt: null,
+            mergedIntoCustomerId: null,
+            id: { notIn: exactIds },
+            fullName: { contains: name.trim(), mode: "insensitive" },
+          },
+          select: candidateSelect,
+          take: 6 - exactRows.length,
+        })
+      : [];
+    const normalizedName = this.normalizeName(name);
+    return [...exactRows, ...nameRows].map((row) => {
+      const phoneMatched =
+        row.normalizedPhone === normalizedValue || row.phones.length > 0;
+      const nameMatched = this.normalizeName(row.fullName) === normalizedName;
+      const score = (phoneMatched ? 100 : 0) + (nameMatched ? 35 : 0);
+      return {
+        customerId: row.id,
+        score,
+        confidence:
+          phoneMatched && nameMatched
+            ? "strong"
+            : phoneMatched
+              ? "possible"
+              : "weak",
+        matchedOn: [
+          ...(phoneMatched ? ["phone"] : []),
+          ...(nameMatched ? ["name"] : []),
+        ],
+      };
+    });
+  }
+
+  private async syncPrimaryPhone(
+    tx: Prisma.TransactionClient,
+    customerId: string,
+    organizationId: string,
+    rawValue: string,
+    actorId: string,
+  ) {
+    const normalizedValue = normalizeClientPhone(rawValue);
+    const target = await tx.clientPhone.findFirst({
+      where: { customerId, normalizedValue, archivedAt: null },
+      select: { id: true, isPrimary: true },
+    });
+    if (target) {
+      if (!target.isPrimary) {
+        await tx.clientPhone.updateMany({
+          where: { customerId, archivedAt: null, isPrimary: true, id: { not: target.id } },
+          data: { isPrimary: false },
+        });
+      }
+      await tx.clientPhone.update({
+        where: { id: target.id },
+        data: {
+          rawValue: rawValue.trim(),
+          isPrimary: true,
+          normalizationVersion: "np-v1",
+          sourceMetadata: { reason: "administrative_profile_correction" },
+        },
+      });
+      return;
+    }
+    const currentPrimary = await tx.clientPhone.findFirst({
+      where: { customerId, archivedAt: null, isPrimary: true },
+      select: { id: true },
+    });
+    if (currentPrimary) {
+      await tx.clientPhone.update({
+        where: { id: currentPrimary.id },
+        data: { isPrimary: false },
+      });
+    }
+    await tx.clientPhone.create({
+      data: {
+        organizationId,
+        customerId,
+        rawValue: rawValue.trim(),
+        normalizedValue,
+        normalizationVersion: "np-v1",
+        type: "Mobile",
+        isPrimary: true,
+        source: "LegacyProfileUpdate",
+        createdByUserId: actorId,
+      },
+    });
+  }
+
   private assertSameOrganization(sessionOrganizationId: string, targetOrganizationId: string) {
     if (sessionOrganizationId !== targetOrganizationId) {
       throw new BadRequestException("Cross-organization access is not allowed");
@@ -716,23 +873,12 @@ export class CustomersService {
   }
 
   private async generatePatientCode(tx: Prisma.TransactionClient, organizationId: string) {
-    const existingCodes = await tx.customer.findMany({
-      where: {
-        organizationId,
-        patientCode: { not: null },
-      },
-      select: { patientCode: true },
-      orderBy: { patientCode: "desc" },
-      take: 100,
+    const sequence = await tx.clientCodeSequence.upsert({
+      where: { organizationId },
+      create: { organizationId, nextValue: 2 },
+      update: { nextValue: { increment: 1 } },
     });
-
-    const nextNumber =
-      existingCodes.reduce((max, item) => {
-        const match = item.patientCode?.match(/^PT-(\d+)$/);
-        return match ? Math.max(max, Number(match[1])) : max;
-      }, 0) + 1;
-
-    return `PT-${String(nextNumber).padStart(4, "0")}`;
+    return `CL-${String(sequence.nextValue - 1).padStart(6, "0")}`;
   }
 
   private customerAuditPayload(
@@ -884,10 +1030,6 @@ export class CustomersService {
     return age;
   }
 
-  private normalizePhone(phone: string) {
-    return phone.replace(/\D+/g, "");
-  }
-
   private normalizeName(name: string) {
     return name.trim().toLowerCase().replace(/\s+/g, " ");
   }
@@ -917,29 +1059,36 @@ export class CustomersService {
         version: number;
         updatedAt: Date;
       } | null;
+      phones?: Array<{ normalizedValue: string }>;
     },
     candidate: Pick<MatchCustomersDto, "name" | "phone" | "email">,
   ) {
-    const normalizedPhone = this.normalizePhone(candidate.phone);
-    const normalizedExistingPhone = this.normalizePhone(customer.phone);
+    const normalizedPhone = normalizeClientPhone(candidate.phone);
+    const normalizedExistingPhone = normalizeClientPhone(customer.phone);
     const normalizedName = this.normalizeName(candidate.name);
     const normalizedExistingName = this.normalizeName(customer.fullName);
 
     let score = 0;
     let confidence: "strong" | "moderate" | "weak" | "none" = "none";
-
-    if (normalizedPhone && normalizedPhone === normalizedExistingPhone) {
-      score += 100;
-    } else if (
+    const phoneMatched = Boolean(
       normalizedPhone &&
-      normalizedExistingPhone &&
-      (normalizedExistingPhone.endsWith(normalizedPhone) ||
-        normalizedPhone.endsWith(normalizedExistingPhone))
-    ) {
-      score += 55;
+      (normalizedPhone === normalizedExistingPhone ||
+        customer.phones?.some((phone) => phone.normalizedValue === normalizedPhone)),
+    );
+    const exactNameMatched = Boolean(
+      normalizedName && normalizedName === normalizedExistingName,
+    );
+    const emailMatched = Boolean(
+      candidate.email &&
+      customer.email &&
+      candidate.email.toLowerCase() === customer.email.toLowerCase(),
+    );
+
+    if (phoneMatched) {
+      score += 100;
     }
 
-    if (normalizedName && normalizedName === normalizedExistingName) {
+    if (exactNameMatched) {
       score += 40;
     } else if (
       normalizedName &&
@@ -950,19 +1099,15 @@ export class CustomersService {
       score += 22;
     }
 
-    if (
-      candidate.email &&
-      customer.email &&
-      candidate.email.toLowerCase() === customer.email.toLowerCase()
-    ) {
+    if (emailMatched) {
       score += 25;
     }
 
-    if (score >= 100) {
+    if (phoneMatched && (exactNameMatched || emailMatched)) {
       confidence = "strong";
-    } else if (score >= 45) {
+    } else if (score >= 45 && !phoneMatched) {
       confidence = "moderate";
-    } else if (score >= 20) {
+    } else if (score >= 20 || phoneMatched) {
       confidence = "weak";
     }
 

@@ -102,9 +102,11 @@ A daily organization reconciliation view reports issued totals, valid collection
 
 Audit data includes invoice creation/issue/void/cancellation, every payment/correction state, amount, currency, prior and new states, line/item snapshots, method, provider/reference IDs (masked where displayed), actor, approval, reason, timestamp, correlation ID, and source. Financial records are critical information: they must first be archived and may be permanently deleted only by an Owner from archive after explicit confirmation, and only when retention/legal/audit obligations permit. In normal production operation, financial records should be retained, not purged.
 
-## 8. Current-state gaps and ship criteria
+## 8. Current implementation status and ship criteria
 
-The existing billing implementation permits direct invoice/payment updates and payment deletion, accepts legacy status handling, has no Finance role/multi-role model, and has no payment-provider adapter, verified webhook, idempotency, or reconciliation workflow. These are release blockers.
+The P4B manual-finance slice now provides location-scoped Finance access, idempotent draft creation/issuance/payment recording, immutable completed receipts, append-only Refund/Reversal requests, threshold-based distinct Owner/Admin approval, invoice-ledger reads, and daily read-only reconciliation. Legacy billing mutations return `410 Gone`; retained compatibility reads are tenant- and location-scoped. Finance and Inventory remain independent.
+
+Provider settlement remains intentionally out of scope for P4B. A payment-provider adapter, verified Fonepay callback/webhook, provider intent lifecycle, settlement ingestion, and provider-specific reconciliation exceptions remain P6B release blockers. Financial archive/retention/legal-hold workflows and persisted reconciliation resolution also remain later governed work.
 
 Before release, the system must prove through automated and integration tests that it:
 

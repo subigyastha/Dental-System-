@@ -13,14 +13,38 @@ export const clinicOperatorRoles = new Set([
 export const financeRoles = new Set([
   "Owner",
   "Admin",
+  "Receptionist",
+  "Finance",
+]);
+export const broadBookingRoles = new Set([
+  "Owner",
+  "Admin",
   "Manager",
   "Receptionist",
   "Scheduler",
-  "Finance",
+]);
+export const bookingRoles = new Set([
+  ...broadBookingRoles,
+  "Provider",
+]);
+export const clientIdentityWriteRoles = new Set([
+  "Owner",
+  "Admin",
+  "Manager",
+  "Receptionist",
+]);
+export const clientIdentityCreateRoles = new Set([
+  ...clientIdentityWriteRoles,
+  "Provider",
+]);
+export const clientPhoneAppendRoles = new Set([
+  ...clientIdentityWriteRoles,
+  "Provider",
 ]);
 
 export type AuthorizationRoleSubject = string | {
   role: string;
+  providerId?: string;
   effectiveRoles?: readonly string[];
   effectiveRoleScopes?: ReadonlyArray<{ role: string; locationId: string | null }>;
 };
@@ -60,6 +84,42 @@ export function assertClinicOperatorForLocation(subject: AuthorizationRoleSubjec
 export function assertFinanceOperatorForLocation(subject: AuthorizationRoleSubject, locationId: string | null | undefined) {
   if (!locationId || !hasAnyRoleForLocation(subject, financeRoles, locationId)) {
     throw new ForbiddenException("You are not allowed to manage billing at this location");
+  }
+}
+
+/**
+ * Returns `null` when the actor may book any Provider, or the only Provider ID
+ * that a Provider-only actor may book. Location-scoped assignments never
+ * authorize an organization-scoped booking with no location.
+ */
+export function bookingProviderScope(
+  subject: AuthorizationRoleSubject,
+  locationId: string | null | undefined,
+): string | null {
+  const roles = (() => {
+    if (typeof subject === "string") return [subject];
+    if (locationId) return effectiveRoleUnionForLocation(subject, locationId);
+    if (!subject.effectiveRoleScopes) return effectiveRoleUnion(subject);
+    return subject.effectiveRoleScopes
+      .filter((scope) => scope.locationId === null)
+      .map((scope) => scope.role);
+  })();
+
+  if (roles.some((role) => broadBookingRoles.has(role))) return null;
+  if (roles.includes("Provider") && typeof subject !== "string" && subject.providerId) {
+    return subject.providerId;
+  }
+  throw new ForbiddenException("You are not allowed to create clinic appointments");
+}
+
+export function assertBookingActor(
+  subject: AuthorizationRoleSubject,
+  locationId: string | null | undefined,
+  providerId: string,
+) {
+  const providerScope = bookingProviderScope(subject, locationId);
+  if (providerScope && providerScope !== providerId) {
+    throw new ForbiddenException("Providers may book only their own appointments");
   }
 }
 

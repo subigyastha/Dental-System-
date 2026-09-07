@@ -234,10 +234,25 @@ export function KoiSectionLoader({
 }) {
   return (
     <div
-      className={clsx("flex min-h-[220px] flex-col items-center justify-center gap-3", className)}
+      aria-busy="true"
+      aria-live="polite"
+      className={clsx("min-h-[220px] p-4", className)}
+      role="status"
     >
-      <KoiCanvas size={84} />
-      <LoaderText compact credit={credit} label={label} />
+      <span className="sr-only">{label}. {credit}</span>
+      <div aria-hidden="true" className="animate-pulse space-y-4 motion-reduce:animate-none">
+        <div className="h-5 w-40 rounded bg-[color:rgba(112,140,151,0.18)]" />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {[0, 1, 2].map((item) => (
+            <div className="space-y-3 rounded-xl border border-[var(--border)] p-4" key={item}>
+              <div className="h-4 w-2/3 rounded bg-[color:rgba(112,140,151,0.16)]" />
+              <div className="h-3 w-full rounded bg-[color:rgba(112,140,151,0.12)]" />
+              <div className="h-3 w-4/5 rounded bg-[color:rgba(112,140,151,0.12)]" />
+              <div className="h-16 w-full rounded bg-[color:rgba(112,140,151,0.10)]" />
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

@@ -39,14 +39,15 @@ test(
 
     try {
       await prisma.organization.createMany({ data: [{ id: organizationA, name: "Clinic A" }, { id: organizationB, name: "Clinic B" }] });
-      await prisma.user.create({ data: { id: userA, organizationId: organizationA, name: "Clinic A Owner", email: `${prefix}@example.test`, role: "Owner", passwordHash: auth.hashPassword("test-password") } });
+      const testPassword = "test-password-passphrase";
+      await prisma.user.create({ data: { id: userA, organizationId: organizationA, name: "Clinic A Owner", email: `${prefix}@example.test`, role: "Owner", passwordHash: await auth.hashPassword(testPassword) } });
       await prisma.customer.create({ data: { id: clientB, organizationId: organizationB, fullName: "Clinic B Client", phone: `${prefix}-phone` } });
       await prisma.provider.create({ data: { id: providerB, organizationId: organizationB, displayName: "Clinic B Provider", roleLabel: "Dentist" } });
       const startsAt = new Date("2030-01-01T03:00:00.000Z");
       await prisma.appointment.create({ data: { id: appointmentB, organizationId: organizationB, customerId: clientB, providerId: providerB, startsAt, endsAt: new Date(startsAt.getTime() + 30 * 60_000), durationMinutes: 30 } });
       await prisma.followUpTask.create({ data: { id: followupB, organizationId: organizationB, customerId: clientB, appointmentId: appointmentB, ownerId: providerB, type: "Reminder", priority: "Normal", dueAt: startsAt, summary: "Boundary test", nextAction: "No action" } });
 
-      const login = await auth.login({ email: `${prefix}@example.test`, password: "test-password" });
+      const login = await auth.login({ email: `${prefix}@example.test`, password: testPassword });
       const headers = { authorization: `Bearer ${login.token}`, "content-type": "application/json" };
       const baseUrl = await app.getUrl();
       const call = (path: string, init?: RequestInit) => fetch(`${baseUrl}${path}`, init);

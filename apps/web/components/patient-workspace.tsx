@@ -18,6 +18,7 @@ import {
 import { FormEvent, useMemo, useState } from "react";
 
 import { Button, Panel, PriorityTag, StatusPill } from "@/components/ui";
+import { Drawer } from "@/components/workspace/elements";
 import {
   getDualCalendarDay,
   minutesToLabel,
@@ -806,20 +807,12 @@ function CreateVisitReportDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(26,28,30,0.28)] p-4 backdrop-blur-sm">
-      <div className="w-full max-w-3xl rounded-[28px] border border-[var(--border)] bg-white shadow-[var(--popover-shadow)]">
-        <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-5">
-          <div>
-            <h3 className="text-2xl font-semibold text-[var(--ink)]">Create visit report</h3>
-            <p className="mt-1 text-sm text-[var(--text-muted)]">
-              Save a visit outcome for {customer.name} against one scheduled appointment.
-            </p>
-          </div>
-          <Button onClick={onClose} variant="ghost">
-            Close
-          </Button>
-        </div>
-        <form className="space-y-5 p-6" onSubmit={submit}>
+    <Drawer
+      context={`Save a visit outcome for ${customer.name} against one scheduled appointment.`}
+      onClose={onClose}
+      title="Create visit report"
+    >
+        <form className="space-y-5" onSubmit={submit}>
           <label className="block space-y-2">
             <span className="text-sm font-semibold text-[var(--ink)]">Appointment</span>
             <select
@@ -835,7 +828,7 @@ function CreateVisitReportDialog({
             </select>
           </label>
 
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4">
             <label className="block space-y-2">
               <span className="text-sm font-semibold text-[var(--ink)]">Symptoms</span>
               <textarea
@@ -855,7 +848,7 @@ function CreateVisitReportDialog({
             </label>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4">
             <label className="block space-y-2">
               <span className="text-sm font-semibold text-[var(--ink)]">Clinical notes</span>
               <textarea
@@ -874,7 +867,7 @@ function CreateVisitReportDialog({
             </label>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-[220px_1fr]">
+          <div className="grid gap-4">
             <label className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface-muted)] px-4 py-3 text-sm font-semibold text-[var(--ink)]">
               <input
                 checked={followUpRequired}
@@ -894,7 +887,7 @@ function CreateVisitReportDialog({
             </label>
           </div>
 
-          <div className="flex justify-end gap-2">
+          <div className="sticky -bottom-5 -mx-5 flex justify-end gap-2 border-t border-[var(--border)] bg-[var(--surface)] px-5 py-4">
             <Button onClick={onClose} variant="secondary">
               Cancel
             </Button>
@@ -904,8 +897,7 @@ function CreateVisitReportDialog({
             </Button>
           </div>
         </form>
-      </div>
-    </div>
+    </Drawer>
   );
 }
 

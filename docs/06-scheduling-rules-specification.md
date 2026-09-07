@@ -4,7 +4,7 @@
 | --- | --- |
 | Product | ClinicFlow — Koi Workflow System |
 | Version | 0.1 (draft) |
-| Last updated | 2026-07-18 |
+| Last updated | 2026-08-15 |
 | Status | Normative release specification |
 | Canonical time system | Gregorian/AD ISO-8601 timestamps |
 
@@ -60,7 +60,10 @@ For a requested appointment, the system evaluates in this order:
 
 ## 5. Slot generation
 
-- Candidate starts occur on a configurable organization interval; the default is **15 minutes**.
+- Candidate starts occur on an Owner-controlled organization interval; the default is **15 minutes**. Release choices are **5, 10, 15, 20, 30, or 60 minutes** rather than an arbitrary integer.
+- The slot-start interval controls which start times are offered and how the calendar grid is divided. It does **not** change service duration, appointment duration, provider capacity, or buffer rules.
+- The Owner changes the interval from clinic scheduling settings. The API validates the allowlist, records an audit event, increments the schedule configuration version, invalidates affected schedule/slot caches, and causes active slot selection/holds to refresh before confirmation. Existing appointments retain their persisted starts and durations.
+- A future provider/location override requires a separate approved rule. Until then, one organization interval applies consistently to every provider and location.
 - Clinical duration and buffer do not need to be multiples of the slot interval.
 - The system generates only candidates that pass the same availability rules used at booking time.
 - The earliest permitted start is the current local time; starts in the past are rejected.
@@ -155,6 +158,7 @@ No overbooking is permitted in the production release. The existing `allowOverla
 - A Provider may manage only their own availability or block request, subject to clinic approval policy. Receptionists do not administer provider availability. Assistants have no default schedule-administration capability.
 - Availability or block edits must not silently invalidate existing appointments. The system identifies affected bookings, requires an explicit resolution plan (retain, reschedule, cancel, or override by authorized policy), and audits both the change and every resolved booking.
 - Effective dates are mandatory for availability. End dates are optional for an ongoing pattern. Invalid intervals, overlapping malformed windows, and `endsAt <= startsAt` are rejected.
+- Only the Owner changes the organization slot-start interval in phase one. Provider availability editors may change working windows and buffers but cannot silently create their own grid cadence.
 
 ## 11. Required API and UI behavior
 
@@ -175,8 +179,9 @@ The release is not ready until these criteria are true:
 - A regression test proves different providers do not create false conflicts and that one provider cannot be double-booked.
 - Status transitions, cancellation reasons, no-show timing, reschedule successor creation, and follow-up creation are server-enforced and audited.
 - Every affected cache/read model is invalidated after schedule-changing actions; cache absence or staleness cannot compromise booking correctness.
+- Owner slot-interval changes are validated, audited, reflected in slot search and Day/Week grids, and never rewrite existing appointments or service durations.
 - Unit, integration, API, and end-to-end tests cover date conversion, timezone boundaries, booking horizon, availability exceptions, effective dates, buffer boundaries, roles, transitions, and concurrent requests.
 
 ### Known implementation deltas
 
-The current repository contains a resource model, hard-codes `Asia/Kathmandu` in scheduling logic, defaults `primaryCalendar` to BS, uses 60-minute slot starts, does not apply availability effective dates, contains unsafe resource-conflict grouping, accepts arbitrary appointment status updates, and has only in-memory schedule caching. It also lacks a database concurrency guard and full scheduling API/database test coverage. These are implementation gaps against this specification and must be closed before shipment.
+The current repository retains a dormant resource model and inconsistent slot constants: booking search uses a fixed 15-minute cadence while provider mapping and schedule grids still expose/hard-code 60 minutes. Owner-controlled organization cadence, availability effective dates, complete location-timezone removal of hard-coded Nepal assumptions, and shared multi-instance cache invalidation remain open. Database overlap protection, governed lifecycle commands, bounded schedule startup, and PostgreSQL booking-concurrency coverage are implemented; authenticated responsive and representative-volume performance evidence remains open.

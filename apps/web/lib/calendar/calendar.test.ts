@@ -4,7 +4,10 @@ import test from "node:test";
 import {
   buildNepalIsoFromDateAndTime,
   bsDateKeyToAdDateKey,
+  DEFAULT_CALENDAR_MODE,
   formatTime,
+  isDateKeyWithinBounds,
+  moveCalendarFocus,
   normalizeCalendarInputToAdDateKey,
   toDateKey,
 } from "./index";
@@ -12,6 +15,7 @@ import { getProviderAvailableSlots, hasAppointmentOverlap } from "../../features
 import type { Appointment, Provider, Service } from "../domain";
 
 test("converts BS date to AD and back safely", () => {
+  assert.equal(DEFAULT_CALENDAR_MODE, "AD");
   assert.equal(bsDateKeyToAdDateKey("2083-01-12"), "2026-04-25");
   assert.equal(normalizeCalendarInputToAdDateKey("२०८३-०१-१२", "BS"), "2026-04-25");
 });
@@ -147,4 +151,22 @@ test("blocked times close otherwise open provider slots", () => {
     }),
     true,
   );
+});
+
+test("native-like calendar keyboard navigation follows grid conventions", () => {
+  assert.equal(moveCalendarFocus("2026-04-25", "ArrowRight"), "2026-04-26");
+  assert.equal(moveCalendarFocus("2026-04-25", "ArrowUp"), "2026-04-18");
+  assert.equal(moveCalendarFocus("2026-04-25", "Home"), "2026-04-19");
+  assert.equal(moveCalendarFocus("2026-04-25", "End"), "2026-04-25");
+});
+
+test("calendar page navigation preserves or safely clamps the day", () => {
+  assert.equal(moveCalendarFocus("2026-01-31", "PageDown"), "2026-02-28");
+  assert.equal(moveCalendarFocus("2026-03-31", "PageUp"), "2026-02-28");
+});
+
+test("calendar bounds are inclusive", () => {
+  assert.equal(isDateKeyWithinBounds("2026-04-25", "2026-04-25", "2026-05-01"), true);
+  assert.equal(isDateKeyWithinBounds("2026-04-24", "2026-04-25", "2026-05-01"), false);
+  assert.equal(isDateKeyWithinBounds("2026-05-02", "2026-04-25", "2026-05-01"), false);
 });

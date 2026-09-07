@@ -71,7 +71,8 @@ export function getMinutesInNepalFromIso(iso: string) {
 }
 
 export function shiftAdDateKey(adDateKey: string, days: number) {
-  const date = new Date(`${normalizeAdDateKey(adDateKey)}T00:00:00${NEPAL_UTC_OFFSET}`);
+  const [year, month, day] = normalizeAdDateKey(adDateKey).split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
 }

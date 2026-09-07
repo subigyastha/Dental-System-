@@ -4,6 +4,7 @@ import { ArchiveRestore, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button, Panel } from "@/components/ui";
+import { KoiSectionLoader } from "@/components/koi-loader";
 import { EmptyState, Field, Modal, PageHeader, inputClassName, textareaClassName } from "@/components/workspace/elements";
 import { useWorkspaceApp } from "@/components/workspace/app-state";
 import { ApiRequestError, apiFetchJson } from "@/lib/api-client";
@@ -130,7 +131,7 @@ export function ArchiveCenterPage() {
           </div>
         ) : null}
         {isLoading ? (
-          <div className="p-4 text-sm text-[var(--text-muted)]">Loading archived client records...</div>
+          <KoiSectionLoader label="Loading archived Client records" />
         ) : error ? (
           <div className="p-4">
             <EmptyState

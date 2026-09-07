@@ -22,10 +22,1026 @@
     <header>
       <p class="meta">Persistent implementation review • Update this file after every delivery phase</p>
       <h1>ClinicFlow phase review</h1>
-      <p><strong>Current review:</strong> Phase 2 — Governed API workspace and platform control</p>
-      <p><strong>Reviewed:</strong> 2026-07-18 • <strong>Decision:</strong> <span class="status partial">READY FOR MANUAL REVIEW — UNCOMMITTED; CI AND VISUAL EVIDENCE PENDING</span></p>
-      <p>Phase 2 is an additive governance and workspace slice over the committed Phase 1 security boundary. No Phase 2 commit exists yet. This review records the present working-tree evidence and does not claim a remote CI run or visual demonstration.</p>
+      <p><strong>Current review:</strong> R1 route-owned data boundary + R2 background booking confirmation</p>
+      <p><strong>Reviewed:</strong> 2026-08-22 • <strong>Decision:</strong> <span class="status partial">IMPLEMENTED; SIGNED-IN ROLE/RESPONSIVE QA PENDING</span></p>
+      <p>The latest slice completes the frontend route-owned data boundary, gives Settings its own governed v1 contract, makes slot-start timing Owner-controlled, replaces duplicate Day Schedule reads with one cached snapshot plus adjacent-date prefetch, and lets slow server-confirmed bookings continue in a visible background state. Earlier Staff, Inventory, R0, and R0A evidence remains below.</p>
+      <p><strong>Environment note:</strong> the live API readiness endpoint reports Supabase reachable and Prisma migration status confirms all 26 repository migrations are applied. The isolated Login route renders empty credential fields without console errors; no test password was used or embedded for authenticated screenshots.</p>
+      <p><strong>Runtime hardening:</strong> Supabase Transaction Mode is now the fail-safe default, invalid pooler modes fail at startup, and four normalization tests cover default, explicit Session Mode, typo handling, and portability to non-Supabase databases. Next development and production artifacts are isolated into <code>.next-dev</code> and <code>.next</code>; the reproduced missing-chunk HTTP 500 no longer survives the dev-server configuration reload.</p>
     </header>
+
+    <section>
+      <h2>R1 route-owned Settings and Schedule performance review</h2>
+      <p><strong>Decision:</strong> <span class="status partial">SOURCE + AUTOMATION PASS; SIGNED-IN MANUAL QA REQUIRED</span></p>
+      <table>
+        <thead><tr><th>Review checklist</th><th>Status</th><th>Evidence and finding</th></tr></thead>
+        <tbody>
+          <tr><td>Route-transition bootstrap reuse.</td><td><span class="status implemented">PASS</span></td><td>Normal clinic navigation reuses one concurrent <code>/auth/me</code> and <code>/api/v1/workspace/bootstrap</code> load and preserves the mounted workspace provider. Logout, expiry, explicit session end, failed authentication, and 401 clear the session-local cache; failures remain retryable.</td></tr>
+          <tr><td>Legacy aggregate retirement.</td><td><span class="status implemented">PASS</span></td><td>Every frontend workspace path resolves to either the minimal shell bootstrap or the bounded Schedule bootstrap. No application source calls <code>/operational-data</code>; unknown and legacy alias paths fail small rather than silently restoring the aggregate.</td></tr>
+          <tr><td>Bounded Settings contract.</td><td><span class="status implemented">PASS</span></td><td><code>/api/v1/settings</code> is restricted to organization-scoped Owner/Admin roles, returns only clinic identity and scheduling policy, and audits updates. Location-scoped Admins are denied. AD is authoritative, overbooking is disabled, and only Owners can choose the 5/10/15/20/30/60-minute offered-slot interval.</td></tr>
+          <tr><td>Schedule request consolidation and cache.</td><td><span class="status implemented">PASS</span></td><td>All planning reads now sit under <code>/api/v1/schedule</code>. Day view requests one appointment-plus-provider-grid snapshot instead of two frontend requests and prefetches the previous and next dates after useful content renders. Superseded visible Day/Week/Month HTTP reads are aborted. Session caches use a 32-entry LRU bound and mutation/configuration/logout invalidation; stale responses cannot repopulate invalidated data.</td></tr>
+          <tr><td>Day-board rendering.</td><td><span class="status implemented">PASS IN SOURCE</span></td><td>The desktop Day board keeps provider headings and the time axis sticky inside a bounded scroll surface. Provider slots are indexed once by Provider/start time instead of scanning every Provider slot for every rendered cell; mobile retains its compact Provider-first list.</td></tr>
+          <tr><td>Bounded Staff data contract.</td><td><span class="status implemented">PASS</span></td><td><code>/api/v1/staff</code> supplies bounded fields, summary counts, search, role/status/location filters, sorting, and pagination. Directory rows do not include Provider schedules; full schedule detail loads only after an authorized action. Entering Staff no longer requests <code>/operational-data</code>.</td></tr>
+          <tr><td>Role and location enforcement.</td><td><span class="status implemented">PASS</span></td><td>Owner/Admin management requires organization scope, Managers receive a location-scoped coordination view, and Finance-only actors are denied. Only an organization-scoped Owner may create, promote, reset, edit, archive, or restore an Owner account. Finance and Inventory Manager are supported as additive roles. Navigation consumes the server-issued Staff capability.</td></tr>
+          <tr><td>Professional responsive interaction surface.</td><td><span class="status implemented">PASS IN SOURCE</span></td><td>The route has real metric counts, debounced search, filters/sort/pagination, desktop table/mobile cards, chips, skeleton/error/empty/retry states, and right-side create/edit/schedule/password/grant/revoke/archive/restore drawers. Role grants search beyond the visible page; archive/restore requires typing the exact account email.</td></tr>
+          <tr><td>Scheduling consistency.</td><td><span class="status implemented">PASS</span></td><td>Provider schedule detail is demand-loaded, writes are server-confirmed, and successful changes invalidate planning caches for that Provider so later Schedule views cannot reuse stale availability.</td></tr>
+          <tr><td>Automated and live verification.</td><td><span class="status implemented">PASS</span></td><td>The complete suite passes 269 tests with one deliberate disposable-database skip; API v1 107/107, workspace boundary 44/44, API client 27/27, and phase-two UI 14/14 pass. Typechecks and the production web build pass. Migration <code>000026</code> is applied; live readiness reports <code>database: reachable</code> and all 26 migrations current on Supabase.</td></tr>
+        </tbody>
+      </table>
+      <h3>Manual QA required now</h3>
+      <ul>
+        <li>Sign in as organization-scoped Owner/Admin and navigate Dashboard → Clients → Finance → Staff → Settings → Schedule. Confirm <code>/auth/me</code> and <code>/v1/workspace/bootstrap</code> are not repeated on each transition and no route issues an <code>/operational-data</code> request.</li>
+        <li>As Owner, change slot starts from 15 to 30 minutes and confirm Schedule/Quick Book offer only the new cadence without changing service duration or existing appointments. Confirm an organization Admin sees the control disabled and a location-scoped Admin cannot open Settings.</li>
+        <li>In Day Schedule, move to the next and previous dates after the initial render. Confirm one <code>/v1/schedule/day</code> request supplies each cold day, adjacent prefetched days render without a full-section wait, and a Settings/schedule mutation invalidates affected cached dates.</li>
+        <li>Exercise Staff search, every filter, ascending/descending sort, pagination, mobile cards, and loading/empty/error/retry states at 320, 390, 768, 1024, 1440 CSS pixels and 200% zoom.</li>
+        <li>Create/edit a synthetic staff account, grant a location role to an account not on the current page, reset its password, and edit Provider availability. Confirm every form is a right-side drawer, focus remains trapped/recoverable, and Schedule shows fresh availability afterward.</li>
+        <li>Archive and restore the synthetic account. Confirm the command stays disabled until the exact email is typed, the server result is reflected after refresh, and no permanent delete action is offered from the active directory.</li>
+        <li>As a location-scoped Manager, verify only permitted staff are visible and actions are coordination-only. As Finance-only, verify Staff navigation/API access is denied. Check an organization-scoped Owner/Admin can manage all locations.</li>
+        <li>Use a representative clinic-volume dataset to record cold/warm p50/p95, response size, query count, and SQL plan evidence. This remains the R1 performance release gate.</li>
+      </ul>
+      <div class="screenshots">
+        <div class="shot"><strong>Desktop Staff evidence pending</strong><br />Capture metrics, filters, table, and an open edit drawer with synthetic accounts.<code>artifacts/staff/staff-desktop.png</code></div>
+        <div class="shot"><strong>Mobile Staff evidence pending</strong><br />Capture cards and an archive confirmation drawer at 390px.<code>artifacts/staff/staff-mobile.png</code></div>
+        <div class="shot"><strong>Role/location evidence pending</strong><br />Capture Manager coordination-only scope and Finance denial.<code>artifacts/staff/staff-scope.png</code></div>
+      </div>
+      <p class="callout"><strong>Next implementation item:</strong> finish R1 evidence by collecting representative-volume query plans, payload sizes, and cold/warm p50/p95 timings. Then proceed to R2 booking perceived-performance work without weakening server-confirmed conflict handling.</p>
+    </section>
+
+    <section>
+      <h2>R2 background booking confirmation review</h2>
+      <p><strong>Decision:</strong> <span class="status partial">IMPLEMENTED IN SOURCE; SLOW-NETWORK QA PENDING</span></p>
+      <table>
+        <thead><tr><th>Review checklist</th><th>Status</th><th>Evidence and finding</th></tr></thead>
+        <tbody>
+          <tr><td>Authoritative confirmation.</td><td><span class="status implemented">PASS</span></td><td>The appointment is never shown as booked until <code>/api/v1/booking/confirm</code> commits and responds. The existing payload fingerprint and actor-scoped idempotency key are preserved for uncertain-response retry.</td></tr>
+          <tr><td>Useful workspace during a slow commit.</td><td><span class="status implemented">PASS IN SOURCE</span></td><td>After 400 ms, an in-flight confirmation minimizes to a fixed responsive status card. The modal and its body-scroll/focus lock are removed while the workflow component and protected request remain mounted, so unrelated workspace content stays usable.</td></tr>
+          <tr><td>Completion and recovery.</td><td><span class="status implemented">PASS</span></td><td>The status card distinguishes pending, server-confirmed success, and attention-required outcomes. It reopens the exact workflow; confirmed results invalidate scoped Schedule/Client data, while uncertain results retain safe retry evidence rather than issuing a new logical booking.</td></tr>
+          <tr><td>Regression gate.</td><td><span class="status implemented">PASS</span></td><td>Phase-two UI tests pass 14/14, including proof that a minimized workflow renders no modal surface. Full typecheck, lint, formatting, boundary checks, and secret scan pass.</td></tr>
+        </tbody>
+      </table>
+      <h3>Manual QA before release</h3>
+      <ul>
+        <li>Throttle booking confirmation beyond 400 ms. Confirm the drawer minimizes, the status card remains above desktop/mobile navigation without covering critical controls, and other routes remain usable.</li>
+        <li>Let the request succeed and confirm the card changes only after the server response. Reopen it, verify the exact Client/provider/service/time, then choose Done.</li>
+        <li>Drop the response after server commit, reopen the attention state, and retry. Confirm one appointment exists and the replayed result is displayed. Test a genuine slot conflict separately and confirm it returns to availability rather than claiming success.</li>
+        <li>Verify keyboard focus returns to the workspace on minimize, reaches the status card in logical order, and returns to the booking confirmation on reopen. Repeat at 320px, 390px, 200% zoom, and reduced motion.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>R0I Inventory Operations review</h2>
+      <p><strong>Decision:</strong> <span class="status partial">CORE READY FOR SIGNED-IN MANUAL REVIEW</span></p>
+      <table>
+        <thead><tr><th>Review checklist</th><th>Status</th><th>Evidence and finding</th></tr></thead>
+        <tbody>
+          <tr><td>Finance-independent domain and bounded loading.</td><td><span class="status implemented">PASS</span></td><td><a href="../apps/web/app/(workspace)/inventory/page.tsx">Inventory</a> owns its route data through <code>/api/v1/inventory/workspace</code> and <code>/movements</code>, uses the minimal workspace bootstrap, and never reads or mutates invoices, payments, COGS, or accounting entries.</td></tr>
+          <tr><td>Catalog, thresholds, suppliers, and responsive UI.</td><td><span class="status implemented">PASS</span></td><td>The desktop table and mobile cards expose search, location/lifecycle filters, low/out-of-stock and expiring-lot summaries, supplier references, and right-side drawers. Owner/Admin can create and edit audited catalog/reorder settings; SKU remains immutable and lot policy locks after movement history exists.</td></tr>
+          <tr><td>Authoritative stock commands.</td><td><span class="status implemented">PASS</span></td><td>Receive, use, adjust, stocktake, and transfer commands use stable actor-scoped idempotency, serializable transactions, advisory balance locks, location authorization, server-derived before/after balances, reason/reference evidence, and explicit negative-stock rejection.</td></tr>
+          <tr><td>Lot, expiry, and movement integrity.</td><td><span class="status implemented">PASS</span></td><td>Tracked items require lots, unavailable/expired lots cannot be consumed or transferred, expiry dates remain AD/UTC canonical through the end of the selected date, and PostgreSQL verifies balance arithmetic. A database trigger rejects movement update/delete so corrections must be compensating movements.</td></tr>
+          <tr><td>Permissions and lifecycle.</td><td><span class="status implemented">PASS</span></td><td>Owner/Admin/Inventory Manager access is server-derived and location-scoped; Finance alone receives no Inventory authority. Items must have zero stock before archive, can be restored, and only an Owner can permanently delete an archived, unused item after typing its exact SKU; retained history makes purge fail closed.</td></tr>
+          <tr><td>Automated verification.</td><td><span class="status implemented">PASS</span></td><td>Both Inventory migrations are applied and Prisma validation/status pass. The full repository suite passes 247 tests with one deliberate disposable-PostgreSQL skip; API v1 passes 95/95, Inventory/web transport passes inside API-client 23/23, and workspace boundary passes 41/41. API/web typechecks and production builds, web lint, formatting, secret scan, web-Prisma boundary, diff check, and route inventory (133 protected/default-deny handlers) pass.</td></tr>
+        </tbody>
+      </table>
+      <h3>Manual QA required now</h3>
+      <ul>
+        <li>As Owner/Admin, create a synthetic supplier and item, edit its reorder point/preferred stock, receive a tracked lot, and verify its location balance, expiry alert, and immutable movement entry.</li>
+        <li>Use, adjust, count, and transfer stock between two permitted locations. Retry the exact request after simulated network uncertainty and verify it produces no duplicate movement; attempt an over-consumption and verify no balance changes.</li>
+        <li>As a location-scoped Inventory Manager, verify only permitted location balances and actions are visible and a cross-location transfer is denied. As Finance-only, verify Inventory navigation and API access are denied.</li>
+        <li>Reduce an item to zero, archive and restore it. Archive it again and verify an item with history cannot be permanently deleted; create an unused item and verify Owner-only exact-SKU confirmation is required for purge.</li>
+        <li>Repeat the workflow at 320, 390, 768, 1024, and 1440 CSS pixels plus keyboard-only and 200% zoom. Confirm drawers remain reachable, mobile cards replace the table, no action relies on hover, and skeleton/error/retry states preserve shell geometry.</li>
+        <li>Confirm Network shows bounded Inventory requests and no <code>/operational-data</code> request when entering Inventory.</li>
+      </ul>
+      <div class="screenshots">
+        <div class="shot"><strong>Desktop Inventory evidence pending</strong><br />Capture stock summary, table, and an open receive drawer using synthetic data.<code>artifacts/inventory/inventory-desktop.png</code></div>
+        <div class="shot"><strong>Mobile Inventory evidence pending</strong><br />Capture stock cards and an operation drawer at 390px.<code>artifacts/inventory/inventory-mobile.png</code></div>
+        <div class="shot"><strong>Role/location denial evidence pending</strong><br />Capture Inventory Manager scope and Finance denial without real client data.<code>artifacts/inventory/inventory-scope.png</code></div>
+      </div>
+      <p class="callout"><strong>Accepted phase boundary:</strong> procurement/purchase orders, supplier edit/archive lifecycle, automatic consumption from Records, valuation, COGS, and accounting integration are not part of R0I. They must remain separate future work and cannot be inferred from stock movements.</p>
+    </section>
+
+    <section>
+      <h2>R0/R1 clinic review response</h2>
+      <p><strong>Reviewed:</strong> 2026-08-15. <strong>Decision:</strong> <span class="status partial">READY FOR SIGNED-IN MANUAL REVIEW; PERFORMANCE PROGRAM CONTINUES</span></p>
+      <table>
+        <thead><tr><th>Review item</th><th>Status</th><th>Evidence and next gate</th></tr></thead>
+        <tbody>
+          <tr><td>Sidebar notification/profile/logout leave the viewport.</td><td><span class="status implemented">FIXED IN SOURCE</span></td><td>The desktop sidebar is sticky at <code>100vh</code>, clips its shell, scrolls only the navigation region, and keeps Attention/Profile anchored in a non-scrolling footer. Manually check short laptop heights and browser zoom.</td></tr>
+          <tr><td>Proper, explicit Sign out control.</td><td><span class="status implemented">R0A — IMPLEMENTED + TESTED</span></td><td>Clinic desktop footer, profile menu, mobile More surface, and Super Admin header now share a labelled Sign out command. It becomes pending/disabled once, waits for protected server revocation, preserves the active session and draft on failure, confirms before discarding a dirty Quick Book draft, blocks during booking commit, clears tenant caches and sensitive booking state after success, notifies peer tabs through a validated versioned channel, and redirects without leaving clinic content mounted. Signed-in short-height, 200% zoom, touch, cross-tab, and forced-failure browser evidence remains the manual gate.</td></tr>
+          <tr><td>Schedule heading repeats.</td><td><span class="status implemented">FIXED IN SOURCE</span></td><td>The utility bar exposes an accessible-only route heading, the redundant My Schedule wrapper heading is removed, and the reservation module owns the one visible title. Provider availability remains a separate action.</td></tr>
+          <tr><td>Month view hydration error from nested buttons.</td><td><span class="status implemented">FIXED + REGRESSION TESTED</span></td><td>Each date cell is now a non-interactive container with sibling Select Date and Open Day buttons. Both actions retain keyboard labels without invalid interactive nesting; the server-rendered markup regression test rejects nested buttons.</td></tr>
+          <tr><td>Full-page loader makes navigation feel slower.</td><td><span class="status implemented">SHELL SKELETON SHIPPED</span></td><td>Protected workspace loading preserves the 272px desktop sidebar, header, route-shaped content, and mobile bottom navigation. Schedule sections, Client directory/profile, and Finance use content-shaped skeletons with reduced-motion support. Platform-specific loading remains part of the Super Admin rework.</td></tr>
+          <tr><td>Providers cannot add new Clients.</td><td><span class="status implemented">FIXED + TESTED</span></td><td>The booking UI now consumes the server-issued <code>canCreateClient</code> capability instead of maintaining a second browser role list. The API workspace test proves a Provider receives the capability; general correction, merge, archive, and purge authority is unchanged.</td></tr>
+          <tr><td>Slow workspace and Schedule startup.</td><td><span class="status partial">BOUNDED STARTUP SHIPPED</span></td><td>Session, workspace, and Schedule bootstrap requests begin concurrently. The new tenant/location-scoped <code>/api/v1/schedule/bootstrap</code> returns only active providers, scoped schedule rules, and active services—no Clients, staff, Records, follow-ups, or appointment history. Visible range responses carry only directory-safe labels, repeat planning requests share one in-flight promise, and stale responses cannot repopulate caches after mutation. Full representative-volume p50/p95 and query-plan evidence remains the R1 release gate.</td></tr>
+          <tr><td>Staff Management professional UI and bounded data.</td><td><span class="status implemented">R1S — IMPLEMENTED</span></td><td>The bounded v1 Staff projection and responsive workspace now provide real summary counts, server search/filter/sort/pagination, desktop table/mobile cards, chips, governed right-side drawers, searchable additive role grants, typed archive/restore confirmation, and complete loading/empty/unavailable/retry states. Signed-in role/location and viewport evidence is the remaining acceptance gate.</td></tr>
+          <tr><td>Owner control of slot timing.</td><td><span class="status implemented">IMPLEMENTED + MIGRATED</span></td><td>The bounded Settings contract exposes an Owner-only organization slot-start interval with allowed values 5/10/15/20/30/60 minutes and default 15. It controls offered start cadence—not service duration, appointment duration, capacity, or buffers—and changes audit/increment the schedule configuration version, invalidate planning caches, and never rewrite existing appointments.</td></tr>
+          <tr><td>Dashboard interaction latency.</td><td><span class="status implemented">OPTIMISTIC UPDATE ADDED</span></td><td>Confirm/Complete updates the visible dashboard immediately, waits for the authoritative command, and restores the exact previous snapshot with a visible error on failure. It no longer blocks on a second dashboard bootstrap request.</td></tr>
+          <tr><td>Reservation calendar, Super Admin, major UI/mobile rework.</td><td><span class="status deferred">PLANNED</span></td><td>These are now ordered R3, R4, and R6 in the tangible delivery plan. Calendar package selection follows the bounded Schedule API and performance baseline; broad visual polish follows workflow stabilization.</td></tr>
+          <tr><td>Finance workflow.</td><td><span class="status partial">MANUAL QA QUEUED</span></td><td>The accepted implementation is unchanged. Run the dedicated Owner/Finance/Receptionist/denied-role desktop and mobile checklist below before release claims.</td></tr>
+        </tbody>
+      </table>
+      <h3>Verification in this update</h3>
+      <ul>
+        <li><code>npm.cmd run typecheck</code> passed for web and API.</li>
+        <li>Web workspace-boundary tests passed 41/41, including bounded Schedule composition and cross-workspace rejection.</li>
+        <li>Web phase-two tests passed 12/12, including optimistic dashboard behavior and server-rendered Month-view button structure.</li>
+        <li>API v1 tests passed 85/85, including Schedule tenant/location scope, Provider-wide visibility, excluded unrelated relations, Finance-only denial, and directory-safe appointment labels.</li>
+        <li>API authentication/security tests passed 40/40. Every API response now exposes <code>Server-Timing</code> and <code>x-response-time-ms</code> without logging sensitive payloads.</li>
+        <li>API live/readiness and the isolated ClinicFlow login route returned HTTP 200. Anonymous Schedule correctly redirected to login without the earlier unhandled parallel-request overlay.</li>
+        <li>R0A session/client tests passed 19/19 and phase-two UI tests passed 13/13. Web typecheck, lint, and production build passed after integrating the shared clinic/platform Sign out controls.</li>
+        <li>The API was started against the configured Supabase connection with network access; <code>/api/health/ready</code> returned HTTP 200 with <code>{"status":"ok","database":"reachable"}</code>. The isolated browser Login route rendered empty credential fields and produced no console warnings or errors.</li>
+      </ul>
+      <h3>Manual QA required now</h3>
+      <ul>
+        <li>Sign in as a Provider: confirm one visible My Schedule title, click New Client in Quick Book, create a synthetic Client, and verify profile correction/archive/merge controls remain denied.</li>
+        <li>As an Owner and Provider, at 768px height, 600px height, and 200% zoom: scroll long pages and confirm Attention, Profile, and the permanently labelled Sign out action stay reachable while the navigation list scrolls independently. Repeat through mobile More and the Super Admin workspace.</li>
+        <li>Open a dirty Quick Book draft and choose Sign out. Confirm focus enters the discard dialog, Keep editing preserves the draft and restores focus, Escape cancels, and Confirm starts one disabled/pending logout. While booking confirmation is committing, confirm Sign out is disabled.</li>
+        <li>In two signed-in same-origin tabs, sign out from one and confirm the other immediately removes clinic content and returns to Login. Verify the logout request is <code>POST /api/auth/logout</code> with the CSRF header and the session cookie is cleared.</li>
+        <li>Block or return 503 from the logout request. Confirm the workspace and draft remain mounted, a safe retry message appears, and no success redirect occurs. Then restore the API and retry successfully.</li>
+        <li>Capture Network timings, <code>Server-Timing</code>, and response sizes for <code>/auth/me</code>, <code>/v1/workspace/bootstrap</code>, <code>/v1/schedule/bootstrap</code>, the visible appointment range, and the day grid. Confirm no <code>/operational-data</code> request appears on Schedule routes.</li>
+        <li>Open Day/Week/Month rapidly and change providers: verify duplicate identical planning requests collapse, stale views never replace the active view, Client names remain visible, and edit/reschedule opens with the selected Client prefilled.</li>
+        <li>Navigate Dashboard → Clients → Finance → Archive → Schedule at desktop and mobile widths. Confirm the shell geometry stays stable, no centered full-page loader appears, Finance/Archive issue no <code>/operational-data</code> request, skeletons do not overflow, and reduced-motion mode removes pulsing animation.</li>
+        <li>On Dashboard, throttle the status command: confirm the card changes immediately; inject a failure and confirm rollback plus the visible error.</li>
+      </ul>
+      <p class="callout"><strong>Visual evidence limitation:</strong> ClinicFlow was isolated on port 3100 because port 3000 belongs to a different local Remotion project. The browser Login route was checked with empty credential fields and a clean console, but the available browser session had no ClinicFlow credentials, so authenticated screenshots and signed-in R0A interaction evidence are deliberately not claimed.</p>
+    </section>
+
+    <section>
+      <h2>P4B Finance ledger review</h2>
+      <p><strong>Reviewed:</strong> 2026-07-27. <strong>Decision:</strong> <span class="status partial">READY FOR AUTHENTICATED MANUAL REVIEW; NOT YET VISUALLY CERTIFIED</span></p>
+      <table>
+        <thead><tr><th>Review checklist</th><th>Status</th><th>Evidence and finding</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Visible end-to-end Finance workflow.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td>The responsive Finance workspace includes New Invoice, Issue, Record Payment, immutable invoice detail/ledger, Refund/Reversal, correction approval, and daily reconciliation side drawers. Mutations wait for server confirmation and preserve stable idempotency keys for retry.</td>
+          </tr>
+          <tr>
+            <td>Authorization and location isolation.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td>Manager and Scheduler no longer inherit Finance authority. Receptionist may create drafts and record eligible payments but cannot issue, correct, approve, or reconcile. Finance may issue/initiate/reconcile; only a distinct Owner/Admin may approve. Server capabilities and invoice location scope drive the UI. Legacy mutations return <code>410 Gone</code>; retained GET compatibility is tenant/location scoped.</td>
+          </tr>
+          <tr>
+            <td>Immutable money lifecycle.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td>NPR amounts use decimal strings at the v1 boundary and <code>DECIMAL(18,2)</code> storage. Completed receipts are append-only. Refunds and reversals create linked corrections, pending/rejected corrections do not change balance, and only executed corrections affect derived invoice status/balance.</td>
+          </tr>
+          <tr>
+            <td>Idempotency, concurrency, and approval.</td>
+            <td><span class="status implemented">PASS ON SUPABASE</span></td>
+            <td>Draft, issue, payment, and correction commands use actor-scoped idempotency keys and request hashes. Serializable transactions use advisory request locks plus Invoice &rarr; Payment &rarr; Correction row-lock order. A Supabase-backed test proved exactly one of two competing NPR 60 payments can reach an NPR 100 invoice and exactly one of two competing NPR 40 corrections can reserve an NPR 60 receipt.</td>
+          </tr>
+          <tr>
+            <td>Ledger and reconciliation correctness.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td>Workspace rows expose gross collections separately from executed corrections; payment entries expose server-computed remaining correctable value. Daily corrected totals use <code>executedAt</code>, while pending approval uses request time. Non-cash receipts require a reference.</td>
+          </tr>
+          <tr>
+            <td>Migrations and automated gates.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td>Migrations <code>000019</code> and <code>000020</code> are applied. Prisma generation/validation, API and web typechecks/builds, full web lint, the full repository test suite, 81 focused v1 tests, 15 Finance/web transport tests, route inventory, Prisma-boundary, secret scan, and the PostgreSQL Finance gate pass.</td>
+          </tr>
+          <tr>
+            <td>Independent code review.</td>
+            <td><span class="status implemented">FINDINGS ADDRESSED</span></td>
+            <td>The review identified unsafe legacy location scope, missing draft/payment UI, a correction-action ledger mismatch, wrong reconciliation date attribution, incorrect gross-versus-corrected row totals, null-location fail-open risk, and mixed location-role capability leakage. Every finding was repaired and regression-tested; the final re-review found no remaining actionable Finance defect.</td>
+          </tr>
+          <tr>
+            <td>Authenticated responsive QA.</td>
+            <td><span class="status partial">MANUAL QA PENDING</span></td>
+            <td>Verify Owner/Admin, Finance, Receptionist, Manager, and Scheduler sessions on desktop and 375px mobile. No screenshot is claimed until the authenticated browser run succeeds.</td>
+          </tr>
+        </tbody>
+      </table>
+      <h3>Manual QA checklist</h3>
+      <ul>
+        <li>Receptionist: create a draft and record Cash/non-cash partial payment on an issued invoice; confirm Issue, Refund/Reversal, Approvals, and Reconciliation remain hidden/denied.</li>
+        <li>Finance: issue a draft, record a payment, request a correction, inspect gross collected/corrected/balance values, and open daily reconciliation.</li>
+        <li>Owner/Admin: approve another actor's pending correction; confirm self-approval and stale-version decisions are denied.</li>
+        <li>Retry the exact create/payment/correction after simulated response loss; confirm one durable result and no optimistic balance change.</li>
+        <li>At 375px and desktop widths, verify full-screen/side drawer behavior, fixed actions, keyboard focus, error visibility, tab scrolling, and AD date with BS context.</li>
+      </ul>
+      <div class="screenshots">
+        <div class="shot"><strong>Unauthenticated Finance redirect</strong><p>Verified <code>/billing</code> returns to sign-in without rendering clinic data after the repaired web runtime reload.</p><a href="artifacts/p4b-finance/unauthenticated-finance-redirect.png"><img alt="Finance route redirects an unauthenticated user to sign in" src="artifacts/p4b-finance/unauthenticated-finance-redirect.png" style="display:block;max-width:100%;height:auto;border-radius:7px" /></a></div>
+        <div class="shot"><strong>Desktop Finance workspace</strong><p>Capture authenticated invoice summary, ledger, and role-correct actions.</p><code>Pending authenticated capture</code></div>
+        <div class="shot"><strong>Mobile payment/correction drawer</strong><p>Capture 375px layout, fixed actions, amount impact, and error state.</p><code>Pending authenticated capture</code></div>
+        <div class="shot"><strong>Approval and reconciliation</strong><p>Capture Owner/Admin pending approval and Finance daily exceptions.</p><code>Pending authenticated capture</code></div>
+      </div>
+      <p class="callout"><strong>Next implementation item after manual acceptance:</strong> begin P5 governed Records and dental-chart revisions. Fonepay/provider settlement remains P6B and Inventory remains separate.</p>
+    </section>
+
+    <section>
+      <h2>B7 standalone New Client drawer review</h2>
+      <p><strong>Reviewed:</strong> 2026-07-27. <strong>Decision:</strong> <span class="status partial">READY FOR AUTHENTICATED MANUAL REVIEW; NOT YET VISUALLY CERTIFIED</span></p>
+      <table>
+        <thead><tr><th>Review checklist</th><th>Status</th><th>Evidence and finding</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Shared responsive intake.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="../apps/web/components/workspace/new-client-drawer.tsx">NewClientDrawer</a> uses the shared drawer, minimal Client fields, optional expanded disclosure, fixed actions, dirty-close confirmation, AD date storage with derived BS context, visible failures, and server-confirmed success. The route exposes it only when <code>canCreateClient</code> is granted.</td>
+          </tr>
+          <tr>
+            <td>Governed identity matching.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td>Number-first matching never auto-selects a record. Staff explicitly use an existing Client or continue as distinct; equivalent Nepal phone formats are not appended twice. Identity edits invalidate prior evidence, while the API compares the exact candidate-set version and reviewed IDs inside the transaction.</td>
+          </tr>
+          <tr>
+            <td>Authorization and validation.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td>Owner, Admin, Manager, Receptionist, and Provider may create a Client. Providers may append the caller's number only through the candidate-versioned selected-match command; the generic phone endpoint and general profile correction, archive, merge, deletion, and identity-review resolution remain denied. The API enforces bounded fields, email format, canonical primary/emergency phone lengths, and a real non-future AD DOB using the Nepal clinic day.</td>
+          </tr>
+          <tr>
+            <td>Atomicity, replay, and privacy.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="../apps/api/src/modules/api-v1/clients-v1.service.ts">ClientsV1Service</a> creates Client, chart, primary phone, optional review, audit, and receipt in one serializable transaction. Receipts retain only Client ID/code and review outcome; replay reads current canonical display identity. Existing development receipts were redacted and receipts cascade with Owner-governed Client purge.</td>
+          </tr>
+          <tr>
+            <td>PostgreSQL concurrency and rollback.</td>
+            <td><span class="status implemented">PASS ON SUPABASE</span></td>
+            <td><a href="../apps/api/src/integration/client-creation.postgres.integration.spec.ts">The B7 database gate</a> proves concurrent same-key requests create one record, different keys racing the same reviewed identity allow one and force the other to re-review, and a forced receipt failure rolls back the Client.</td>
+          </tr>
+          <tr>
+            <td>Migrations.</td>
+            <td><span class="status implemented">APPLIED</span></td>
+            <td>Migrations <code>000016</code>, <code>000017</code>, and <code>000018</code> add the scoped receipt, align it with Client purge, and whitelist/redact the stored replay payload.</td>
+          </tr>
+          <tr>
+            <td>Independent code review.</td>
+            <td><span class="status implemented">FINDINGS ADDRESSED</span></td>
+            <td>Review findings covering receipt privacy, PostgreSQL identity-race proof, email/DOB/emergency-phone validation, canonical replay, Nepal-local date handling, accessible match names, and the Provider caller-phone authorization race were repaired and retested. The final re-review found no actionable issue.</td>
+          </tr>
+          <tr>
+            <td>Automated gates.</td>
+            <td><span class="status implemented">PASS LOCALLY</span></td>
+            <td>Repository lint, web/API typechecks, full unit/integration suite, Prisma validation, web/API production builds, 69 focused v1 tests, and the Supabase-backed B7 database gate pass.</td>
+          </tr>
+          <tr>
+            <td>Authenticated visual and interaction QA.</td>
+            <td><span class="status partial">MANUAL QA PENDING</span></td>
+            <td>No screenshot is presented without an authenticated browser run. Desktop/mobile layout, keyboard focus, discard behavior, and live duplicate review remain the manual release checklist below.</td>
+          </tr>
+        </tbody>
+      </table>
+      <h3>Manual QA checklist</h3>
+      <ul>
+        <li>Restart the API, sign in as Receptionist, and open <strong>New Client</strong> from the Clients directory.</li>
+        <li>Create a Client with only name and phone, then repeat with optional details. Confirm the directory refreshes only after server success.</li>
+        <li>Use a shared household number and verify no Client is auto-selected; select an existing Client and verify a genuinely new number is appended without replacing its primary.</li>
+        <li>Continue as a distinct Client after reviewing all matches. Edit name/phone after review and verify match review is required again.</li>
+        <li>Double-click submit and retry after throttling/interruption; confirm only one Client code and one primary phone are created.</li>
+        <li>As Provider-only, confirm the launcher is visible, standalone creation succeeds, and own-Provider booking can create a Client. Then confirm general profile correction and archive controls remain unavailable/denied.</li>
+        <li>Repeat at 1440px, 1024px, 768px, 390px, 360px, and 320px, including keyboard-only use, 200% zoom, and discard confirmation.</li>
+      </ul>
+      <div class="screenshots">
+        <div class="shot"><strong>Desktop Client details drawer</strong><code>Pending authenticated browser QA</code></div>
+        <div class="shot"><strong>Mobile possible-match review</strong><code>Pending authenticated browser QA</code></div>
+        <div class="shot"><strong>Server-confirmed success</strong><code>Pending authenticated browser QA</code></div>
+      </div>
+      <h3>Known B7 boundaries</h3>
+      <ul>
+        <li>Authenticated responsive/browser evidence is still required before release certification.</li>
+        <li>The broader merge/repair console and production load evidence remain P3 work.</li>
+        <li>The next implementation priority is P4B Finance correction/reconciliation UI before the governed Record domain.</li>
+      </ul>
+      <p class="callout"><strong>Next implementation item:</strong> close the Finance UI/reconciliation slice, keeping Inventory separate.</p>
+    </section>
+
+    <section>
+      <h2>B6 atomic booking confirmation review</h2>
+      <p><strong>Reviewed:</strong> 2026-07-26. <strong>Decision:</strong> <span class="status partial">READY FOR AUTHENTICATED MANUAL REVIEW; NOT YET VISUALLY CERTIFIED</span></p>
+      <table>
+        <thead><tr><th>Review checklist</th><th>Status</th><th>Evidence and finding</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>One authoritative submit boundary.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="../apps/api/src/modules/api-v1/booking-confirmation.service.ts">BookingConfirmationService</a> owns Client resolution, appointment creation, workflow/audit evidence, hold consumption, and the durable replay receipt inside one serializable transaction. The frontend no longer chains compatibility Client and appointment writes.</td>
+          </tr>
+          <tr>
+            <td>Idempotency and uncertain retry.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td>The API scopes the receipt key to organization and actor, compares a canonical request hash, serializes concurrent replays with a transaction advisory lock, and returns the committed result. <a href="../apps/web/components/workspace/guided-quick-book-flow.tsx">GuidedQuickBookFlow</a> retains the exact payload/key after a network or 5xx uncertainty and does not show premature success.</td>
+          </tr>
+          <tr>
+            <td>Scheduling and hold authority.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td>Confirmation locks the Provider, derives current duration plus the effective Provider-window/service buffer, rechecks availability, validates the exact actor/draft/location/Provider/service/time hold, rejects competing holds, and conditionally consumes the hold. Changed schedule rules return <code>AVAILABILITY_CHANGED</code>.</td>
+          </tr>
+          <tr>
+            <td>Client identity integrity.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td>Existing Clients are tenant-scoped and active/canonical. New Client confirmation requires the number-first candidate-set version even when empty, compares it inside the transaction, records skipped-match evidence, and permits phone append only to authorized Client writers.</td>
+          </tr>
+          <tr>
+            <td>PostgreSQL concurrency and rollback.</td>
+            <td><span class="status implemented">PASS ON SUPABASE</span></td>
+            <td><a href="../apps/api/src/integration/booking-confirmation.postgres.integration.spec.ts">The database integration gate</a> passed concurrent same-key replay, competing same-slot requests, serialization retry when a matching Client appears, expired-hold denial, and forced failure after Client creation with full rollback. It also caught and drove the repair of Prisma handling for the PostgreSQL advisory-lock statement.</td>
+          </tr>
+          <tr>
+            <td>Migration and generated client.</td>
+            <td><span class="status implemented">APPLIED</span></td>
+            <td><a href="../prisma/migrations/20260726_000015_atomic_booking_confirmation/migration.sql">Migration 000015</a> is applied, the full Prisma Client regenerated successfully, and the durable receipt has organization/actor/key, appointment, Client, optional hold, request hash, and response constraints.</td>
+          </tr>
+          <tr>
+            <td>Independent code review.</td>
+            <td><span class="status implemented">NO OPEN FINDINGS</span></td>
+            <td>The review found Provider-window buffer loss, optional stale-match protection, unstable scheduling recovery reasons, and missing real-database evidence. All were addressed; the final re-review found no remaining actionable code defect.</td>
+          </tr>
+          <tr>
+            <td>Authenticated visual and interaction QA.</td>
+            <td><span class="status partial">MANUAL QA PENDING</span></td>
+            <td>No screenshot is presented as evidence without an authenticated browser run. Desktop/mobile confirmation, uncertainty recovery, conflict focus, and success rendering remain the manual release checklist below.</td>
+          </tr>
+        </tbody>
+      </table>
+      <h3>Manual QA checklist</h3>
+      <ul>
+        <li>Restart both API and web after migration, sign in as Receptionist, and complete both Client-first and slot-first bookings.</li>
+        <li>Verify the confirmation summary shows Client, Provider, AD date/time with derived BS context, service, duration, priority, and collapsed optional location/notes.</li>
+        <li>Submit once and verify exactly one appointment appears on Dashboard, Schedule, and the Client profile without a full-page reload.</li>
+        <li>Throttle or interrupt the confirmation response, retry, and verify the same appointment/confirmation is returned with no duplicate Client or appointment.</li>
+        <li>Let a hold expire and create a competing booking from a second session; verify the draft is preserved and focus returns to choosing a valid time.</li>
+        <li>Create a matching Client in a second session between match review and confirmation; verify <code>IDENTITY_MATCH_CHANGED</code> requires reviewing candidates again.</li>
+        <li>Repeat at 1440px, 1024px, 768px, 390px, 360px, and 320px widths with keyboard-only navigation and screen-reader announcements.</li>
+      </ul>
+      <div class="screenshots">
+        <div class="shot"><strong>Desktop confirmation summary</strong><code>Pending authenticated browser QA</code></div>
+        <div class="shot"><strong>Mobile server-confirmed success</strong><code>Pending authenticated browser QA</code></div>
+        <div class="shot"><strong>Expired/conflicting slot recovery</strong><code>Pending authenticated browser QA</code></div>
+      </div>
+      <h3>Known B6 boundaries</h3>
+      <ul>
+        <li>Authenticated responsive/browser evidence is still required before booking release certification.</li>
+        <li>The next functional slice is B7 standalone New Client drawer reuse; broader P2R route-owned data and performance work remains separate.</li>
+      </ul>
+      <p class="callout"><strong>Next implementation item:</strong> implement B7 standalone New Client drawer using the B5/B6 identity primitives.</p>
+    </section>
+
+    <section>
+      <h2>B4 ranked slot-first booking and hold review</h2>
+      <p><strong>Reviewed:</strong> 2026-07-25. <strong>Decision:</strong> <span class="status partial">READY FOR MANUAL REVIEW AFTER MIGRATION; NOT RELEASE-CERTIFIED</span></p>
+      <table>
+        <thead><tr><th>Review checklist</th><th>Status</th><th>Evidence and finding</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Fast slot-first guided path.</td>
+            <td><span class="status implemented">PASS IN SOURCE</span></td>
+            <td><a href="../apps/web/components/workspace/guided-quick-book-flow.tsx">GuidedQuickBookFlow</a> presents Provider, AD-first date, service/duration, priority, and server-ranked times. It discloses five recommended times first, places later times behind <strong>More times</strong>, and then reuses the B3 Client and match steps with the held slot pinned above them.</td>
+          </tr>
+          <tr>
+            <td>Hold lifecycle and retry safety.</td>
+            <td><span class="status implemented">PASS IN SOURCE</span></td>
+            <td><a href="../apps/api/src/modules/api-v1/booking-availability.service.ts">BookingAvailabilityService</a> derives tenant and actor scope from the session, validates location/Provider/service slots, checks a stable availability version and slot token, compares a canonical request hash on idempotent replay, limits active holds per actor, and uses database time for expiry. Network uncertainty retains the same idempotency key; a real conflict refreshes availability.</td>
+          </tr>
+          <tr>
+            <td>Concurrency and terminal-state integrity.</td>
+            <td><span class="status implemented">PASS IN SOURCE</span></td>
+            <td>Hold creation, release, and appointment conversion serialize on the Provider row. Release additionally locks the hold row, while conversion conditionally consumes only an active, unreleased, unconsumed hold. The migration prevents both terminal timestamps from being set and keeps appointment overlap enforcement authoritative.</td>
+          </tr>
+          <tr>
+            <td>Countdown, expiry, and accessible recovery.</td>
+            <td><span class="status implemented">PASS IN SOURCE</span></td>
+            <td>The countdown is derived from the server expiry and recalculated on focus/visibility changes. Screen-reader announcements occur at meaningful thresholds instead of every second. Expiry keeps Client intake intact, moves focus to the recovery alert, and requires choosing another time.</td>
+          </tr>
+          <tr>
+            <td>B4/B6 boundary.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td>B4 produces a typed ready payload and does not claim a completed booking. B6 now consumes that handoff through one idempotent transaction that resolves Client identity, appends phones/review evidence, revalidates and consumes the hold, creates the appointment, and persists the replayable result.</td>
+          </tr>
+          <tr>
+            <td>Automated gates.</td>
+            <td><span class="status implemented">PASS LOCALLY</span></td>
+            <td>The full local suite passes 167 tests with one deliberate disposable-PostgreSQL skip. Prisma validation/generation, API and web typechecks/builds, frontend lint, route inventory (107 handlers across 18 controllers), web-Prisma boundary, secret scan, and diff checks pass. Focused coverage includes active-hold filtering, Provider-lock ordering, overlap denial, same-request replay, different-request idempotency conflict, stale availability conflict, serialized release, and exact hold consumption.</td>
+          </tr>
+          <tr>
+            <td>Independent code review.</td>
+            <td><span class="status implemented">FINDINGS ADDRESSED</span></td>
+            <td>The review identified stale-response and editable-control races during hold creation, a stuck 409 refresh path, non-awaited release before reselection, and an unnecessarily broad hold query/version. The repairs freeze schedule controls, verify the response against the live draft, explicitly refresh conflicts, await release, and bound hold reads to the requested Nepal date window. The independent final re-review found no remaining actionable B4 issue.</td>
+          </tr>
+          <tr>
+            <td>Database and authenticated browser evidence.</td>
+            <td><span class="status partial">MIGRATED; MANUAL QA PENDING</span></td>
+            <td>The hold schema migration is applied and the generated Prisma Client successfully reads <code>OrganizationSetting.bookingHoldMinutes</code>. No fabricated screenshots are attached. Real PostgreSQL race tests, authenticated hold creation, and responsive screenshots remain open release gates.</td>
+          </tr>
+        </tbody>
+      </table>
+      <h3>Manual QA checklist</h3>
+      <ul>
+        <li>Restart the API, sign in as Receptionist, and open <strong>View slots first</strong> from every global Quick Book launcher.</li>
+        <li>At desktop, 768px, 390px, 360px, and 320px widths, choose Provider/date/service/priority, disclose later times, select a slot, and confirm the drawer remains contained with 44px touch targets.</li>
+        <li>Confirm a three-minute countdown appears from the server expiry, remains accurate after backgrounding the tab, and preserves entered Client details when it expires.</li>
+        <li>Change the held time and close the drawer; verify the prior hold is released and becomes immediately available to another authorized user.</li>
+        <li>Book or hold the same time in a second session; confirm only one succeeds and the losing draft remains intact with a refreshable conflict.</li>
+        <li>Simulate a lost POST response and retry; confirm the same hold is returned. Reuse that key with different slot content and confirm <code>IDEMPOTENCY_KEY_REUSED</code>.</li>
+        <li>Confirm Provider-only users can hold only their own schedule and location-scoped staff cannot read or hold outside authorized locations.</li>
+      </ul>
+      <div class="screenshots">
+        <div class="shot"><strong>Desktop ranked slot selection</strong><code>Pending: migration and authenticated API/database availability</code></div>
+        <div class="shot"><strong>Mobile held-slot Client step</strong><code>Pending: migration and authenticated API/database availability</code></div>
+        <div class="shot"><strong>Expired-hold recovery</strong><code>Pending: migration and authenticated API/database availability</code></div>
+      </div>
+      <h3>Known B4 boundaries</h3>
+      <ul>
+        <li>B6 has replaced the compatibility write path with a single atomic, durable, idempotent booking-confirmation command.</li>
+        <li>Real PostgreSQL confirmation concurrency evidence now passes; authenticated hold/release browser and performance evidence remain required.</li>
+        <li>Schedule-cell prefill needs the B6/shared contract to guarantee an immediately held canonical service-duration slot.</li>
+      </ul>
+      <p class="callout"><strong>Next implementation item:</strong> reuse the completed B5/B6 booking intake primitives for B7 standalone New Client.</p>
+    </section>
+
+    <section>
+      <h2>B3 Client-first guided Quick Book review</h2>
+      <p><strong>Reviewed:</strong> 2026-07-25. <strong>Decision:</strong> <span class="status partial">READY FOR MANUAL REVIEW; NOT RELEASE-CERTIFIED</span></p>
+      <table>
+        <thead><tr><th>Review checklist</th><th>Status</th><th>Evidence and finding</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Phone-first and recent-Client entry.</td>
+            <td><span class="status implemented">PASS IN SOURCE</span></td>
+            <td><a href="../apps/web/components/workspace/guided-quick-book-flow.tsx">GuidedQuickBookFlow</a> waits for seven digits, debounces and cancels stale number-match requests, masks phone values in cards, and otherwise loads six Clients through deterministic recent ordering in <a href="../apps/api/src/modules/api-v1/clients-v1.service.ts"><code>GET /api/v1/clients?order=recent</code></a>.</td>
+          </tr>
+          <tr>
+            <td>Minimal New Client intake and permissions.</td>
+            <td><span class="status implemented">PASS IN SOURCE</span></td>
+            <td>Owner/Admin/Manager/Receptionist and Provider receive governed New Client intake with name, phone, optional address, and the prior-visit checkbox. Provider creation and selected-match caller-phone append use the same evidence rules, while general identity administration remains denied. Intake remains an in-memory typed draft until final submission.</td>
+          </tr>
+          <tr>
+            <td>Appointment details and availability.</td>
+            <td><span class="status implemented">PASS IN SOURCE</span></td>
+            <td>Provider cards constrain services to the selected Provider. The native-like AD-first dual-calendar picker, live Provider slots, priority, location context, and optional notes replace direct-time entry for new Quick Book appointments. Slot-first preserves these choices while returning to Client selection.</td>
+          </tr>
+          <tr>
+            <td>Identity-match safety.</td>
+            <td><span class="status implemented">PASS IN SOURCE</span></td>
+            <td>Possible, strong, and shared-household candidates are advisory and never auto-selected. New intake with visible candidates must either select one or explicitly continue as a new Client; the compatibility request carries prior-visit and visible skipped-candidate IDs.</td>
+          </tr>
+          <tr>
+            <td>Responsive and accessible interaction foundation.</td>
+            <td><span class="status implemented">PASS IN SOURCE</span></td>
+            <td>The shared drawer remains full-screen below <code>sm</code>, controls use visible labels and minimum 44px targets, phone fields use <code>inputmode="tel"</code>/<code>autocomplete="tel"</code>, selectable cards expose pressed state, and loading/errors use live regions.</td>
+          </tr>
+          <tr>
+            <td>Automated gates.</td>
+            <td><span class="status implemented">PASS LOCALLY</span></td>
+            <td>Web/API typechecks, focused lint, <code>git diff --check</code>, the production web build, 30 workspace-boundary tests, and 41 v1 API tests pass. B3 tests cover safe prefill, phone threshold, stale-intake rejection, explicit match review, masking, busy-history restoration, and deterministic recent ordering.</td>
+          </tr>
+          <tr>
+            <td>Independent code review.</td>
+            <td><span class="status implemented">FINDINGS ADDRESSED</span></td>
+            <td>Review-driven repairs add a synchronous submit mutex, freeze all drawer and browser-history navigation during mutation, reject stale intake responses, retain match classification evidence, validate Provider prefills, remount focus per step, and separate recent/search error ownership.</td>
+          </tr>
+          <tr>
+            <td>Authenticated browser evidence.</td>
+            <td><span class="status blocked">BLOCKED BY DATABASE</span></td>
+            <td>The web server reached Ready, but the API reported Prisma database unreachable on all configured retries. No fabricated screenshots are attached; the viewport and end-to-end write checklist below remains open.</td>
+          </tr>
+        </tbody>
+      </table>
+      <h3>Manual QA checklist</h3>
+      <ul>
+        <li>At desktop, 768px, 360px, and 320px widths, open Quick Book from Dashboard, Clients, Schedule, Billing, Staff, Settings, and Archive; confirm the underlying route stays in place and no horizontal overflow occurs.</li>
+        <li>Type fewer than seven digits and confirm no match request fires; type Nepal local/international equivalents and confirm the same masked candidate set appears without automatic selection.</li>
+        <li>As Receptionist and Provider, complete minimal New Client intake with and without prior-visit selected. Confirm Provider booking remains limited to the linked Provider schedule.</li>
+        <li>Change Provider, service, AD date, and slot; confirm stale slots clear, live availability reloads, BS context is view-only, and Browser Back preserves the draft one step at a time.</li>
+        <li>Exercise strong, possible, and shared-household results; explicitly select a Client and separately continue as new, confirming the chosen identity outcome and appointment.</li>
+        <li>Force match, slot, identity-resolution, and appointment-create failures; confirm the draft remains editable and no false success appears.</li>
+      </ul>
+      <div class="screenshots">
+        <div class="shot"><strong>Desktop Client-first drawer</strong><code>Pending: authenticated API/database availability</code></div>
+        <div class="shot"><strong>Mobile details and live slots</strong><code>Pending: authenticated API/database availability</code></div>
+        <div class="shot"><strong>Possible-match review</strong><code>Pending: authenticated API/database availability</code></div>
+      </div>
+      <h3>Known B3 boundaries</h3>
+      <ul>
+        <li>B4 still owns ranked slot-first availability, short holds, and its complete guided path.</li>
+        <li>B6 now replaces the compatibility identity-resolution then appointment-create sequence with one idempotent atomic confirmation command.</li>
+        <li>B7 must reuse the same minimal intake and identity-review primitives in the standalone New Client drawer.</li>
+      </ul>
+      <p class="callout"><strong>Next implementation item:</strong> build B4 ranked slot-first booking and short-lived slot holds, then converge both paths on the B6 confirmation contract.</p>
+    </section>
+
+    <section>
+      <h2>B5 Client identity and multiple-phone review</h2>
+      <p><strong>Reviewed:</strong> 2026-07-25. <strong>Decision:</strong> <span class="status partial">READY FOR GUIDED UI INTEGRATION; NOT RELEASE-CERTIFIED</span></p>
+      <table>
+        <thead><tr><th>Review checklist</th><th>Status</th><th>Evidence and finding</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Multi-phone schema and migration.</td>
+            <td><span class="status implemented">PASS / APPLIED</span></td>
+            <td><a href="../prisma/schema.prisma">The schema</a> and <a href="../prisma/migrations/20260725_000013_client_phone_identity_review/migration.sql">migration</a> retain the scalar compatibility projection, backfill one primary <code>ClientPhone</code>, allow household sharing across Clients, and prevent duplicate active copies or multiple active primaries for one Client.</td>
+          </tr>
+          <tr>
+            <td>Normalization and dual-read/write.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="../apps/api/src/modules/customers/client-phone-normalization.ts">The shared normalizer</a> treats local, zero-prefixed, <code>00977</code>, and <code>+977</code> forms consistently. V1 and legacy compatibility paths read both phone rows and the scalar fallback; administrative correction preserves the old number as a secondary historical row.</td>
+          </tr>
+          <tr>
+            <td>Number-first advisory matching.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="../apps/api/src/modules/api-v1/clients-v1.service.ts"><code>POST /api/v1/clients/number-matches</code></a> queries exact numbers before bounded name fallbacks, derives the tenant from the session, excludes archived/merged records, and returns a minimal projection. A shared number is never auto-selected; phone-only evidence remains <code>possible</code>, while corroborated phone and name may be <code>strong</code>.</td>
+          </tr>
+          <tr>
+            <td>Append, permissions, and review queue.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td>Owner/Admin/Manager/Receptionist may use the generic secondary-phone command. A Provider may append only through the caller command whose selected Client and candidate-set version are revalidated in the same serializable transaction. Concurrent same-Client appends resolve idempotently. Prior-visit/skipped-match intake stores immutable server-derived candidate evidence, and Owner/Admin/Manager resolution uses expected-version compare-and-swap with non-contradictory resolution fields.</td>
+          </tr>
+          <tr>
+            <td>Merge and permanent-deletion governance.</td>
+            <td><span class="status implemented">PASS IN SOURCE</span></td>
+            <td>Governed merge transfers distinct numbers, archives duplicates, retains one primary, and records counts. Owner-confirmed purge writes its tombstone first and explicitly removes restrictive aliases/merge links for eligible records; a canonical merge target remains blocked while archived secondaries depend on it, preventing accidental duplicate reactivation.</td>
+          </tr>
+          <tr>
+            <td>Automated gates.</td>
+            <td><span class="status implemented">PASS LOCALLY</span></td>
+            <td>The repository test suite passes 149 tests with one deliberate disposable-PostgreSQL skip. Web/API typechecks, lint, web/API builds, route inventory (103 handlers across 18 controllers), web-Prisma boundary, secret scan, Prisma validation/generation, and <code>git diff --check</code> pass.</td>
+          </tr>
+          <tr>
+            <td>Independent review.</td>
+            <td><span class="status implemented">ADDRESSED</span></td>
+            <td>Three independent review passes identified and closed 13 actionable edge cases covering match ordering, household confidence, phone-history preservation, concurrent append, lifecycle races, review evidence, merge/purge integrity, and legacy validation. The final re-review found no remaining actionable B5 correctness or security issue.</td>
+          </tr>
+        </tbody>
+      </table>
+      <h3>Manual QA checklist</h3>
+      <ul>
+        <li>Search the same synthetic number as <code>980…</code>, <code>+977 980…</code>, and <code>00977…</code>; confirm identical bounded candidates and no clinical/billing fields.</li>
+        <li>Create two synthetic Clients with one household number; confirm both are labeled <code>shared_household</code> and neither is selected automatically.</li>
+        <li>As Receptionist, append a new number and confirm the original primary remains visible; repeat and confirm <code>added: false</code>. As Provider, confirm generic append is denied, then select an actual caller match and confirm the evidence-bound caller append succeeds.</li>
+        <li>Resolve a pending review as Manager, then replay the stale version and confirm a conflict.</li>
+      </ul>
+      <h3>Known B5 boundaries</h3>
+      <ul>
+        <li>The B3 Client-first consumer is implemented. B4 slot-first ranking/holds, B7 standalone intake, and authenticated screenshots remain pending.</li>
+        <li>B6 now reuses these identity operations inside one idempotent appointment-confirmation transaction.</li>
+        <li>The disposable-PostgreSQL HTTP suite remains skipped because <code>TEST_DATABASE_URL</code> is not configured; the Supabase migration/backfill check is real but is not a destructive concurrency rehearsal.</li>
+      </ul>
+      <p class="callout"><strong>Next implementation item:</strong> build B4 ranked slot-first booking and short-lived holds, then converge both paths on B6 atomic confirmation.</p>
+    </section>
+
+    <section>
+      <h2>B2 global Quick Book shell review</h2>
+      <p><strong>Reviewed:</strong> 2026-07-25. <strong>Decision:</strong> <span class="status partial">READY FOR MANUAL REVIEW; NOT RELEASE-CERTIFIED</span></p>
+      <p>This review covers the shared booking entry and drawer shell. It does not claim that the later guided Client-first and slot-first workflows are complete.</p>
+      <table>
+        <thead><tr><th>Review checklist</th><th>Status</th><th>Evidence and finding</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>One authorized launcher across clinic routes.</td>
+            <td><span class="status implemented">PASS IN SOURCE</span></td>
+            <td><a href="../apps/web/components/workspace/workspace-shell.tsx">WorkspaceShell</a> exposes a persistent desktop action and the callback-driven mobile Book item. Dashboard and Schedule module-owned mobile navigation use the same controller. <a href="../apps/web/components/workspace/mobile-workspace-nav.tsx">Mobile navigation</a> hides Book when the workspace capability denies appointment creation.</td>
+          </tr>
+          <tr>
+            <td>Underlying route and URL history are preserved.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="../apps/web/components/workspace/quick-book-provider.tsx">QuickBookProvider</a> owns one shared overlay outside route pages. <a href="../apps/web/lib/quick-book.ts">URL helpers</a> preserve the current pathname, unrelated query parameters, and hash while adding only bounded <code>book=1</code>/<code>bookStep</code> markers. Prefill and form data remain memory-only. Focused tests cover launch, direct-link close, guided history, malformed markers, and route preservation.</td>
+          </tr>
+          <tr>
+            <td>Capability-aware location and bounded references.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="../apps/web/components/workspace/quick-book-surface.tsx">QuickBookSurface</a> uses only locations marked bookable by the authenticated workspace bootstrap, provides an explicit location step for multi-location users, and renders loading, error, and retry states. New appointments now render <a href="../apps/web/components/workspace/guided-quick-book-flow.tsx">GuidedQuickBookFlow</a> against the selected-location bootstrap; the legacy modal remains only for edit/reschedule compatibility.</td>
+          </tr>
+          <tr>
+            <td>Schedule launches reuse the global create flow.</td>
+            <td><span class="status implemented">PASS IN SOURCE</span></td>
+            <td><a href="../apps/web/components/workspace/reservations-page.tsx">ReservationsPage</a> routes header, grid, slot, and mobile create actions through Quick Book with in-memory provider/date/slot references. Edit and reschedule intentionally remain in the legacy local drawer until their later guided migration.</td>
+          </tr>
+          <tr>
+            <td>Dirty-close, error, and refresh behavior.</td>
+            <td><span class="status implemented">PASS IN SOURCE</span></td>
+            <td>The drawer reports dirty state to the controller, which requires explicit discard confirmation before Close, Escape, backdrop, or browser-back exit. Booking failures keep the form mounted. Successful appointment creation emits a non-PII booking-completed event; Dashboard refreshes its route-owned read model. New Client resolution merges the returned Client locally instead of reloading <code>/operational-data</code>.</td>
+          </tr>
+          <tr>
+            <td>Automated repository gates.</td>
+            <td><span class="status implemented">PASS LOCALLY</span></td>
+            <td><code>npm.cmd test</code> passes 133 tests with one deliberate disposable-PostgreSQL HTTP skip. Web/API typechecks, web lint, web/API production builds, the zero-path web-Prisma boundary, secret scan, route inventory (99 handlers across 18 controllers), and <code>git diff --check</code> pass. The workspace boundary command now includes 24 booking/bootstrap/controller tests.</td>
+          </tr>
+          <tr>
+            <td>Browser and responsive evidence.</td>
+            <td><span class="status partial">PARTIAL / BLOCKED BY DATABASE</span></td>
+            <td>The local web build served <code>/sw.js</code> with HTTP 200, eliminating the earlier service-worker 404. At a 360×800 viewport, Login had no horizontal overflow and emitted no console warnings/errors. Authenticated Quick Book capture could not run because the configured Supabase pooler was unreachable with Prisma P1001 during API startup; the workspace correctly rendered its fail-closed unavailable state without sample clinic data.</td>
+          </tr>
+          <tr>
+            <td>Independent review findings.</td>
+            <td><span class="status implemented">ADDRESSED</span></td>
+            <td>The review identified bounded Client search, multi-location Back behavior, stale search results/hidden selection, confirmation focus containment/restoration, and Client Hub invalidation gaps. The implementation now searches the bounded v1 Client directory, pins the selected Client independently from refetch results, requires an explicit clear-and-return confirmation for dirty Back, traps/restores confirmation focus, and emits a scoped Client-change event immediately after Client resolution.</td>
+          </tr>
+        </tbody>
+      </table>
+      <h3>Manual QA checklist</h3>
+      <ul>
+        <li>Restore database connectivity, sign in as Owner/Admin, Receptionist, Provider, Assistant, Finance, and Inventory Manager, and confirm Book is visible only for authorized roles; Provider must see only their own Provider option.</li>
+        <li>From Dashboard, Clients, Schedule, Billing, Staff, Settings, and Archive, open Quick Book and confirm the underlying route remains visible and unchanged after close.</li>
+        <li>For a multi-location user, choose each bookable location and verify the provider/service catalog changes correctly; denied locations must not appear or load.</li>
+        <li>At 360px, 768px, and desktop widths, verify the drawer is full-screen/contained as intended, fixed actions remain visible, focus is trapped/restored, and there is no horizontal overflow.</li>
+        <li>Change a field, then test Close, Escape, backdrop, and browser Back. Each must preserve the form until the reviewer explicitly chooses Discard.</li>
+        <li>Launch from an open Schedule slot and verify provider, AD date, and time are preselected. Complete a synthetic booking and confirm Dashboard refreshes only after server success.</li>
+      </ul>
+      <h3>Known B2 boundaries</h3>
+      <ul>
+        <li>B3 phone-first recent/matched grouping, minimal intake, prior-visit capture, live details, and explicit match review are now implemented in source.</li>
+        <li>Slot-first ranking, short holds, and idempotent atomic confirmation are now implemented through B4/B6.</li>
+        <li>No authenticated screenshot is attached because the API could not start against the configured Supabase connection. No placeholder is presented as evidence.</li>
+      </ul>
+      <p class="callout"><strong>Next implementation item:</strong> complete B4 slot-first ranking/holds and B6 atomic confirmation on the shared guided shell.</p>
+    </section>
+
+    <section>
+      <h2>P2R-B route-owned booking bootstrap review</h2>
+      <p><strong>Reviewed:</strong> 2026-07-25. <strong>Decision:</strong> <span class="status partial">IMPLEMENTED; GLOBAL QUICK BOOK CONSUMER AND AUTHENTICATED VISUAL QA PENDING</span></p>
+      <p>This independent review covers the bounded booking-reference foundation required by the every-page Quick Book workflow. Application code was not changed by this review.</p>
+      <table>
+        <thead><tr><th>Review checklist</th><th>Status</th><th>Evidence and finding</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Selected-location API contract and tenant isolation.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="../apps/api/src/modules/api-v1/booking-v1.controller.ts"><code>GET /api/v1/booking/bootstrap?locationId=...</code></a> is authenticated by the default-deny route policy and returns a private, non-cacheable v1 envelope. <a href="../apps/api/src/modules/api-v1/booking-bootstrap.service.ts">BookingBootstrapService</a> derives the tenant from the verified session, validates that the requested active location belongs to that tenant, applies Provider-self scope when required, and returns only the selected location, bookable provider/service references, and booking defaults.</td>
+          </tr>
+          <tr>
+            <td>Location-aware booking authorization is shared by read and write paths.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="../apps/api/src/modules/auth/authz.ts"><code>bookingProviderScope</code> and <code>assertBookingActor</code></a> are the common policy for booking bootstrap, appointment creation, and governed rescheduling. Broad booking roles can book any Provider only at an authorized location; Provider-only actors are restricted to their linked Provider ID; Assistant-only, Finance-only, and unlinked Provider actors fail closed before booking data is queried.</td>
+          </tr>
+          <tr>
+            <td>Workspace exposes global and per-location capability truth.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="../apps/api/src/modules/api-v1/workspace-bootstrap.service.ts">The small workspace bootstrap</a> returns an aggregate <code>context.capabilities.canCreateAppointment</code> flag and a <code>canCreateAppointment</code> flag for every visible location. Unrelated Finance or Inventory assignments may make their scoped locations visible for those workflows but do not broaden booking authority there.</td>
+          </tr>
+          <tr>
+            <td>Booking reference options match write-side service enforcement.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="../apps/api/src/modules/scheduling/scheduling.service.ts">SchedulingService</a> loads the full active Provider catalog for the selected location plus global assignments, chooses a location-specific duration over the global assignment, and rejects a requested service absent from an explicit catalog. Providers with no selected/global catalog retain the same all-active-service fallback shown by the bootstrap, keeping the read and write contracts aligned.</td>
+          </tr>
+          <tr>
+            <td>Frontend contract validation and request deduplication.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="../apps/web/lib/booking-bootstrap.ts">The typed session-local loader</a> rejects unsupported envelopes and mismatched location responses, trims and keys requests by location, shares one fulfilled or in-flight request per location, evicts failures so retry remains possible, and exposes explicit clearing. <a href="../apps/web/components/workspace/app-state.tsx">Workspace state</a> clears the loader on logout; session expiry unmounts the workspace provider and discards the loader with it.</td>
+          </tr>
+          <tr>
+            <td>Small workspace context is available on every clinic route.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="../apps/web/components/workspace/workspace-root.tsx">WorkspaceRoot</a> loads <code>/auth/me</code> and <code>/v1/workspace/bootstrap</code> before rendering clinic routes. Dashboard and Client routes use only this small shell payload plus their route-owned reads; legacy routes additionally load the explicitly fenced compatibility payload in parallel.</td>
+          </tr>
+          <tr>
+            <td>Booking conflict classification preserves the guided step.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="../apps/web/lib/booking-error.ts">The 409 classifier</a> sends only genuine provider-time conflicts back to slot selection. Inactive/merged Client, unsupported-service, and inactive-provider conflicts remain on the current guided step so the UI can display the relevant correction instead of incorrectly treating every 409 as a time collision.</td>
+          </tr>
+          <tr>
+            <td>Automated regression and repository gates.</td>
+            <td><span class="status implemented">PASS LOCALLY</span></td>
+            <td>The focused API v1 suite passes 28/28, scheduling suite 8/8, web workspace-boundary suite 13/13, and web request/error suite 7/7. API and web typechecks, route inventory (99 handlers across 18 controllers, with public exceptions limited to login and health), and the zero-path web-Prisma boundary check pass. The complete configured gate run passes 122 tests with one deliberate disposable-PostgreSQL HTTP skip because <code>TEST_DATABASE_URL</code> is not configured; lint and both production builds also pass.</td>
+          </tr>
+          <tr>
+            <td>Independent actionable findings.</td>
+            <td><span class="status implemented">NONE</span></td>
+            <td>No discrete correctness, security, performance, or maintainability issue introduced by this milestone was found. The limitations below are planned integration work rather than defects in the reviewed foundation.</td>
+          </tr>
+        </tbody>
+      </table>
+      <h3>Manual QA required</h3>
+      <ul>
+        <li>Sign in as Owner/Admin, Receptionist, Provider, Assistant, and Finance users. Confirm booking capability appears only at authorized locations, Provider users receive only their own Provider reference, and denied users cannot call the bootstrap directly.</li>
+        <li>Give one user a booking role at Location A and a Finance-only role at Location B. Confirm both locations are visible, only Location A advertises booking capability, and a direct Location B booking-bootstrap request returns 403.</li>
+        <li>Open the booking entry repeatedly for the same location and verify one bootstrap request; switch locations and verify one independent request for the new location. Force a 5xx once and confirm retry creates a fresh request.</li>
+        <li>Expire the session while booking references are loaded. Confirm the clinic workspace disappears, Login is shown, and signing in as another user cannot reuse the previous session's provider or service references.</li>
+        <li>Submit a synthetic provider-time collision and an inactive/merged Client conflict. Confirm only the time collision returns the workflow to availability while the Client conflict stays on the Client/confirmation correction step.</li>
+        <li>Inspect the network response and confirm <code>Cache-Control: private, no-store</code>, v1 metadata, the requested location ID, and no appointments, Clients, invoices, payments, availability blocks, prices, contact details, or unrelated tenant data.</li>
+      </ul>
+      <h3>Known limitations and next boundary</h3>
+      <ul>
+        <li>The loader and capability contract are foundation only: no global desktop/mobile Quick Book launcher consumes them yet, so this milestone is not a visible end-to-end booking delivery.</li>
+        <li>Successful reference payloads remain cached for the lifetime of the workspace session. Provider, service, or configuration changes made concurrently require an explicit future invalidation/refresh policy; write-side validation still rejects stale invalid choices.</li>
+        <li>No authenticated browser screenshot or database-backed HTTP integration proof was produced in this review. No screenshot placeholder is presented as evidence.</li>
+        <li>The previously recorded Client archive/merge versus appointment-create race remains assigned to the future atomic booking command.</li>
+      </ul>
+      <p class="callout"><strong>Next implementation item:</strong> build the global desktop/mobile Quick Book launcher and guided drawer on this bootstrap, beginning with location selection from the workspace capability map and lazy loading the selected location's booking references.</p>
+    </section>
+
+    <section>
+      <h2>B0 shared interaction drawer foundation</h2>
+      <p><strong>Reviewed:</strong> 2026-07-25. <strong>Decision:</strong> <span class="status partial">IMPLEMENTED; AUTHENTICATED VISUAL AND DIRTY-DRAFT QA PENDING</span></p>
+      <p>This review covers the first interaction-surface slice in the active booking priority update. Multi-field workflows now use the same right-side drawer foundation as appointment booking, while explicit call-site cleanup, fixed action-footer conversion, and dirty-close policy remain tracked follow-up work.</p>
+      <table>
+        <thead><tr><th>Review checklist</th><th>Status</th><th>Evidence and finding</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Normative drawer rule and migration priority.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="20-tangible-phase-delivery-plan.md">The tangible delivery plan</a> adds B0 before booking UI work. <a href="13-frontend-ux-and-screen-specification.md">The UX specification</a> now requires right-side drawers for create, update, detailed review, configuration, and multi-field workflows, with compact centered dialogs reserved for brief confirmations.</td>
+          </tr>
+          <tr>
+            <td>Existing shared form interactions open from the right.</td>
+            <td><span class="status implemented">PASS IN SOURCE</span></td>
+            <td><a href="../apps/web/components/workspace/elements.tsx">The legacy Modal compatibility component</a> now renders through the shared Drawer. Existing Client, Billing, Staff, schedule, access-role, appointment-detail, Record, and platform-control callers inherit the drawer placement without parallel layout implementations.</td>
+          </tr>
+          <tr>
+            <td>Legacy custom visit-report popup migrated.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="../apps/web/components/patient-workspace.tsx">The remaining hand-built visit-report overlay</a> now uses the shared 480px/full-screen drawer, a single-column form layout, and sticky actions. A static scan found no remaining centered full-screen data-entry overlay pattern in the web components.</td>
+          </tr>
+          <tr>
+            <td>Keyboard, focus, and background behavior.</td>
+            <td><span class="status implemented">SOURCE-LEVEL PASS</span></td>
+            <td>The drawer has labelled dialog semantics, moves focus into its content, traps Tab and Shift+Tab, supports Escape, restores launcher focus, supplies an explicit close button, prevents backdrop tab focus, and locks background scrolling while mounted.</td>
+          </tr>
+          <tr>
+            <td>Responsive behavior.</td>
+            <td><span class="status partial">IMPLEMENTED; VISUAL QA PENDING</span></td>
+            <td>The default surface is full viewport width on mobile and 480px on larger viewports, with a bounded 720px wide variant. The local application was reachable, but the browser session was unauthenticated; no signed-in screenshot or interaction result is claimed.</td>
+          </tr>
+          <tr>
+            <td>Automated validation.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><code>npm.cmd run typecheck -w web</code>, <code>npm.cmd run lint -w web</code>, and scoped diff checks passed after the implementation.</td>
+          </tr>
+        </tbody>
+      </table>
+      <h3>Manual QA required</h3>
+      <ul>
+        <li>At desktop width, open New Client, New invoice, Record payment, Add staff, Grant role, and a platform feature change; confirm each opens on the right and retains readable page context.</li>
+        <li>At 360px and 768px, confirm there is no horizontal overflow and every field and action remains reachable.</li>
+        <li>Use keyboard only: confirm initial focus enters the drawer, Tab cycles within it, Escape closes it, and focus returns to the launch button.</li>
+        <li>Confirm forms with unsaved values receive an explicit dirty-close warning as their call sites migrate; this behavior is not yet universal.</li>
+        <li>Confirm long legacy forms receive explicit fixed action footers during call-site cleanup; placement is not inferred automatically by the compatibility wrapper.</li>
+      </ul>
+      <div class="screenshots">
+        <div class="shot"><strong>Drawer desktop evidence pending</strong><br />Capture a synthetic-data create/update drawer over its originating page.<code>artifacts/b0/drawer-desktop.png</code></div>
+        <div class="shot"><strong>Drawer mobile evidence pending</strong><br />Capture the same flow at 360px with actions visible and no overflow.<code>artifacts/b0/drawer-mobile.png</code></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>B1 compact AD-first calendar review</h2>
+      <p><strong>Reviewed:</strong> 2026-07-25. <strong>Decision:</strong> <span class="status partial">IMPLEMENTED AND AUTOMATED CHECKS PASS; AUTHENTICATED VISUAL QA PENDING</span></p>
+      <p>This delivery replaces the oversized date popover used by booking and scheduling with one compact native-like control. Gregorian/AD remains the input and storage authority; Nepali/BS is derived context and an optional display mode.</p>
+      <table>
+        <thead><tr><th>Review checklist</th><th>Status</th><th>Evidence and finding</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Compact shared picker replaces the large calendar interaction.</td>
+            <td><span class="status implemented">PASS IN SOURCE</span></td>
+            <td><a href="../apps/web/components/calendar-ui.tsx">DualCalendarDatePicker</a> now uses a bounded 20rem popover, compact day cells, a native <code>input type="date"</code> fallback, month controls, Today action, and an explicit AD/ISO storage label. The shared component updates appointment booking and schedule views together.</td>
+          </tr>
+          <tr>
+            <td>AD is default and authoritative.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="../apps/web/lib/calendar/calendarMode.ts">The frontend default and display order</a>, <a href="../prisma/seed.mjs">demo seed</a>, Prisma schema, and existing AD-baseline migration now agree on AD. BS remains derived from the selected AD date.</td>
+          </tr>
+          <tr>
+            <td>Keyboard and focus behavior.</td>
+            <td><span class="status implemented">AUTOMATED LOGIC PASS</span></td>
+            <td>The trigger exposes expanded/dialog state; Escape closes and restores trigger focus. Arrow keys move by day/week, Home/End move within the week, Page Up/Down move by month while safely clamping the day, and disabled min/max dates cannot be selected.</td>
+          </tr>
+          <tr>
+            <td>Date arithmetic correctness.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td>The audit exposed an offset-based one-day navigation defect in <a href="../apps/web/lib/calendar/conversion.ts">shiftAdDateKey</a>. It now performs pure UTC date-key arithmetic, preventing Arrow navigation from remaining on the same date around Nepal-local midnight conversion.</td>
+          </tr>
+          <tr>
+            <td>Automated validation.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td>Calendar tests pass 10/10, including keyboard navigation, month-end clamping, inclusive bounds, BS conversion, ISO construction, availability, overlap and blocked-time behavior. The complete configured test suite, web production build, web-Prisma boundary check, secret scan, web typecheck, lint, and diff checks pass. The disposable-PostgreSQL HTTP test remains correctly skipped because <code>TEST_DATABASE_URL</code> is not configured.</td>
+          </tr>
+          <tr>
+            <td>Authenticated responsive visual evidence.</td>
+            <td><span class="status partial">PENDING</span></td>
+            <td>The local application was reachable, but the controlled browser had no authenticated session and correctly showed Login. No credential was inspected or reused, and no signed-in screenshot is claimed.</td>
+          </tr>
+        </tbody>
+      </table>
+      <h3>Manual QA required</h3>
+      <ul>
+        <li>Open Book appointment and Schedule, then confirm the picker remains inside the drawer/page at desktop, 768px, 360px, iOS Safari, and Android Chrome widths.</li>
+        <li>Choose a date through the native AD input and through the compact grid; confirm both produce the same AD date and derived BS label.</li>
+        <li>Switch AD/BS display, navigate months, select Today, and confirm no stored appointment timestamp changes calendar system.</li>
+        <li>Use keyboard only: open the trigger, move with Arrow/Home/End/Page keys, select a day, close with Escape, and confirm focus restoration.</li>
+        <li>Confirm future booking limits and historical schedule viewing once call sites supply their approved min/max bounds.</li>
+      </ul>
+      <div class="screenshots">
+        <div class="shot"><strong>Compact picker desktop evidence pending</strong><br />Capture the picker inside Book appointment with AD primary and BS context visible.<code>artifacts/b1/calendar-desktop.png</code></div>
+        <div class="shot"><strong>Compact picker mobile evidence pending</strong><br />Capture the same control at 360px without clipping or horizontal overflow.<code>artifacts/b1/calendar-mobile.png</code></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Scheduling input and active-Client hardening</h2>
+      <p><strong>Reviewed:</strong> 2026-07-25. <strong>Decision:</strong> <span class="status partial">IMPLEMENTED AND LOCALLY VERIFIED; STANDARD TEST-RUNNER WIRING, CONCURRENCY, AND MANUAL API QA REMAIN</span></p>
+      <p>This checkpoint closes the correctness items that had to precede the next booking milestone. It does not claim that the final held-slot and atomic booking command are complete.</p>
+      <table>
+        <thead><tr><th>Review checklist</th><th>Status</th><th>Evidence and finding</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Only active, canonical Clients can be booked.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="../apps/api/src/modules/appointments/appointments.service.ts">Appointment create, update, and reschedule validation</a> rejects archived and merge-secondary Clients with the same neutral <code>409 Selected client is unavailable for appointment booking</code> response. The response does not expose lifecycle or canonical-target details.</td>
+          </tr>
+          <tr>
+            <td>Legacy Client resolution cannot reactivate an inactive identity.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="../apps/api/src/modules/customers/customers.service.ts">The appointment compatibility resolver</a> queries only <code>archivedAt: null</code> and <code>mergedIntoCustomerId: null</code>, so number-based resolution cannot select or update archived/merged records.</td>
+          </tr>
+          <tr>
+            <td>AD date input is a real Gregorian date.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="../apps/api/src/modules/scheduling/ad-date-key.ts">The shared AD date validator</a> enforces exact <code>YYYY-MM-DD</code> syntax and Gregorian calendar validity, including leap-year behavior. Both DTO validation and the scheduling service boundary reject malformed or impossible dates before database work.</td>
+          </tr>
+          <tr>
+            <td>Requested duration affects available slots.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="../apps/api/src/modules/providers/providers.service.ts">Provider slot lookup</a> forwards a bounded whole-minute duration. <a href="../apps/api/src/modules/scheduling/scheduling.service.ts">Scheduling</a> uses it for end-boundary and conflict checks when no service duration is selected; service timing remains authoritative when a service is selected.</td>
+          </tr>
+          <tr>
+            <td>Cached slot results are duration-safe.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td>Provider-slot cache identity now distinguishes service selection from custom duration and retains organization, provider, date, location, and excluded-appointment scope. A short-duration result cannot be reused for a longer request.</td>
+          </tr>
+          <tr>
+            <td>Automated regression and build proof.</td>
+            <td><span class="status implemented">PASS LOCALLY</span></td>
+            <td>The scheduling tests pass 6/6 through the named API workspace script and are included in root <code>npm test</code>. The complete configured repository suite passes 106 tests with one explicitly skipped disposable-PostgreSQL HTTP test because <code>TEST_DATABASE_URL</code> is not configured. API v1 passes 20/20, Client tenancy passes 3/3, and API typecheck, production build, and diff whitespace validation pass.</td>
+          </tr>
+          <tr>
+            <td>Standard test-runner protection for the new scheduling regressions.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><code>npm.cmd run test:scheduling -w api</code> runs the provider-slot DTO, provider-service forwarding, and scheduling-service specifications; root <code>npm test</code> invokes that script as part of the standard CI graph.</td>
+          </tr>
+          <tr>
+            <td>Archive/merge versus booking race is closed atomically.</td>
+            <td><span class="status partial">REMAINS</span></td>
+            <td>A narrow race remains if a Client is archived or merged after application validation but before appointment commit. The future atomic, versioned booking command must coordinate Client lifecycle validation and appointment creation in one transaction or enforce an equivalent database invariant.</td>
+          </tr>
+        </tbody>
+      </table>
+      <h3>Manual QA required</h3>
+      <ul>
+        <li>Call provider slots with a valid leap date, an impossible date such as <code>2026-02-30</code>, and malformed input; confirm only the valid request reaches slot calculation.</li>
+        <li>Request the same provider/day with 15-, 30-, and 90-minute durations; confirm end-of-day and conflict-adjacent options change correctly and repeated calls do not cross-contaminate cache results.</li>
+        <li>Using synthetic data, archive one Client and merge a second into a canonical Client; confirm create, edit, and reschedule return the same neutral 409 for both inactive records while the canonical Client remains bookable.</li>
+        <li>Confirm a selected service overrides the ad-hoc duration with its configured duration and buffer policy.</li>
+      </ul>
+      <div class="screenshots">
+        <div class="shot"><strong>Duration-aware slots evidence pending</strong><br />Capture the same provider/day with two durations and show the expected end-boundary difference.<code>artifacts/scheduling-hardening/duration-slots.png</code></div>
+        <div class="shot"><strong>Inactive Client denial evidence pending</strong><br />Capture the neutral conflict response using synthetic archived/merged Client records only.<code>artifacts/scheduling-hardening/inactive-client-denial.png</code></div>
+      </div>
+      <p class="callout"><strong>Next implementation item:</strong> finish the remaining P2R route-owned data boundaries and the booking bootstrap contract needed by every-page Quick Book, then implement the global desktop/mobile Quick Book launcher and guided drawer shell.</p>
+    </section>
+
+    <section>
+      <h2>P2R-A reliable workspace bootstrap review</h2>
+      <p><strong>Reviewed:</strong> 2026-07-24. <strong>Decision:</strong> <span class="status partial">IMPLEMENTED; MANUAL FAILURE-INJECTION AND VISUAL QA PENDING</span></p>
+      <p>This independent review covers the first slice of <a href="20-tangible-phase-delivery-plan.md">P2R Reliable UI data layer</a>: the authenticated workspace bootstrap, root workspace state, dashboard and Client route isolation, route inventory, and focused tests. Application code was not changed by this review.</p>
+      <table>
+        <thead><tr><th>Review checklist</th><th>Status</th><th>Evidence and finding</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Small authenticated workspace bootstrap.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="../apps/api/src/modules/api-v1/workspace-v1.controller.ts"><code>GET /api/v1/workspace/bootstrap</code></a> uses the verified service session and the global default-deny route policy. <a href="../apps/api/src/modules/api-v1/workspace-bootstrap.service.ts">WorkspaceBootstrapService</a> derives the organization from the actor, returns a minimal projection, and limits returned locations to the actor's effective assignment scopes.</td>
+          </tr>
+          <tr>
+            <td>Dashboard no longer depends on <code>/operational-data</code>.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="../apps/web/lib/workspace-data-policy.ts">The route policy</a> assigns <code>/dashboard</code> to the minimal bootstrap. <a href="../apps/web/components/workspace/workspace-root.tsx">WorkspaceRoot</a> therefore loads only <code>/auth/me</code> and <code>/v1/workspace/bootstrap</code>, while <a href="../apps/web/components/workspace/dashboard-page.tsx">DashboardPage</a> independently loads <code>/v1/dashboard/bootstrap</code>. A dashboard read-model failure renders the dashboard retry state rather than failing the root workspace.</td>
+          </tr>
+          <tr>
+            <td>Client routes no longer depend on <code>/operational-data</code>.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td>The same route policy covers <code>/clients</code> and every nested <code>/clients/*</code> path. <a href="../apps/web/components/workspace/client-hub-page.tsx">Client Hub</a> loads its directory/profile data only from authenticated <code>/v1/clients</code> endpoints. Static source inspection found no <code>/operational-data</code> call in either DashboardPage or Client Hub.</td>
+          </tr>
+          <tr>
+            <td>Legacy compatibility is explicitly fenced.</td>
+            <td><span class="status partial">PARTIAL BY DESIGN</span></td>
+            <td><code>/operational-data</code> remains an authenticated compatibility bootstrap for Archive, Billing, Schedule, Settings, and Staff routes. <a href="../apps/web/lib/workspace-data-policy.test.ts">The policy tests</a> lock this list down and prevent similar route names from accidentally selecting the minimal path. Full retirement belongs to later P2R route migrations.</td>
+          </tr>
+          <tr>
+            <td>Route classification and direct database boundary.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td><a href="../apps/api/src/route-inventory.ts">The route inventory</a> classifies <code>v1/workspace</code> and <code>v1/clients</code> as authenticated. The inventory checker passed for 98 handlers across 17 controller classes, with public exceptions limited to login and health. The Next.js Prisma boundary scan passed with zero known operational Prisma paths.</td>
+          </tr>
+          <tr>
+            <td>Tenant and location scope.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td>The workspace bootstrap and <a href="../apps/api/src/modules/api-v1/dashboard-bootstrap.service.ts">DashboardBootstrapService</a> derive tenant and permitted locations from the authenticated actor. Appointment counts/lists use only clinic-operator location scopes; follow-up counts/lists require a related appointment inside that scope. The focused dashboard test proves that a Provider scoped to Location A does not gain Location B through an unrelated Finance assignment.</td>
+          </tr>
+          <tr>
+            <td>Loading, empty, denied, unavailable, and retry states.</td>
+            <td><span class="status implemented">PASS</span></td>
+            <td>The workspace root and Dashboard retain loading, sign-in redirect, denied/unavailable, empty, and retry behavior. Client directory/profile now map 401, 403, 404, and 5xx responses to deliberate messages, provide in-place retry, and abort superseded requests so an older search cannot overwrite newer results.</td>
+          </tr>
+          <tr>
+            <td>Automated proof.</td>
+            <td><span class="status implemented">FOCUSED SUITES PASS</span></td>
+            <td><code>npm.cmd test</code> passed all configured suites with the expected disposable-PostgreSQL HTTP test skipped because <code>TEST_DATABASE_URL</code> is absent. Focused API v1 tests pass 15/15, web workspace-boundary tests 9/9, and request/error tests 4/4. API/web typechecks, lint, both production builds, route inventory (98 handlers / 17 controllers), web-Prisma boundary, secret scan, and diff check pass. No browser failure-injection test or staging screenshot was supplied.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Manual QA required</h3>
+      <ul>
+        <li>Sign in as an organization-wide Owner and open <code>/dashboard</code>, <code>/clients</code>, and a nested Client profile. Confirm the network log contains workspace plus route-owned v1 requests and no <code>/operational-data</code> request.</li>
+        <li>Force <code>/api/v1/dashboard/bootstrap</code> to return 503. Confirm the root shell remains usable, Dashboard shows its retry state, and navigating to Clients still succeeds.</li>
+        <li>Force <code>/api/v1/clients</code> to return 403 and 503. Verify the denied/unavailable copy, preserved shell, and in-place retry behavior.</li>
+        <li>Use a staff account restricted to Location A while Location B has appointments and follow-ups. Confirm that Location B activity does not appear in counts or lists.</li>
+        <li>At 360px, 768px, and desktop widths, confirm that root loading/error states, Dashboard, Client directory, and Client profile have no horizontal page overflow and remain keyboard operable.</li>
+        <li>Navigate repeatedly between minimal-bootstrap and compatibility routes; watch for excessive full-screen reload flashes and stale organization/session data. Query reuse and cancellation are scheduled for P2R-B.</li>
+      </ul>
+
+      <div class="screenshots">
+        <div class="shot"><strong>Dashboard route isolation</strong><br />Capture Dashboard's retry state while the workspace shell remains visible and Clients remains navigable.<code>artifacts/p2r-a/dashboard-route-isolation.png</code></div>
+        <div class="shot"><strong>Client route isolation</strong><br />Capture the Client directory after a Dashboard-only outage, including its own loading/empty state.<code>artifacts/p2r-a/client-route-isolation.png</code></div>
+        <div class="shot"><strong>Location-scope denial</strong><br />Show a Location A-restricted user whose dashboard excludes synthetic Location B activity.<code>artifacts/p2r-a/location-scope-proof.png</code></div>
+      </div>
+      <p class="meta">Screenshot placeholders only. Browser proof was not available in this review run.</p>
+
+      <h3>Remaining implementation order</h3>
+      <table>
+        <thead><tr><th>Next phase</th><th>Status</th><th>Required outcome</th></tr></thead>
+        <tbody>
+          <tr><td>P2R-A manual acceptance.</td><td><span class="status partial">MANUAL QA</span></td><td>Capture signed-in route-outage, location-scope, responsive, and network-request evidence using synthetic data.</td></tr>
+          <tr><td>P2R-B query and mutation layer.</td><td><span class="status deferred">NEXT BUILD</span></td><td>TanStack Query, scoped query keys, deduplication, cancellation, retry policy, invalidation, and cache clearing on session/organization changes.</td></tr>
+          <tr><td>P2R-C safe optimistic UI.</td><td><span class="status deferred">REMAINS</span></td><td>Rollback-capable appointment interactions and pending server-confirmed booking; no optimistic financial, merge, purge, or signed-Record authority.</td></tr>
+          <tr><td>P2R-D fast scheduling.</td><td><span class="status deferred">REMAINS</span></td><td>Provider-day read model, indexed lookup/rendering, adjacent-day prefetch, database plan evidence, and representative p95 latency at or below 500ms.</td></tr>
+          <tr><td>P2R-E forms and mobile.</td><td><span class="status deferred">REMAINS</span></td><td>Shared accessible form/error primitives, preserved input, dirty-state protection, progressive booking, and 360px/768px/desktop proof.</td></tr>
+          <tr><td>P3 and P4 closure.</td><td><span class="status deferred">REMAINS AFTER P2R</span></td><td>Client concurrency/merge governance, provider scheduling proof, and immutable Finance correction/reconciliation completion.</td></tr>
+          <tr><td>P5-P9 and final Auth gates.</td><td><span class="status deferred">REMAINS</span></td><td>Clinical Records; integrations and Inventory; distributed reliability; clinic-day pilot; staging certification; email activation/reset, breached-password protection, privileged MFA, and distributed throttling.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>2026-07-19 current phased progress</h2>
+      <p><strong>Decision:</strong> <span class="status partial">P3 and P4A ready for manual review; P4B immutability guard partial</span></p>
+      <table>
+        <thead><tr><th>Phase area</th><th>Status</th><th>Evidence and review finding</th></tr></thead>
+        <tbody>
+          <tr><td>P3 Client Hub database integration.</td><td><span class="status implemented">APPLIED</span></td><td><a href="../prisma/migrations/20260719_000008_client_hub_identity/migration.sql">Migration 000008</a> is applied on the configured Supabase database. <code>npx.cmd prisma migrate status --schema prisma/schema.prisma</code> reports the schema is up to date, and <code>npx.cmd prisma migrate deploy --schema prisma/schema.prisma</code> reports no pending migrations.</td></tr>
+          <tr><td>P4A provider booking guard.</td><td><span class="status implemented">CORE GUARD APPLIED</span></td><td><a href="../prisma/migrations/20260719_000009_provider_booking_guard/migration.sql">Migration 000009</a> adds a PostgreSQL exclusion constraint preventing overlapping active appointments for the same organization/provider time range, including buffer time. <a href="../scripts/prove-provider-booking-guard.mjs">scripts/prove-provider-booking-guard.mjs</a> created disposable Supabase rows, verified that an overlapping appointment was rejected, and cleaned up the temporary organization.</td></tr>
+          <tr><td>P4A provider-only capacity.</td><td><span class="status partial">CORE API UPDATED</span></td><td><a href="../apps/api/src/modules/appointments/appointments.service.ts">AppointmentsService</a> now translates the database overlap constraint into <code>409 Slot no longer available for the selected provider</code> and no longer passes resource/chair identity into the release booking availability check. Existing resource fields remain compatibility data and are not a completed UI/schema retirement.</td></tr>
+          <tr><td>P4A lifecycle safety correction.</td><td><span class="status implemented">GUARDED</span></td><td>The generic status endpoint now rejects arbitrary/terminal transitions, the legacy <code>FollowUpRequired</code> state, and successor-less reschedules; cancellation/no-show require a reason and early no-show is restricted to Owner/Admin. Ordinary appointment edits now record an unchanged planning event rather than falsely claiming <code>Rescheduled</code>.</td></tr>
+          <tr><td>P4A AD-first grid and named workflow.</td><td><span class="status implemented">APPLIED / IMPLEMENTED</span></td><td><a href="../prisma/migrations/20260719_000010_ad_first_schedule_baseline/migration.sql">Migration 000010</a> is applied and changes organization calendar preference defaults to AD without transforming timestamps. Provider-slot generation now uses a 15-minute grid and honors availability effective dates. The browser calls distinct confirm, check-in, start, complete, cancel, no-show, and reschedule endpoints; reschedule creates a linked successor while preserving the original.</td></tr>
+          <tr><td>P4B billing immutability guard.</td><td><span class="status partial">API GUARD IMPLEMENTED</span></td><td><a href="../apps/api/src/modules/billing/billing.service.ts">BillingService</a> now blocks generic edits of non-draft invoices, blocks generic edit/delete of completed payments, requires invoices to be issued before payment recording, and locks the invoice row before checking remaining balance inside payment recording. This is not the full immutable ledger/correction workflow yet.</td></tr>
+          <tr><td>P4B issue authority and draft boundary.</td><td><span class="status partial">IMPLEMENTED</span></td><td>Invoice creation and update now remain Draft-only. <code>POST /billing/invoices/:id/issue</code> is the explicit immutable-snapshot command and is denied to Receptionists; their permitted path is recording an eligible completed payment only. The billing screen exposes Issue only to Finance/management roles. Correction/refund/reversal and reconciliation remain outstanding.</td></tr>
+          <tr><td>P4B ledger schema foundation.</td><td><span class="status partial">APPLIED</span></td><td><a href="../prisma/migrations/20260719_000011_financial_corrections/migration.sql">Migration 000011</a> is applied on Supabase. It adds organization-scoped invoice-number sequencing and append-only financial-correction storage linked to invoices and original payments. The correction command/UI/reconciliation layer must consume this schema before P4B is accepted.</td></tr>
+          <tr><td>P4B refund and reversal command.</td><td><span class="status partial">IMPLEMENTED</span></td><td><code>POST /billing/invoices/:id/payments/:paymentId/corrections</code> accepts a Finance-authorized Refund or Reversal only for a completed receipt, caps cumulative corrections at the original amount, records an immutable correction/audit row, and recalculates the invoice balance without modifying the original payment. Correction UI, void policy, approval thresholds, and reconciliation remain pending.</td></tr>
+          <tr><td>Verification.</td><td><span class="status implemented">PASSED LOCALLY</span></td><td><code>npm.cmd test</code> passed 72 tests with the expected skipped disposable <code>TEST_DATABASE_URL</code> HTTP test. The focused <code>npm.cmd run test:v1 -w api</code> suite now passes 9 tests, including transition denial. API/web typechecks, web lint, API/web production builds, Prisma validation, route inventory, web-Prisma boundary, and secret checks passed. A stale generated <code>apps/web/.next</code> cache caused one transient module lookup failure; it was removed and the clean rebuild passed. No browser screenshots were captured in this run.</td></tr>
+        </tbody>
+      </table>
+      <p class="callout"><strong>Remaining release gates:</strong> P4A still needs browser demonstration and database-backed role-denial/concurrent-reschedule proof. P4B still needs the full ledger schema, correction/refund/reversal workflows, invoice-number sequence migration, reconciliation screens, and finance role-denial/concurrency integration tests. P5-P9 are still planned phases, not implemented release gates.</p>
+    </section>
+
+    <section>
+      <h2>Later phase status</h2>
+      <table>
+        <thead><tr><th>Phase</th><th>Status</th><th>Current evidence</th></tr></thead>
+        <tbody>
+          <tr><td>P5 Clinical Records.</td><td><span class="status deferred">NOT STARTED</span></td><td>Legacy <code>AppointmentSession</code> and chart-revision persistence still exist, but the signed Record draft/sign/amend command model and immutable Record UI are not implemented.</td></tr>
+          <tr><td>P6A Messaging controls.</td><td><span class="status deferred">NOT STARTED</span></td><td>Manual communication history exists from earlier work, but SMS/WhatsApp notification intents, provider adapters, consent checks, global off switch enforcement, and delivery history are not implemented.</td></tr>
+          <tr><td>P6B Fonepay sandbox.</td><td><span class="status deferred">NOT STARTED</span></td><td>The finance code does not yet include provider-neutral payment intents, signed Fonepay callbacks, replay protection, reconciliation rows, or sandbox UI.</td></tr>
+          <tr><td>P6C Inventory.</td><td><span class="status partial">CORE IMPLEMENTED; MANUAL QA PENDING</span></td><td>The R0I core now provides separate catalog/supplier/balance/lot/movement/stocktake models, guarded v1 commands, location-scoped capabilities, a responsive Inventory workspace, alerts, audited lifecycle, and immutable PostgreSQL history. Procurement, supplier lifecycle management, Record-driven use, valuation/COGS, and authenticated responsive evidence remain outside or after this core gate.</td></tr>
+          <tr><td>P7 Reliability and workers.</td><td><span class="status deferred">NOT STARTED</span></td><td>Scheduling still uses an in-process cache service. Redis, durable outbox workers, dead-letter/retry views, cache invalidation evidence, and readiness/worker observability are not implemented.</td></tr>
+          <tr><td>P8 Role-complete pilot UX.</td><td><span class="status deferred">NOT STARTED</span></td><td>The integrated one-clinic-day pilot cannot run until Records, full scheduling lifecycle, immutable finance, messaging/Fonepay controls, inventory, and workers exist.</td></tr>
+          <tr><td>P9 Launch certification.</td><td><span class="status deferred">NOT STARTED</span></td><td>No staging evidence pack, restore drill, provider certification, security assessment, load test, rollback/forward-fix drill, or launch sign-off is recorded.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Phase 3 Client Hub independent review</h2>
+      <p><strong>Reviewed:</strong> 2026-07-19. <strong>Decision:</strong> <span class="status partial">READY FOR MANUAL REVIEW; NOT YET RELEASE-CERTIFIED</span></p>
+      <p>This review covers the P3 Client Hub working tree against <a href="20-tangible-phase-delivery-plan.md">the delivery plan</a> and the normative <a href="09-client-identity-and-record-governance.md">Client Identity and Record Governance specification</a>. Earlier phase evidence is retained below.</p>
+      <table>
+        <thead><tr><th>Acceptance item</th><th>Status</th><th>Evidence and finding</th></tr></thead>
+        <tbody>
+          <tr><td>Client-first v1 API, directory, profile, and route transition.</td><td><span class="status implemented">IMPLEMENTED LOCALLY</span></td><td><a href="../apps/api/src/modules/api-v1/clients-v1.controller.ts">/api/v1/clients</a> provides authenticated list, profile, create, update, match, archive, and merge operations. <a href="../apps/web/components/workspace/client-hub-page.tsx">Client Hub</a> consumes that API and old patient routes redirect to <code>/clients</code>.</td></tr>
+          <tr><td>Shared household phones after migration.</td><td><span class="status implemented">APPLIED TO CONFIGURED DB</span></td><td><a href="../prisma/migrations/20260719_000008_client_hub_identity/migration.sql">Migration 000008</a> drops the baseline unique phone index with <code>DROP INDEX IF EXISTS</code>, adds normalized contact fields/indexes, and the focused unit test covers two Clients with one normalized phone. The migration is applied on the configured Supabase database.</td></tr>
+          <tr><td>Server-side, organization-scoped immutable Client code.</td><td><span class="status partial">PARTIAL</span></td><td><a href="../apps/api/src/modules/api-v1/clients-v1.service.ts">ClientsV1Service</a> creates <code>CL-</code> codes from <code>ClientCodeSequence</code> and v1 accepts no code input. The legacy create path now uses the same sequence and preserves its existing code on update, but it remains a separate mutable compatibility contract. Concurrent allocation and the unique-code constraint have not been proven against PostgreSQL.</td></tr>
+          <tr><td>Duplicate detection, tenant scope, and minimised directory data.</td><td><span class="status partial">PARTIAL</span></td><td>v1 matching is organization-scoped and normalizes phone/email; directory and match projections exclude archived/merged Clients and return only directory-safe fields. Phone is mandatory rather than allowing another approved contact method or a documented unavailable-contact reason. Normalization is not versioned/audited.</td></tr>
+          <tr><td>Merge preserves history and archives secondary Client.</td><td><span class="status partial">PARTIAL</span></td><td>The v1 transaction moves appointments, sessions/Records, follow-ups, communications, invoices, payments, and chart revisions; archives/links the secondary; writes alias, merge, and audit rows; and preserves the secondary chart either as a revision or an initial primary chart. Legacy destructive merge is disabled. The UI still lacks pre-merge relationship counts/field-conflict review, alias lookup, and the required controlled unmerge/repair procedure.</td></tr>
+          <tr><td>Archive-before-delete lifecycle.</td><td><span class="status implemented">IMPLEMENTED WITH COMPATIBILITY SPLIT</span></td><td>v1 archive requires a reason and removes an active Client from v1 lists. Owner-only purge, retention, and legal hold checks remain in the P2 legacy Customer archive service; restore/purge are not yet unified under the v1 Client contract.</td></tr>
+          <tr><td>Proof and safe integration.</td><td><span class="status partial">LOCAL AND CONFIGURED-DB PROOF</span></td><td>Focused tests cover tenant filtering and mocked code/shared-phone behavior. Supabase migration status is clean and the provider-overlap guard was proven with disposable data. Concurrent Client code allocation, merge-preservation integration, role-denial tests, browser demonstration, and remote CI evidence are still missing.</td></tr>
+        </tbody>
+      </table>
+      <p class="callout"><strong>Release closure required:</strong> add database-backed shared-phone/concurrent-create, merge-preservation, and permission-denial tests; provide alias lookup and controlled unmerge/repair; and strictly fence/measure the legacy Customer compatibility writes.</p>
+    </section>
+
+    <section>
+      <h2>Phase 3 verification evidence</h2>
+      <ul>
+        <li><code>npm.cmd test</code> - passed 72 tests, with the expected skipped disposable <code>TEST_DATABASE_URL</code> HTTP test.</li>
+        <li><code>node scripts/prove-provider-booking-guard.mjs</code> - passed against Supabase and cleaned up its temporary organization.</li>
+        <li><code>npx.cmd prisma migrate status --schema prisma/schema.prisma</code> - passed; database schema is up to date.</li>
+        <li><code>npm.cmd run typecheck -w api</code>, <code>npm.cmd run typecheck -w web</code>, <code>npm.cmd run lint -w web</code>, <code>npm.cmd run build -w api</code>, and <code>npm.cmd run build -w web</code> - passed.</li>
+        <li><code>npm.cmd run check:web-prisma-boundary</code>, <code>npm.cmd run check:route-inventory</code>, and <code>npm.cmd run check:secrets</code> - passed.</li>
+      </ul>
+      <div class="screenshots">
+        <div class="shot"><strong>Shared household contact</strong><br />Use synthetic data to show two Clients with one normalized phone and distinct codes.<code>artifacts/phase-3/shared-phone-client-codes.png</code></div>
+        <div class="shot"><strong>Governed merge</strong><br />Show review counts/conflicts, reason, retained secondary identity, and primary history.<code>artifacts/phase-3/merge-preservation.png</code></div>
+        <div class="shot"><strong>Archive and denial</strong><br />Show archive exclusion and non-Owner permanent-delete denial.<code>artifacts/phase-3/archive-and-purge-denial.png</code></div>
+      </div>
+      <p class="meta">No screenshots are attached: browser capture and staging-like database demonstration have not been completed.</p>
+    </section>
 
     <section>
       <h2>Phase 2 manual-review checklist</h2>
@@ -151,6 +1167,38 @@
         <li><strong>UP-04:</strong> replace legacy <code>/api/operational-data</code> with scoped <code>/api/v1</code> read models as the sole operational web boundary.</li>
         <li><strong>P7:</strong> replace process-local rate limiting with shared infrastructure and propagate correlation IDs through structured logs, audit records, traces, and worker boundaries.</li>
       </ul>
+    </section>
+
+    <section>
+      <h2>2026-08-22 mobile scheduling and Inventory reliability review</h2>
+      <p><strong>Decision:</strong> <span class="status partial">SOURCE IMPLEMENTED; SIGNED-IN VISUAL AND HOSTED-DB QA PENDING</span></p>
+      <table>
+        <thead><tr><th>Review checklist</th><th>Status</th><th>Evidence and manual check</th></tr></thead>
+        <tbody>
+          <tr><td>Inventory receive survives hosted PostgreSQL latency.</td><td><span class="status implemented">PASS IN SOURCE</span></td><td>The shared Inventory serializable wrapper now waits at most 10 seconds to acquire and permits 20 seconds for its bounded database-only transaction. It retries serialization conflicts and an expired rolled-back P2028 transaction; stable command idempotency prevents duplicate movement posting. The focused Inventory suite passes 10/10. Manually receive a synthetic lot and repeat the exact command key against the hosted database.</td></tr>
+          <tr><td>Schedule slot becomes slot-first booking context.</td><td><span class="status implemented">PASS IN SOURCE</span></td><td>An open-time click launches directly into Appointment details with Provider, AD date and exact time retained. Service selection no longer clears the requested time. Ranked availability validates that exact time; an incompatible service clears it with a staff-facing alternative message. Confirm in a signed-in browser with one short and one long service.</td></tr>
+          <tr><td>No endless availability reload or technical retry surface.</td><td><span class="status implemented">PASS IN SOURCE</span></td><td>The availability effect depends only on request inputs rather than the changing context/draft object, eliminating self-triggered request abort/restart churn. Failed hold attempts clear pending UI state; the technical “Retry holding this time” button is removed.</td></tr>
+          <tr><td>Mobile booking and details are bottom sheets.</td><td><span class="status implemented">PASS IN SOURCE</span></td><td>The shared Drawer presents as a safe-area-bounded bottom sheet below 640px and remains a desktop right drawer. Appointment detail now has one contextual lifecycle action, inline cancellation/no-show reasons and a two-step archive interaction. Check keyboard, focus trap, scroll, safe area and virtual keyboard at 320px/390px.</td></tr>
+          <tr><td>Edit and Reschedule replace Appointment Detail instead of opening behind it.</td><td><span class="status implemented">PASS IN SOURCE</span></td><td>Schedule now resolves one exclusive foreground surface: editor wins while active, Cancel restores the unchanged detail sheet, and successful save clears the stale detail selection. The legacy all-fields appointment form is bypassed for changes. Edit keeps Client context read-only; Reschedule uses Provider/service/date-aware live slots, rejects the unchanged time, requires a reason, summarizes the linked successor and protects dirty close. Verify focus restoration, conflict preservation and successor history in a signed-in browser.</td></tr>
+          <tr><td>All-provider mobile day schedule is one timeline.</td><td><span class="status implemented">PASS IN SOURCE</span></td><td>Provider-separated mobile sections are replaced by one time-sorted timeline. Provider colour, name, appointment/service and open-slot affordances remain visible, and open slots retain exact schedule-to-book references. Verify large clinic-day density and colour contrast manually.</td></tr>
+          <tr><td>Stitch and Inventory boundary requirements exist.</td><td><span class="status implemented">READY</span></td><td><a href="23-mobile-ui-stitch-briefs.md">Mobile Stitch briefs</a> cover Schedule, Booking, Appointment Detail and Inventory. <a href="24-inventory-standards-and-service-boundary.md">Inventory boundary audit</a> records international workflow increments and extraction rules while preserving Finance separation.</td></tr>
+          <tr><td>Automated regression.</td><td><span class="status implemented">PASS</span></td><td>The full repository suite passes 272 tests with one deliberate disposable-PostgreSQL skip. API v1 passes 109/109, workspace boundary 44/44, and phase-two UI 15/15, including the appointment overlay-ownership regression. Web typecheck, the production build, web lint, and formatting checks pass.</td></tr>
+        </tbody>
+      </table>
+      <h3>Manual QA checklist</h3>
+      <ul>
+        <li>At 390px, tap an open Schedule time. Confirm the booking bottom sheet opens at Appointment details and displays the exact Provider/date/time before service selection.</li>
+        <li>Select a service that fits, continue, and verify one hold is created. Repeat with a service whose duration cannot fit and verify a clear alternative-time message with no endless loader or “retry holding” wording.</li>
+        <li>Open a booked appointment on mobile. Exercise Confirm → Check in → Start → Complete with synthetic appointments; separately verify reason-required Cancel/No-show, Edit, Reschedule and two-step Archive.</li>
+        <li>From Appointment Detail, open Edit and Reschedule. Confirm Details is no longer visible/focusable behind the change sheet; Cancel returns to Details, dirty close asks before discard, and successful save returns to a refreshed Schedule without reopening stale details.</li>
+        <li>Select All providers and verify a single chronological colour-coded timeline at 320px and 390px, including concurrent appointments at the same time and a restricted Provider’s view-only open slot.</li>
+        <li>Receive tracked Inventory stock over the hosted connection, inspect the immutable movement/audit row, then replay the same request key and verify no duplicate movement or balance increment.</li>
+      </ul>
+      <div class="screenshots">
+        <div class="shot"><strong>Mobile unified timeline pending</strong><br />All-provider Day view at 390px.<code>artifacts/schedule/mobile-unified-timeline.png</code></div>
+        <div class="shot"><strong>Slot-first bottom sheet pending</strong><br />Clicked time preserved after service selection.<code>artifacts/schedule/mobile-slot-first.png</code></div>
+        <div class="shot"><strong>Appointment detail pending</strong><br />Lifecycle action and inline reason state.<code>artifacts/schedule/mobile-appointment-detail.png</code></div>
+      </div>
     </section>
 
     <section>

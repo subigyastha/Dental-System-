@@ -34,6 +34,7 @@ Every defect in scheduling, authorization, clinical governance, billing, payment
 - A multi-role user receives the permitted union, while explicit state/scope/approval denial still wins.
 - Receptionist can record a permitted payment but cannot correct, delete, refund, void, reconcile, or configure payment providers.
 - Provider can read all in-scope Clients initially but can sign/write only assigned clinical work; Assistant can draft permitted assigned work but cannot finalize it.
+- Provider can create a new Client and append a caller phone only through governed duplicate review, while profile correction, archive, merge, deletion, and identity-review resolution remain denied.
 
 ### Scheduling
 

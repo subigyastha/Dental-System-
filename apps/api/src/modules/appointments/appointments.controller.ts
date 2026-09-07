@@ -18,7 +18,8 @@ import { ListDaySummariesDto } from "./dto/list-day-summaries.dto";
 import { ListAppointmentsDto } from "./dto/list-appointments.dto";
 import { ListWeekSummariesDto } from "./dto/list-week-summaries.dto";
 import { UpdateAppointmentDto } from "./dto/update-appointment.dto";
-import { UpdateAppointmentStatusDto } from "./dto/update-appointment-status.dto";
+import { AppointmentLifecycleCommandDto } from "./dto/appointment-lifecycle-command.dto";
+import { RescheduleAppointmentDto } from "./dto/reschedule-appointment.dto";
 
 @Controller("appointments")
 export class AppointmentsController {
@@ -78,12 +79,66 @@ export class AppointmentsController {
     return this.appointments.delete(id, authorization);
   }
 
-  @Patch(":id/status")
-  updateStatus(
+  @Post(":id/confirm")
+  confirm(
     @Param("id") id: string,
-    @Body() dto: UpdateAppointmentStatusDto,
+    @Body() dto: AppointmentLifecycleCommandDto,
     @ServiceSession() authorization?: string,
   ) {
-    return this.appointments.updateStatus(id, dto, authorization);
+    return this.appointments.confirm(id, dto.reason, authorization);
+  }
+
+  @Post(":id/check-in")
+  checkIn(
+    @Param("id") id: string,
+    @Body() dto: AppointmentLifecycleCommandDto,
+    @ServiceSession() authorization?: string,
+  ) {
+    return this.appointments.checkIn(id, dto.reason, authorization);
+  }
+
+  @Post(":id/start")
+  start(
+    @Param("id") id: string,
+    @Body() dto: AppointmentLifecycleCommandDto,
+    @ServiceSession() authorization?: string,
+  ) {
+    return this.appointments.start(id, dto.reason, authorization);
+  }
+
+  @Post(":id/complete")
+  complete(
+    @Param("id") id: string,
+    @Body() dto: AppointmentLifecycleCommandDto,
+    @ServiceSession() authorization?: string,
+  ) {
+    return this.appointments.complete(id, dto.reason, authorization);
+  }
+
+  @Post(":id/cancel")
+  cancel(
+    @Param("id") id: string,
+    @Body() dto: AppointmentLifecycleCommandDto,
+    @ServiceSession() authorization?: string,
+  ) {
+    return this.appointments.cancel(id, dto.reason, authorization);
+  }
+
+  @Post(":id/no-show")
+  noShow(
+    @Param("id") id: string,
+    @Body() dto: AppointmentLifecycleCommandDto,
+    @ServiceSession() authorization?: string,
+  ) {
+    return this.appointments.noShow(id, dto.reason, authorization);
+  }
+
+  @Post(":id/reschedule")
+  reschedule(
+    @Param("id") id: string,
+    @Body() dto: RescheduleAppointmentDto,
+    @ServiceSession() authorization?: string,
+  ) {
+    return this.appointments.reschedule(id, dto, authorization);
   }
 }

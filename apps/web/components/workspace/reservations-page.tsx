@@ -1,7 +1,7 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   CalendarPlus2,
   Check,
@@ -33,6 +33,8 @@ import {
   MobileWorkspaceBottomNav,
   MobileWorkspaceMoreSheet,
 } from "@/components/workspace/mobile-workspace-nav";
+import { useSecureSignOut } from "@/components/workspace/secure-sign-out";
+import { useQuickBook } from "@/components/workspace/quick-book-provider";
 import {
   buildAppointmentView,
   formatClockRange,
@@ -60,6 +62,23 @@ const crossProviderBookingRoles = new Set([
   "Scheduler",
 ]);
 
+export function resolveAppointmentOverlay(
+  hasEditor: boolean,
+  hasDetails: boolean,
+) {
+  if (hasEditor) return "editor" as const;
+  if (hasDetails) return "details" as const;
+  return "none" as const;
+}
+
+export function isScheduleRequestPending(
+  active: boolean,
+  requestKey: string,
+  settledKey: string | null,
+) {
+  return active && requestKey !== settledKey;
+}
+
 export function ReservationsPage({
   providerScope,
   visibleProviderScope,
@@ -68,32 +87,34 @@ export function ReservationsPage({
   visibleProviderScope?: string;
 }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const { canOpen: canQuickBook, openQuickBook } = useQuickBook();
+  const { isBlocked: isLogoutBlocked, isSigningOut, requestSignOut } = useSecureSignOut();
   const {
     calendarMode,
     data,
     deleteAppointment,
     fetchAppointmentDaySummaries,
     fetchAppointmentsRange,
-    fetchScheduleGridForDay,
+    fetchScheduleDay,
     fetchWeekOperationalSummaries,
-    logout,
     planningRevision,
     selectedDate,
     sessionUser,
     setCalendarMode,
     setSelectedDate,
     updateAppointmentStatus,
+    workspaceBootstrap,
   } = useWorkspaceApp();
   const [calendarView, setCalendarView] = useState<CalendarView>("day");
   const [selectedProviderId, setSelectedProviderId] = useState("all");
   const [rangeAppointments, setRangeAppointments] = useState<Appointment[]>([]);
-  const [rangeLoading, setRangeLoading] = useState(false);
+  const [settledRangeKey, setSettledRangeKey] = useState<string | null>(null);
   const [monthSummaries, setMonthSummaries] = useState<AppointmentDaySummary[]>([]);
   const [weekSummaries, setWeekSummaries] = useState<AppointmentWeekSummary[]>([]);
-  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [settledSummaryKey, setSettledSummaryKey] = useState<string | null>(null);
   const [dayScheduleGrid, setDayScheduleGrid] = useState<ProviderDayScheduleGrid | null>(null);
-  const [dayGridLoading, setDayGridLoading] = useState(false);
+  const [settledDayGridKey, setSettledDayGridKey] = useState<string | null>(null);
+  const [planningError, setPlanningError] = useState<string | null>(null);
   const [monthAnchorDate, setMonthAnchorDate] = useState(selectedDate);
   const [selectedDayDetailsDate, setSelectedDayDetailsDate] = useState(selectedDate);
   const [bookingState, setBookingState] = useState<{
@@ -102,17 +123,27 @@ export function ReservationsPage({
     providerId?: string;
     appointment?: Appointment;
     slotIso?: string;
+    mode?: "book" | "edit" | "reschedule";
   } | null>(null);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const appointmentOverlay = resolveAppointmentOverlay(
+    Boolean(bookingState),
+    Boolean(selectedAppointment),
+  );
 
   const activeDate = calendarView === "month" ? selectedDayDetailsDate : selectedDate;
-  const canBookAcrossProviders = sessionUser
-    ? crossProviderBookingRoles.has(sessionUser.role)
-    : false;
+  const sessionRoles = sessionUser?.effectiveRoles?.length
+    ? sessionUser.effectiveRoles
+    : sessionUser
+      ? [sessionUser.role]
+      : [];
+  const canBookAcrossProviders = sessionRoles.some((role) =>
+    crossProviderBookingRoles.has(role),
+  );
   const sessionBookingScope =
     sessionUser?.providerId &&
-    selfBookingRestrictedRoles.has(sessionUser.role) &&
+    sessionRoles.some((role) => selfBookingRestrictedRoles.has(role)) &&
     !canBookAcrossProviders
       ? sessionUser.providerId
       : undefined;
@@ -164,6 +195,45 @@ export function ReservationsPage({
   );
 
   const weekDateKeys = useMemo(() => getWeekDateKeys(selectedDate), [selectedDate]);
+  const locationId = data.locations[0]?.id ?? "location:none";
+  const providerRequestKey = visibleProviders.map((provider) => provider.id).join(",");
+  const dayGridRequestKey = [
+    selectedDate,
+    providerRequestKey,
+    locationId,
+    planningRevision,
+  ].join("|");
+  const rangeRequestKey = [
+    calendarView,
+    selectedDate,
+    monthAnchorDate,
+    selectedProviderId,
+    locationId,
+    planningRevision,
+  ].join("|");
+  const summaryRequestKey = [
+    calendarView,
+    selectedDate,
+    monthAnchorDate,
+    selectedProviderId,
+    locationId,
+    planningRevision,
+  ].join("|");
+  const dayGridLoading = isScheduleRequestPending(
+    calendarView === "day" && visibleProviders.length > 0,
+    dayGridRequestKey,
+    settledDayGridKey,
+  );
+  const rangeLoading = isScheduleRequestPending(
+    calendarView !== "day",
+    rangeRequestKey,
+    settledRangeKey,
+  );
+  const summaryLoading = isScheduleRequestPending(
+    calendarView === "week" || calendarView === "month",
+    summaryRequestKey,
+    settledSummaryKey,
+  );
 
   const selectedDayAppointments = useMemo(
     () =>
@@ -197,14 +267,28 @@ export function ReservationsPage({
     appointment?: Appointment,
     slotIso?: string,
   ) => {
-    setBookingState({
-      customerId: searchParams.get("customerId") ?? undefined,
-      providerId,
-      date,
-      appointment,
-      slotIso,
+    if (appointment) {
+      setBookingState({
+        providerId,
+        date,
+        appointment,
+        slotIso,
+      });
+      return;
+    }
+    if (!canQuickBook) {
+      return;
+    }
+
+    openQuickBook({
+      locationId: data.locations[0]?.id,
+      refs: Object.fromEntries(
+        Object.entries({ providerId, date, slotIso }).filter(
+          (entry): entry is [string, string] => Boolean(entry[1]),
+        ),
+      ),
     });
-  }, [searchParams]);
+  }, [canQuickBook, data.locations, openQuickBook]);
 
   useEffect(() => {
     setSelectedDayDetailsDate(selectedDate);
@@ -212,47 +296,40 @@ export function ReservationsPage({
   }, [selectedDate]);
 
   useEffect(() => {
-    if (searchParams.get("book") !== "1" || bookingState) {
+    if (calendarView === "day") {
       return;
     }
-
-    const queryDate = searchParams.get("date") ?? selectedDate;
-    const queryProviderId =
-      bookingProviderLimit ?? searchParams.get("providerId") ?? undefined;
-    openBooking(queryProviderId, queryDate);
-
-    const nextParams = new URLSearchParams(searchParams.toString());
-    nextParams.delete("book");
-    nextParams.delete("providerId");
-    nextParams.delete("date");
-    const nextQuery = nextParams.toString();
-    router.replace(nextQuery ? `/reservations?${nextQuery}` : "/reservations", { scroll: false });
-  }, [bookingProviderLimit, bookingState, openBooking, router, searchParams, selectedDate]);
-
-  useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     const { fromIso, toIso } = getVisibleRange(calendarView, selectedDate, monthAnchorDate);
-    setRangeLoading(true);
+    setPlanningError(null);
 
     void fetchAppointmentsRange({
       fromIso,
       toIso,
       providerId: selectedProviderId === "all" ? undefined : selectedProviderId,
       locationId: data.locations[0]?.id,
+      signal: controller.signal,
     })
       .then((appointments) => {
         if (!cancelled) {
           setRangeAppointments(appointments);
         }
       })
+      .catch(() => {
+        if (!cancelled) {
+          setPlanningError("The visible appointments could not be loaded. Try the date or view again.");
+        }
+      })
       .finally(() => {
         if (!cancelled) {
-          setRangeLoading(false);
+          setSettledRangeKey(rangeRequestKey);
         }
       });
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [
     calendarView,
@@ -260,6 +337,7 @@ export function ReservationsPage({
     fetchAppointmentsRange,
     monthAnchorDate,
     planningRevision,
+    rangeRequestKey,
     selectedDate,
     selectedProviderId,
   ]);
@@ -269,26 +347,34 @@ export function ReservationsPage({
       return;
     }
     let cancelled = false;
+    const controller = new AbortController();
     const monthKeys = getMonthDateKeys(monthGrid.cells);
-    setSummaryLoading(true);
+    setPlanningError(null);
     void fetchAppointmentDaySummaries({
       fromDateKey: monthKeys.fromDateKey,
       toDateKey: monthKeys.toDateKey,
       providerId: selectedProviderId === "all" ? undefined : selectedProviderId,
       locationId: data.locations[0]?.id,
+      signal: controller.signal,
     })
       .then((summaries) => {
         if (!cancelled) {
           setMonthSummaries(summaries);
         }
       })
+      .catch(() => {
+        if (!cancelled) {
+          setPlanningError("The month summary could not be loaded. Try again.");
+        }
+      })
       .finally(() => {
         if (!cancelled) {
-          setSummaryLoading(false);
+          setSettledSummaryKey(summaryRequestKey);
         }
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [
     calendarView,
@@ -297,6 +383,7 @@ export function ReservationsPage({
     monthGrid.cells,
     planningRevision,
     selectedProviderId,
+    summaryRequestKey,
   ]);
 
   useEffect(() => {
@@ -304,26 +391,34 @@ export function ReservationsPage({
       return;
     }
     let cancelled = false;
-    setSummaryLoading(true);
+    const controller = new AbortController();
+    setPlanningError(null);
     void fetchWeekOperationalSummaries({
       fromDateKey: weekDateKeys[0] ?? selectedDate,
       toDateKey: weekDateKeys[weekDateKeys.length - 1] ?? selectedDate,
       providerId: selectedProviderId === "all" ? undefined : selectedProviderId,
       locationId: data.locations[0]?.id,
+      signal: controller.signal,
     })
       .then((summaries) => {
         if (!cancelled) {
           setWeekSummaries(summaries);
         }
       })
+      .catch(() => {
+        if (!cancelled) {
+          setPlanningError("The week summary could not be loaded. Try again.");
+        }
+      })
       .finally(() => {
         if (!cancelled) {
-          setSummaryLoading(false);
+          setSettledSummaryKey(summaryRequestKey);
         }
       });
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [
     calendarView,
@@ -332,6 +427,7 @@ export function ReservationsPage({
     planningRevision,
     selectedDate,
     selectedProviderId,
+    summaryRequestKey,
     weekDateKeys,
   ]);
 
@@ -341,29 +437,41 @@ export function ReservationsPage({
       return;
     }
     let cancelled = false;
-    setDayGridLoading(true);
-    void fetchScheduleGridForDay({
-      providerIds: visibleProviders.map((provider) => provider.id),
+    const controller = new AbortController();
+    setPlanningError(null);
+    const providerIds = visibleProviders.map((provider) => provider.id);
+    const locationId = data.locations[0]?.id;
+    void fetchScheduleDay({
+      providerIds,
       date: selectedDate,
-      locationId: data.locations[0]?.id,
+      locationId,
+      signal: controller.signal,
     })
-      .then((grid) => {
+      .then((snapshot) => {
         if (!cancelled) {
-          setDayScheduleGrid(grid);
+          setDayScheduleGrid(snapshot.grid);
+          setRangeAppointments(snapshot.appointments);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPlanningError("Provider availability could not be loaded. Try again.");
         }
       })
       .finally(() => {
         if (!cancelled) {
-          setDayGridLoading(false);
+          setSettledDayGridKey(dayGridRequestKey);
         }
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [
     calendarView,
     data.locations,
-    fetchScheduleGridForDay,
+    dayGridRequestKey,
+    fetchScheduleDay,
     planningRevision,
     selectedDate,
     visibleProviders,
@@ -395,16 +503,24 @@ export function ReservationsPage({
 
   return (
     <div className="space-y-5 md:space-y-5">
+      {planningError ? (
+        <div
+          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800"
+          role="alert"
+        >
+          {planningError}
+        </div>
+      ) : null}
       <div className="hidden md:block">
         <PageHeader
           title={title}
           subtitle={subtitle}
-          action={
+          action={canQuickBook ? (
             <Button onClick={() => openBooking(bookingProviderLimit, activeDate)}>
               <CalendarPlus2 size={16} />
               New appointment
             </Button>
-          }
+          ) : undefined}
         />
 
         <div className="mt-5 rounded-[28px] border border-[var(--border)] bg-[color:rgba(237,247,245,0.75)] p-4 shadow-[0_20px_60px_rgba(15,55,52,0.08)]">
@@ -413,7 +529,7 @@ export function ReservationsPage({
               <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" size={18} />
               <input
                 className="h-12 w-full rounded-full border border-[var(--border)] bg-white pl-11 pr-4 text-sm text-[var(--foreground)] outline-none transition focus:border-[var(--accent)]"
-                placeholder="Quick search appointments or patients..."
+                placeholder="Quick search appointments or Clients..."
                 type="search"
               />
             </label>
@@ -475,7 +591,7 @@ export function ReservationsPage({
                 appointmentById={appointmentById}
                 calendarMode={calendarMode}
                 dateKey={selectedDate}
-                isLoading={dayGridLoading || rangeLoading}
+                isLoading={dayGridLoading}
                 lockedProviderId={bookingProviderLimit}
                 onBookedSlotClick={setSelectedAppointment}
                 onOpenBooking={(providerId, date) => openBooking(providerId, date)}
@@ -557,6 +673,7 @@ export function ReservationsPage({
                 appointments={selectedDayAppointments}
                 calendarMode={calendarMode}
                 dateKey={selectedDate}
+                isLoading={dayGridLoading}
                 onAppointmentClick={setSelectedAppointment}
               />
             )}
@@ -571,21 +688,26 @@ export function ReservationsPage({
           appointmentsByDate={weekAppointmentsByDate}
           calendarMode={calendarMode}
           calendarView={calendarView}
-          dayGridLoading={dayGridLoading || rangeLoading}
+          canBook={canQuickBook}
+          dayGridLoading={dayGridLoading}
           monthAnchorDate={monthAnchorDate}
           monthGrid={monthGrid}
           monthSummaries={summaryByDate}
+          isLogoutBlocked={isLogoutBlocked}
+          isLoggingOut={isSigningOut}
           onChangeMonth={(months) =>
             setMonthAnchorDate(shiftCalendarPage(monthAnchorDate, calendarMode, months))
           }
           onChangeView={setCalendarView}
-          onLogout={logout}
+          onLogout={requestSignOut}
           onMoreOpenChange={setMobileMoreOpen}
           onOpenAppointment={setSelectedAppointment}
           onOpenBooking={openBooking}
           onSelectDate={setSelectedDate}
           onSelectDayDetailsDate={setSelectedDayDetailsDate}
           moreOpen={mobileMoreOpen}
+          hasInventoryAccess={workspaceBootstrap.context.capabilities.canAccessInventory}
+          hasStaffAccess={workspaceBootstrap.context.capabilities.canAccessStaff}
           providerOptions={data.providers.filter((provider) => provider.status !== "Inactive")}
           providerScope={bookingProviderLimit}
           router={router}
@@ -605,7 +727,7 @@ export function ReservationsPage({
         />
       </div>
 
-      {bookingState ? (
+      {appointmentOverlay === "editor" && bookingState ? (
         <AppointmentBookingModal
           defaultCustomerId={bookingState.customerId}
           defaultProviderId={bookingState.providerId}
@@ -613,11 +735,11 @@ export function ReservationsPage({
           initialDate={bookingState.date}
           initialAppointment={bookingState.appointment}
           initialSlotIso={bookingState.slotIso}
+          mode={bookingState.mode}
+          onBooked={() => setSelectedAppointment(null)}
           onClose={() => setBookingState(null)}
         />
-      ) : null}
-
-      {selectedAppointment ? (
+      ) : appointmentOverlay === "details" && selectedAppointment ? (
         <AppointmentDetailModal
           appointment={buildAppointmentView(
             selectedAppointment,
@@ -637,8 +759,16 @@ export function ReservationsPage({
               selectedAppointment,
             )
           }
-          onStatusChange={async (status) => {
-            await updateAppointmentStatus(selectedAppointment.id, status);
+          onReschedule={() =>
+            setBookingState({
+              appointment: selectedAppointment,
+              date: toDateKey(selectedAppointment.startsAtIso),
+              providerId: selectedAppointment.providerId,
+              mode: "reschedule",
+            })
+          }
+          onStatusChange={async (status, reason) => {
+            await updateAppointmentStatus(selectedAppointment.id, status, reason);
             setSelectedAppointment(null);
           }}
         />
@@ -653,11 +783,14 @@ function MobileReservationsView({
   appointmentsByDate,
   calendarMode,
   calendarView,
+  canBook,
   dayGridLoading,
   dayScheduleGrid,
   monthAnchorDate,
   monthGrid,
   monthSummaries,
+  isLogoutBlocked,
+  isLoggingOut,
   onChangeMonth,
   onChangeView,
   onLogout,
@@ -667,6 +800,8 @@ function MobileReservationsView({
   onSelectDate,
   onSelectDayDetailsDate,
   moreOpen,
+  hasInventoryAccess,
+  hasStaffAccess,
   providerOptions,
   providerScope,
   router,
@@ -688,11 +823,14 @@ function MobileReservationsView({
   appointmentsByDate: Map<string, AppointmentView[]>;
   calendarMode: "BS" | "AD";
   calendarView: CalendarView;
+  canBook: boolean;
   dayGridLoading: boolean;
   dayScheduleGrid: ProviderDayScheduleGrid | null;
   monthAnchorDate: string;
   monthGrid: ReturnType<typeof buildCalendarGrid>;
   monthSummaries: Map<string, AppointmentDaySummary>;
+  isLogoutBlocked: boolean;
+  isLoggingOut: boolean;
   onChangeMonth: (months: number) => void;
   onChangeView: (view: CalendarView) => void;
   onLogout: () => void;
@@ -707,6 +845,8 @@ function MobileReservationsView({
   onSelectDate: (dateKey: string) => void;
   onSelectDayDetailsDate: (dateKey: string) => void;
   moreOpen: boolean;
+  hasInventoryAccess: boolean;
+  hasStaffAccess: boolean;
   providerOptions: Array<{ id: string; name: string; status: string; specialty: string; color: string }>;
   providerScope?: string;
   router: ReturnType<typeof useRouter>;
@@ -946,9 +1086,13 @@ function MobileReservationsView({
           hasBillingAccess={["Owner", "Admin", "Manager", "Receptionist", "Scheduler"].includes(
             sessionUser.role,
           )}
+          hasInventoryAccess={hasInventoryAccess}
+          hasStaffAccess={hasStaffAccess}
           hasMySchedule={Boolean(visibleProviderScope)}
           hasArchiveAccess={["Owner", "Admin"].includes(sessionUser.role)}
           hasSettingsAccess={["Owner", "Admin", "Manager"].includes(sessionUser.role)}
+          isLogoutBlocked={isLogoutBlocked}
+          isLoggingOut={isLoggingOut}
           onClose={() => onMoreOpenChange(false)}
           onLogout={onLogout}
           onNavigate={(href) => {
@@ -960,6 +1104,7 @@ function MobileReservationsView({
 
       <MobileWorkspaceBottomNav
         active="schedule"
+        canBook={canBook}
         onBook={() => onOpenBooking(providerScope, selectedDate)}
         onMore={() => onMoreOpenChange(true)}
         onSchedule={() => {}}
@@ -1280,7 +1425,7 @@ function WeekPanel({
                               {formatClockLabel(appointment.startsAtIso)}
                             </div>
                             <div className="mt-1 font-semibold text-[var(--foreground)]">
-                              {appointment.customer?.name ?? "Unknown patient"}
+                              {appointment.customer?.name ?? "Unknown Client"}
                             </div>
                             <div className="mt-1 text-sm text-[var(--text-muted)]">
                               {appointment.services[0]?.name ?? "Scheduled appointment"}
@@ -1363,7 +1508,7 @@ function DayGridPanel({
         <div className="flex items-start justify-between gap-4">
           <AppointmentDateHeader adDateKey={dateKey} mode={calendarMode} />
           <div className="rounded-full border border-[var(--border)] bg-white px-3 py-1.5 text-xs font-medium text-[var(--text-muted)]">
-            Provider-coded patient board
+            Provider-based Client board
           </div>
         </div>
       </div>
@@ -1402,7 +1547,7 @@ function DayGridPanel({
   );
 }
 
-function MonthPanel({
+export function MonthPanel({
   calendarMode,
   grid,
   onChangeMonth,
@@ -1462,52 +1607,51 @@ function MonthPanel({
               const summary = summaries.get(cell.adDateKey);
               const selected = selectedDate === cell.adDateKey;
               return (
-                <button
-                  className={`min-h-28 border-b border-r border-[var(--border)] px-2 py-2 text-left ${
+                <div
+                  className={`relative min-h-28 border-b border-r border-[var(--border)] ${
                     selected ? "bg-white ring-1 ring-inset ring-[var(--accent)]" : "bg-white"
                   }`}
                   key={cell.adDateKey}
-                  onClick={() => onDaySelect(cell.adDateKey)}
-                  type="button"
                 >
-                  <div className="text-base font-semibold text-[var(--foreground)]">
-                    {calendarMode === "BS" ? cell.dual.bsDay : cell.dual.adDay}
-                  </div>
-                  <div className="text-xs text-[var(--text-muted)]">
-                    {calendarMode === "BS" ? cell.dual.adDay : cell.dual.bsDay}
-                  </div>
-                  <div className="mt-3 text-xs text-[var(--text-muted)]">
-                    {summary?.appointmentCount ?? 0} appointments
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {(summary?.providerMarkers ?? []).slice(0, 4).map((marker) => (
-                      <span
-                        className="h-2.5 w-2.5 rounded-full"
-                        key={`${cell.adDateKey}-${marker.providerId}`}
-                        style={{ backgroundColor: marker.color }}
-                      />
-                    ))}
-                  </div>
-                  <div className="mt-3 text-[11px] text-[var(--text-muted)]">
-                    {summary?.hasAvailability ? "Open capacity" : "Low capacity"}
-                  </div>
+                  <button
+                    aria-label={`Select ${cell.adDateKey}, ${summary?.appointmentCount ?? 0} appointments`}
+                    className="block min-h-28 w-full px-2 py-2 text-left"
+                    onClick={() => onDaySelect(cell.adDateKey)}
+                    type="button"
+                  >
+                    <span className="block text-base font-semibold text-[var(--foreground)]">
+                      {calendarMode === "BS" ? cell.dual.bsDay : cell.dual.adDay}
+                    </span>
+                    <span className="block text-xs text-[var(--text-muted)]">
+                      {calendarMode === "BS" ? cell.dual.adDay : cell.dual.bsDay}
+                    </span>
+                    <span className="mt-3 block text-xs text-[var(--text-muted)]">
+                      {summary?.appointmentCount ?? 0} appointments
+                    </span>
+                    <span className="mt-2 flex flex-wrap gap-1">
+                      {(summary?.providerMarkers ?? []).slice(0, 4).map((marker) => (
+                        <span
+                          className="h-2.5 w-2.5 rounded-full"
+                          key={`${cell.adDateKey}-${marker.providerId}`}
+                          style={{ backgroundColor: marker.color }}
+                        />
+                      ))}
+                    </span>
+                    <span className="mt-3 block pr-8 text-[11px] text-[var(--text-muted)]">
+                      {summary?.hasAvailability ? "Open capacity" : "Low capacity"}
+                    </span>
+                  </button>
                   {summary?.appointmentCount || selected ? (
-                    <div className="mt-3 flex justify-end">
-                      <button
-                        aria-label="View day schedule"
-                        className="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface-muted)] text-[var(--text-muted)] transition hover:border-[var(--accent)] hover:bg-white hover:text-[var(--foreground)]"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          // Phase 2: prefetch day grid on hover for instant Day View transition
-                          onOpenDay(cell.adDateKey);
-                        }}
-                        type="button"
-                      >
-                        <Eye size={14} />
-                      </button>
-                    </div>
+                    <button
+                      aria-label={`Open day schedule for ${cell.adDateKey}`}
+                      className="absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface-muted)] text-[var(--text-muted)] transition hover:border-[var(--accent)] hover:bg-white hover:text-[var(--foreground)]"
+                      onClick={() => onOpenDay(cell.adDateKey)}
+                      type="button"
+                    >
+                      <Eye size={14} />
+                    </button>
                   ) : null}
-                </button>
+                </div>
               );
             })}
           </div>
@@ -1559,7 +1703,7 @@ function MonthDayRail({
                 type="button"
               >
                 <div className="font-medium text-[var(--foreground)]">
-                  {appointment.customer?.name ?? "Unknown patient"}
+                  {appointment.customer?.name ?? "Unknown Client"}
                 </div>
                 <div className="text-sm text-[var(--text-muted)]">
                   {formatClockRange(
@@ -1583,11 +1727,13 @@ function DayListPanel({
   appointments,
   calendarMode,
   dateKey,
+  isLoading,
   onAppointmentClick,
 }: {
   appointments: ReturnType<typeof buildAppointmentView>[];
   calendarMode: "BS" | "AD";
   dateKey: string;
+  isLoading: boolean;
   onAppointmentClick: (appointment: Appointment) => void;
 }) {
   return (
@@ -1596,7 +1742,9 @@ function DayListPanel({
         <DualDateDisplay adDateKey={dateKey} mode={calendarMode} />
       </div>
       <div className="divide-y divide-[var(--border)]">
-        {appointments.length ? (
+        {isLoading ? (
+          <KoiSectionLoader className="min-h-[260px]" label="Loading daily appointments" />
+        ) : appointments.length ? (
           appointments.map((appointment) => (
             <button
               className="flex w-full items-start justify-between gap-3 px-4 py-4 text-left"
@@ -1606,7 +1754,7 @@ function DayListPanel({
             >
               <div>
                 <div className="font-medium text-[var(--foreground)]">
-                  {appointment.customer?.name ?? "Unknown patient"}
+                  {appointment.customer?.name ?? "Unknown Client"}
                 </div>
                 <div className="mt-1 text-sm text-[var(--text-muted)]">
                   {formatClockRange(
@@ -1652,21 +1800,34 @@ const ScheduleGridTable = memo(function ScheduleGridTable({
     });
     return Array.from(starts).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
   }, [scheduleGrid.providers]);
+  const slotsByProvider = useMemo(() => {
+    const index = new Map<
+      string,
+      Map<string, ProviderDayScheduleGrid["providers"][number]["slots"][number]>
+    >();
+    scheduleGrid.providers.forEach((provider) => {
+      index.set(
+        provider.providerId,
+        new Map(provider.slots.map((slot) => [slot.startTime, slot])),
+      );
+    });
+    return index;
+  }, [scheduleGrid.providers]);
 
   return (
-    <div className="overflow-x-auto bg-white">
+    <div className="max-h-[70vh] overflow-auto bg-white [scrollbar-gutter:stable]">
       <div
         className="grid min-w-[860px]"
         style={{
           gridTemplateColumns: `92px repeat(${scheduleGrid.providers.length}, minmax(220px, 1fr))`,
         }}
       >
-        <div className="border-b border-r border-[var(--border)] bg-[var(--surface-muted)] px-3 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+        <div className="sticky left-0 top-0 z-30 border-b border-r border-[var(--border)] bg-[var(--surface-muted)] px-3 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
           Time
         </div>
         {scheduleGrid.providers.map((provider) => (
           <div
-            className="border-b border-r border-[var(--border)] bg-[var(--surface-muted)] px-4 py-3"
+            className="sticky top-0 z-20 border-b border-r border-[var(--border)] bg-[var(--surface-muted)] px-4 py-3"
             key={provider.providerId}
           >
             <div className="flex items-center gap-2">
@@ -1685,6 +1846,7 @@ const ScheduleGridTable = memo(function ScheduleGridTable({
             onBookedSlotClick={onBookedSlotClick}
             onOpenBooking={onOpenBooking}
             scheduleGrid={scheduleGrid}
+            slotsByProvider={slotsByProvider}
             slotStart={slotStart}
           />
         ))}
@@ -1699,6 +1861,7 @@ const ScheduleGridRow = memo(function ScheduleGridRow({
   onBookedSlotClick,
   onOpenBooking,
   scheduleGrid,
+  slotsByProvider,
   slotStart,
 }: {
   appointmentById: Map<string, ReturnType<typeof buildAppointmentView>>;
@@ -1711,15 +1874,19 @@ const ScheduleGridRow = memo(function ScheduleGridRow({
     slotIso?: string,
   ) => void;
   scheduleGrid: ProviderDayScheduleGrid;
+  slotsByProvider: Map<
+    string,
+    Map<string, ProviderDayScheduleGrid["providers"][number]["slots"][number]>
+  >;
   slotStart: string;
 }) {
   return (
     <>
-      <div className="border-b border-r border-[var(--border)] px-3 py-3 text-sm text-[var(--text-muted)]">
+      <div className="sticky left-0 z-10 border-b border-r border-[var(--border)] bg-white px-3 py-3 text-sm text-[var(--text-muted)]">
         {formatClockLabel(slotStart)}
       </div>
       {scheduleGrid.providers.map((provider) => {
-        const slot = provider.slots.find((entry) => entry.startTime === slotStart);
+        const slot = slotsByProvider.get(provider.providerId)?.get(slotStart);
         const appointmentView = slot?.appointmentId
           ? appointmentById.get(slot.appointmentId)
           : undefined;
@@ -1759,7 +1926,7 @@ const ScheduleGridRow = memo(function ScheduleGridRow({
             {slot?.state === "BOOKED" && appointmentView ? (
               <div>
                 <div className="truncate font-semibold text-[var(--foreground)]">
-                  {slot.appointmentSummary?.customerName ?? appointmentView.customer?.name ?? "Patient"}
+                  {slot.appointmentSummary?.customerName ?? appointmentView.customer?.name ?? "Client"}
                 </div>
                 <div className="mt-1 text-xs text-[var(--text-muted)]">
                   {slot.appointmentSummary?.serviceName ?? "Booked"}
@@ -1809,75 +1976,106 @@ function MobileDayScheduleList({
   ) => void;
   scheduleGrid: ProviderDayScheduleGrid;
 }) {
+  const timeline = useMemo(
+    () =>
+      scheduleGrid.providers
+        .flatMap((provider) =>
+          provider.slots
+            .filter((slot) => slot.state === "BOOKED" || slot.state === "AVAILABLE")
+            .map((slot) => ({ provider, slot })),
+        )
+        .sort((left, right) => {
+          const timeDifference =
+            new Date(left.slot.startTime).getTime() -
+            new Date(right.slot.startTime).getTime();
+          return timeDifference ||
+            left.provider.providerName.localeCompare(right.provider.providerName);
+        }),
+    [scheduleGrid.providers],
+  );
+
   return (
-    <div className="space-y-4 p-4">
-      {scheduleGrid.providers.map((provider) => {
-        const visibleSlots = provider.slots.filter(
-          (slot) => slot.state === "BOOKED" || slot.state === "AVAILABLE",
-        );
-        return (
-          <div className="rounded-lg border border-[var(--border)]" key={provider.providerId}>
-            <div className="border-b border-[var(--border)] px-4 py-3">
-              <div className="font-medium text-[var(--foreground)]">{provider.providerName}</div>
-              <div className="text-sm text-[var(--text-muted)]">{provider.specialty}</div>
-            </div>
-            <div className="space-y-2 p-3">
-              {visibleSlots.slice(0, 8).map((slot) => {
-                const appointmentView = slot.appointmentId
-                  ? appointmentById.get(slot.appointmentId)
-                  : undefined;
-                const isBooked = slot.state === "BOOKED";
-                const canBookThisProvider =
-                  !lockedProviderId || lockedProviderId === provider.providerId;
-                return (
-                  <button
-                    className="flex w-full items-center justify-between rounded-md border border-[var(--border)] px-3 py-3 text-left"
-                    disabled={!isBooked && !canBookThisProvider}
-                    key={slot.startTime}
-                    style={
-                      isBooked
-                        ? {
-                            backgroundColor: `${provider.providerColor}18`,
-                            boxShadow: `inset 3px 0 0 ${provider.providerColor}`,
-                          }
-                        : undefined
-                    }
-                    onClick={() =>
-                      slot.state === "BOOKED" && appointmentView
-                        ? onBookedSlotClick(appointmentView)
+    <div className="p-4">
+      <div className="mb-3 flex flex-wrap gap-2" aria-label="Provider colours">
+        {scheduleGrid.providers.map((provider) => (
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-white px-2.5 py-1 text-xs text-[var(--text-muted)]"
+            key={provider.providerId}
+          >
+            <span className="size-2 rounded-full" style={{ backgroundColor: provider.providerColor }} />
+            {provider.providerName}
+          </span>
+        ))}
+      </div>
+      <div className="relative space-y-2 before:absolute before:bottom-4 before:left-[3.15rem] before:top-4 before:w-px before:bg-[var(--border)]">
+        {timeline.map(({ provider, slot }) => {
+          const appointmentView = slot.appointmentId
+            ? appointmentById.get(slot.appointmentId)
+            : undefined;
+          const isBooked = slot.state === "BOOKED";
+          const canBookThisProvider =
+            !lockedProviderId || lockedProviderId === provider.providerId;
+          return (
+            <div className="relative grid grid-cols-[3.35rem_minmax(0,1fr)] gap-3" key={`${provider.providerId}-${slot.startTime}`}>
+              <time className="pt-3 text-xs font-semibold tabular-nums text-[var(--text-muted)]">
+                {formatClockLabel(slot.startTime)}
+              </time>
+              <span
+                aria-hidden="true"
+                className="absolute left-[2.86rem] top-4 size-2.5 rounded-full border-2 border-white"
+                style={{ backgroundColor: provider.providerColor }}
+              />
+              <button
+                className="min-w-0 rounded-xl border border-[var(--border)] px-3 py-3 text-left disabled:opacity-60"
+                disabled={!isBooked && !canBookThisProvider}
+                style={{
+                  backgroundColor: isBooked ? `${provider.providerColor}18` : "white",
+                  boxShadow: `inset 3px 0 0 ${provider.providerColor}`,
+                }}
+                onClick={() =>
+                  isBooked && appointmentView
+                    ? onBookedSlotClick(appointmentView)
+                    : canBookThisProvider
+                      ? onOpenBooking(
+                          provider.providerId,
+                          scheduleGrid.date,
+                          undefined,
+                          slot.startTime,
+                        )
+                      : undefined
+                }
+                type="button"
+              >
+                <span className="flex items-start justify-between gap-2">
+                  <span className="min-w-0">
+                    <strong className="block truncate text-sm text-[var(--foreground)]">
+                      {isBooked
+                        ? slot.appointmentSummary?.customerName ?? "Booked appointment"
+                        : "Available"}
+                    </strong>
+                    <span className="mt-0.5 block truncate text-xs text-[var(--text-muted)]">
+                      {provider.providerName}
+                      {isBooked && slot.appointmentSummary?.serviceName
+                        ? ` · ${slot.appointmentSummary.serviceName}`
                         : canBookThisProvider
-                          ? onOpenBooking(
-                            provider.providerId,
-                            scheduleGrid.date,
-                            undefined,
-                            slot.startTime,
-                          )
-                          : undefined
-                    }
-                    type="button"
-                  >
-                    <div>
-                      <div className="font-medium text-[var(--foreground)]">
-                        {formatClockLabel(slot.startTime)}
-                      </div>
-                      <div className="text-sm text-[var(--text-muted)]">
-                        {slot.state === "BOOKED"
-                          ? slot.appointmentSummary?.customerName ?? "Booked"
-                          : canBookThisProvider
-                            ? "Open slot"
-                            : "View only"}
-                      </div>
-                    </div>
-                    <StatusPill
-                      status={slot.state === "BOOKED" ? slot.appointmentSummary?.status ?? "Scheduled" : "Scheduled"}
-                    />
-                  </button>
-                );
-              })}
+                          ? " · Tap to book"
+                          : " · View only"}
+                    </span>
+                  </span>
+                  {isBooked ? (
+                    <StatusPill status={slot.appointmentSummary?.status ?? "Scheduled"} />
+                  ) : null}
+                </span>
+              </button>
             </div>
+          );
+        })}
+        {!timeline.length ? (
+          <div className="rounded-xl bg-[var(--surface-muted)] p-4 text-sm text-[var(--text-muted)]">
+            No available or booked times on this date.
           </div>
-        );
-      })}
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -1887,73 +2085,166 @@ function AppointmentDetailModal({
   onClose,
   onDelete,
   onEdit,
+  onReschedule,
   onStatusChange,
 }: {
   appointment: ReturnType<typeof buildAppointmentView>;
   onClose: () => void;
   onDelete: () => Promise<void>;
   onEdit: () => void;
-  onStatusChange: (status: "Confirmed" | "Completed") => Promise<void>;
+  onReschedule: () => void;
+  onStatusChange: (status: "Confirmed" | "CheckedIn" | "InProgress" | "Completed" | "Cancelled" | "NoShow", reason?: string) => Promise<void>;
 }) {
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [reasonAction, setReasonAction] = useState<"Cancelled" | "NoShow" | null>(null);
+  const [reason, setReason] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [archiveConfirmationOpen, setArchiveConfirmationOpen] = useState(false);
+  const nextAction =
+    appointment.status === "Scheduled"
+      ? { label: "Confirm appointment", status: "Confirmed" as const }
+      : appointment.status === "Confirmed"
+        ? { label: "Check in Client", status: "CheckedIn" as const }
+        : appointment.status === "CheckedIn"
+          ? { label: "Start appointment", status: "InProgress" as const }
+          : appointment.status === "InProgress"
+            ? { label: "Complete appointment", status: "Completed" as const }
+            : null;
+
+  async function runStatusChange(
+    status: "Confirmed" | "CheckedIn" | "InProgress" | "Completed" | "Cancelled" | "NoShow",
+    statusReason?: string,
+  ) {
+    setIsUpdating(true);
+    setActionError(null);
+    try {
+      await onStatusChange(status, statusReason);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "The appointment could not be updated.");
+      setIsUpdating(false);
+    }
+  }
+
   return (
-    <Modal onClose={onClose} title="Appointment details">
-      <div className="space-y-4">
-        <div>
-          <div className="text-lg font-medium text-[var(--foreground)]">
-            {appointment.customer?.name ?? "Unknown patient"}
+    <Modal
+      onClose={onClose}
+      subtitle="Review the visit, move it through the clinic workflow, or change its schedule."
+      title="Appointment details"
+    >
+      <div className="space-y-5">
+        <section className="rounded-xl border border-[var(--border)] bg-[var(--surface-muted)] p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate text-lg font-semibold text-[var(--foreground)]">
+                {appointment.customer?.name ?? "Unknown Client"}
+              </div>
+              <div className="mt-1 text-sm text-[var(--text-muted)]">
+                {appointment.services.map((service) => service.name).join(", ") || "Service not specified"}
+              </div>
+            </div>
+            <StatusPill status={appointment.status} />
           </div>
-          <div className="mt-1 text-sm text-[var(--text-muted)]">
-            {appointment.provider?.name ?? "Unassigned"} ·{" "}
-            {formatClockRange(
-              appointment.startsAtIso,
-              appointment.durationMinutes,
-              appointment.bufferMinutes,
-            )}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <PriorityTag priority={appointment.priority} />
+            <span className="rounded-full border border-[var(--border)] bg-white px-2.5 py-1 text-xs text-[var(--text-muted)]">
+              {appointment.communicationState}
+            </span>
           </div>
-        </div>
+        </section>
 
-        <div className="flex flex-wrap gap-2">
-          <PriorityTag priority={appointment.priority} />
-          <StatusPill status={appointment.status} />
-        </div>
+        <section className="grid gap-3 sm:grid-cols-2" aria-label="Appointment information">
+          <AppointmentDetailField label="Date and time">
+            {new Date(appointment.startsAtIso).toLocaleString("en-NP", {
+              dateStyle: "full",
+              timeStyle: "short",
+              timeZone: "Asia/Kathmandu",
+            })}
+          </AppointmentDetailField>
+          <AppointmentDetailField label="Provider">
+            {appointment.provider?.name ?? "Unassigned"}
+          </AppointmentDetailField>
+          <AppointmentDetailField label="Reserved time">
+            {formatClockRange(appointment.startsAtIso, appointment.durationMinutes, appointment.bufferMinutes)}
+          </AppointmentDetailField>
+          <AppointmentDetailField label="Duration">
+            {appointment.durationMinutes} minutes{appointment.bufferMinutes ? ` + ${appointment.bufferMinutes} minute buffer` : ""}
+          </AppointmentDetailField>
+        </section>
 
-        <div className="text-sm text-[var(--text-muted)]">
-          {appointment.services.map((service) => service.name).join(", ") || "No service"}
-        </div>
+        {appointment.notes ? (
+          <section className="rounded-xl border border-[var(--border)] p-4">
+            <h3 className="text-sm font-semibold text-[var(--foreground)]">Notes</h3>
+            <p className="mt-2 whitespace-pre-wrap text-sm text-[var(--text-muted)]">{appointment.notes}</p>
+          </section>
+        ) : null}
 
-        <div className="flex flex-wrap justify-end gap-2">
-          {appointment.status === "Scheduled" ? (
-            <Button onClick={() => void onStatusChange("Confirmed")} variant="secondary">
-              Confirm
-            </Button>
-          ) : null}
-          {appointment.status !== "Completed" ? (
-            <Button onClick={() => void onStatusChange("Completed")} variant="secondary">
-              Complete
-            </Button>
-          ) : null}
-          <Button onClick={onEdit} variant="secondary">
-            <PencilLine size={16} />
-            Edit
+        {nextAction ? (
+          <Button className="h-12 w-full" disabled={isUpdating} loading={isUpdating} loadingLabel="Updating appointment" onClick={() => void runStatusChange(nextAction.status)}>
+            {nextAction.label}
           </Button>
-          <Button
-            onClick={async () => {
-              setIsDeleting(true);
-              try {
-                await onDelete();
-              } finally {
-                setIsDeleting(false);
-              }
-            }}
-            variant="ghost"
-          >
-            <Trash2 size={16} />
-            {isDeleting ? "Deleting..." : "Delete"}
-          </Button>
-        </div>
+        ) : null}
+
+        <section>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Schedule actions</h3>
+          <div className="grid grid-cols-2 gap-2">
+            <Button disabled={isUpdating} onClick={onEdit} variant="secondary"><PencilLine size={16} />Edit details</Button>
+            {["Scheduled", "Confirmed"].includes(appointment.status) ? <Button disabled={isUpdating} onClick={onReschedule} variant="secondary">Reschedule</Button> : null}
+            {["Scheduled", "Confirmed"].includes(appointment.status) ? <Button disabled={isUpdating} onClick={() => { setReasonAction("NoShow"); setReason(""); }} variant="ghost">Mark no-show</Button> : null}
+            {["Scheduled", "Confirmed"].includes(appointment.status) ? <Button disabled={isUpdating} onClick={() => { setReasonAction("Cancelled"); setReason(""); }} variant="ghost">Cancel appointment</Button> : null}
+          </div>
+        </section>
+
+        {reasonAction ? (
+          <section className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <label className="block text-sm font-semibold text-amber-950">
+              {reasonAction === "Cancelled" ? "Cancellation reason" : "No-show reason"}
+              <textarea className="mt-2 min-h-24 w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm font-normal text-[var(--foreground)] outline-none focus:border-[var(--accent)]" onChange={(event) => setReason(event.target.value)} placeholder="Required for the audit history" value={reason} />
+            </label>
+            <div className="mt-3 flex justify-end gap-2">
+              <Button disabled={isUpdating} onClick={() => setReasonAction(null)} variant="ghost">Keep appointment</Button>
+              <Button disabled={!reason.trim() || isUpdating} loading={isUpdating} loadingLabel="Updating appointment" onClick={() => void runStatusChange(reasonAction, reason.trim())}>
+                Confirm {reasonAction === "Cancelled" ? "cancellation" : "no-show"}
+              </Button>
+            </div>
+          </section>
+        ) : null}
+
+        <section className="border-t border-[var(--border)] pt-4">
+          {!archiveConfirmationOpen ? (
+            <Button disabled={isUpdating} onClick={() => setArchiveConfirmationOpen(true)} variant="ghost"><Trash2 size={16} />Archive appointment</Button>
+          ) : (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 p-4">
+              <p className="text-sm font-semibold text-rose-900">Archive this appointment?</p>
+              <p className="mt-1 text-xs text-rose-800">It leaves active scheduling views while its history remains governed.</p>
+              <div className="mt-3 flex justify-end gap-2">
+                <Button disabled={isDeleting} onClick={() => setArchiveConfirmationOpen(false)} variant="ghost">Keep appointment</Button>
+                <Button disabled={isDeleting} loading={isDeleting} loadingLabel="Archiving appointment" onClick={async () => {
+                  setIsDeleting(true);
+                  setActionError(null);
+                  try {
+                    await onDelete();
+                  } catch (error) {
+                    setActionError(error instanceof Error ? error.message : "The appointment could not be archived.");
+                    setIsDeleting(false);
+                  }
+                }} variant="secondary">Archive</Button>
+              </div>
+            </div>
+          )}
+        </section>
+        {actionError ? <p className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700" role="alert">{actionError}</p> : null}
       </div>
     </Modal>
+  );
+}
+
+function AppointmentDetailField({ children, label }: { children: React.ReactNode; label: string }) {
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-white p-3">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">{label}</div>
+      <div className="mt-1 text-sm font-medium text-[var(--foreground)]">{children}</div>
+    </div>
   );
 }
 

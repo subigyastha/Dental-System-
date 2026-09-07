@@ -7,10 +7,12 @@ import {
   Bell,
   ArchiveRestore,
   CalendarDays,
+  CalendarPlus2,
   CircleDollarSign,
   CircleUserRound,
   LayoutGrid,
   LogOut,
+  PackageSearch,
   Settings,
   Stethoscope,
   UserSquare2,
@@ -20,12 +22,18 @@ import {
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { CalendarModeToggle } from "@/components/calendar-ui";
-import { KoiPageLoader } from "@/components/koi-loader";
+import { WorkspaceShellSkeleton } from "@/components/workspace/workspace-shell-skeleton";
 import {
   MobileWorkspaceBottomNav,
   MobileWorkspaceMoreSheet,
 } from "@/components/workspace/mobile-workspace-nav";
 import { useWorkspaceApp } from "@/components/workspace/app-state";
+import { QuickBookSurface } from "@/components/workspace/quick-book-surface";
+import { useQuickBook } from "@/components/workspace/quick-book-provider";
+import {
+  signOutButtonLabel,
+  useSecureSignOut,
+} from "@/components/workspace/secure-sign-out";
 import type { SessionUser } from "@/lib/domain";
 
 type NavItem = {
@@ -34,11 +42,9 @@ type NavItem = {
   label: string;
   roles?: SessionUser["role"][];
   requiresProvider?: boolean;
-};
-
-type NavGroup = {
-  items: NavItem[];
-  label: string;
+  requiresInventory?: boolean;
+  requiresStaff?: boolean;
+  requiresSettings?: boolean;
 };
 
 const financeRoles: SessionUser["role"][] = [
@@ -47,44 +53,43 @@ const financeRoles: SessionUser["role"][] = [
   "Manager",
   "Receptionist",
   "Scheduler",
+  "Finance",
 ];
-const practiceRoles: SessionUser["role"][] = ["Owner", "Admin", "Manager"];
 const archiveRoles: SessionUser["role"][] = ["Owner", "Admin"];
 
-const navigationGroups: NavGroup[] = [
-  {
-    label: "Today",
-    items: [
-      { href: "/dashboard", icon: LayoutGrid, label: "Overview" },
-      { href: "/my-schedule", icon: Stethoscope, label: "My schedule", requiresProvider: true },
-    ],
-  },
-  {
-    label: "Care",
-    items: [
-      { href: "/reservations", icon: CalendarDays, label: "Reservations" },
-      { href: "/patients", icon: UserSquare2, label: "Clients" },
-    ],
-  },
-  {
-    label: "Finance",
-    items: [{ href: "/billing", icon: CircleDollarSign, label: "Billing", roles: financeRoles }],
-  },
-  {
-    label: "Practice",
-    items: [
-      { href: "/staff", icon: Users, label: "Staff", roles: practiceRoles },
-      { href: "/archive", icon: ArchiveRestore, label: "Archive center", roles: archiveRoles },
-      { href: "/settings", icon: Settings, label: "Settings", roles: practiceRoles },
-    ],
-  },
+const navigationItems: NavItem[] = [
+  { href: "/dashboard", icon: LayoutGrid, label: "Overview" },
+  { href: "/my-schedule", icon: Stethoscope, label: "My schedule", requiresProvider: true },
+  { href: "/reservations", icon: CalendarDays, label: "Reservations" },
+  { href: "/clients", icon: UserSquare2, label: "Clients" },
+  { href: "/billing", icon: CircleDollarSign, label: "Finance", roles: financeRoles },
+  { href: "/inventory", icon: PackageSearch, label: "Inventory", requiresInventory: true },
+  { href: "/staff", icon: Users, label: "Staff", requiresStaff: true },
+  { href: "/archive", icon: ArchiveRestore, label: "Archive center", roles: archiveRoles },
+  { href: "/settings", icon: Settings, label: "Settings", requiresSettings: true },
 ];
 
-function isVisible(item: NavItem, user: SessionUser) {
+function isVisible(
+  item: NavItem,
+  user: SessionUser,
+  canAccessInventory: boolean,
+  canAccessStaff: boolean,
+  canAccessSettings: boolean,
+) {
   if (item.requiresProvider && !user.providerId) {
     return false;
   }
-  return !item.roles || item.roles.includes(user.role);
+  if (item.requiresInventory && !canAccessInventory) {
+    return false;
+  }
+  if (item.requiresStaff && !canAccessStaff) {
+    return false;
+  }
+  if (item.requiresSettings && !canAccessSettings) {
+    return false;
+  }
+  const effectiveRoles = user.effectiveRoles?.length ? user.effectiveRoles : [user.role];
+  return !item.roles || effectiveRoles.some((role) => item.roles?.includes(role));
 }
 
 function isCurrentPath(pathname: string, href: string) {
@@ -100,11 +105,14 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     data,
     sessionUser,
     isAuthenticating,
-    logout,
     toast,
     clearToast,
+    workspaceBootstrap,
   } = useWorkspaceApp();
+  const { canOpen: canQuickBook, openQuickBook } = useQuickBook();
+  const { isBlocked, isSigningOut, requestSignOut } = useSecureSignOut();
   const [activePopover, setActivePopover] = useState<"notifications" | "profile" | null>(null);
+  const [isAttentionHovered, setIsAttentionHovered] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
 
   useEffect(() => {
@@ -116,17 +124,26 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timer);
   }, [clearToast, toast]);
 
-  const visibleNavigationGroups = useMemo(() => {
+  const visibleNavItems = useMemo(() => {
     if (!sessionUser) {
       return [];
     }
 
-    return navigationGroups
-      .map((group) => ({ ...group, items: group.items.filter((item) => isVisible(item, sessionUser)) }))
-      .filter((group) => group.items.length > 0);
-  }, [sessionUser]);
-  const visibleNavItems = visibleNavigationGroups.flatMap((group) => group.items);
+    return navigationItems.filter((item) =>
+      isVisible(
+        item,
+        sessionUser,
+        workspaceBootstrap.context.capabilities.canAccessInventory,
+        workspaceBootstrap.context.capabilities.canAccessStaff,
+        workspaceBootstrap.context.capabilities.canAccessSettings,
+      ),
+    );
+  }, [sessionUser, workspaceBootstrap.context.capabilities.canAccessInventory, workspaceBootstrap.context.capabilities.canAccessSettings, workspaceBootstrap.context.capabilities.canAccessStaff]);
+
   const notifications = useMemo(() => {
+    if (data.dataScope === "shell") {
+      return [];
+    }
     const today = new Date();
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -149,117 +166,148 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
         sublabel: appointment.startsAtIso.slice(0, 16).replace("T", " "),
       })),
     ];
-  }, [data.appointments, data.followUps]);
+  }, [data.appointments, data.dataScope, data.followUps]);
+  const attentionUsesRouteData = data.dataScope === "shell";
 
   if (isAuthenticating || !sessionUser) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[var(--background)]">
-        <KoiPageLoader label="Loading workspace" />
-      </div>
-    );
+    return <WorkspaceShellSkeleton label="Loading workspace" pathname={pathname} />;
   }
 
   const hasModuleOwnedMobileNav =
     pathname.startsWith("/dashboard") ||
     pathname.startsWith("/reservations") ||
     pathname.startsWith("/my-schedule");
-  const hasBillingAccess = financeRoles.includes(sessionUser.role);
-  const hasSettingsAccess = practiceRoles.includes(sessionUser.role);
-  const hasArchiveAccess = archiveRoles.includes(sessionUser.role);
+  const sessionRoles = sessionUser.effectiveRoles?.length ? sessionUser.effectiveRoles : [sessionUser.role];
+  const hasBillingAccess = sessionRoles.some((role) => financeRoles.includes(role));
+  const hasSettingsAccess = workspaceBootstrap.context.capabilities.canAccessSettings;
+  const hasArchiveAccess = sessionRoles.some((role) => archiveRoles.includes(role));
+  const hasInventoryAccess = workspaceBootstrap.context.capabilities.canAccessInventory;
+  const hasStaffAccess = workspaceBootstrap.context.capabilities.canAccessStaff;
   const scheduleHref = sessionUser.providerId ? "/my-schedule" : "/reservations";
   const pageTitle = visibleNavItems.find((item) => isCurrentPath(pathname, item.href))?.label ?? "Workspace";
-  const locationName = data.locations[0]?.name;
+  const locationName = workspaceBootstrap.locations[0]?.name ?? data.locations[0]?.name;
 
   return (
-    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
-      <div className="grid min-h-screen lg:grid-cols-[56px_272px_minmax(0,1fr)]">
-        <aside
-          aria-label="Workspace utility rail"
-          className="hidden border-r border-[var(--border)] bg-[var(--surface)] py-3 lg:flex lg:flex-col lg:items-center"
-        >
-          <div className="flex size-9 items-center justify-center rounded-md bg-[var(--color-selected)]" title={data.organization.name}>
-            <Image alt="DentalFlow workspace" className="size-6" height={24} src="/just-icon.svg" width={24} />
+    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]" data-workspace-shell>
+      <div className="grid min-h-screen lg:grid-cols-[272px_minmax(0,1fr)]">
+        <aside aria-label="Workspace navigation" className="sticky top-0 hidden h-screen min-h-0 overflow-hidden border-r border-[var(--border)] bg-[var(--sidebar)] px-3 py-5 lg:flex lg:flex-col">
+          <div className="flex items-center gap-3 border-b border-[var(--border)] px-2 pb-4">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-[var(--color-selected)]">
+              <Image alt="" aria-hidden="true" className="size-6" height={24} src="/just-icon.svg" width={24} />
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-[var(--foreground)]">{data.organization.name}</div>
+              <div className="mt-1 truncate text-xs text-[var(--text-muted)]">
+                {locationName ? `Location: ${locationName}` : "Clinic workspace"}
+              </div>
+            </div>
           </div>
 
-          <nav aria-label="Global destinations" className="mt-6 flex flex-1 flex-col items-center gap-2">
-            {visibleNavItems.slice(0, 4).map((item) => {
+          <nav aria-label="Workspace navigation" className="mt-4 min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain pr-1">
+            {visibleNavItems.map((item) => {
               const Icon = item.icon;
               const active = isCurrentPath(pathname, item.href);
               return (
                 <Link
                   aria-current={active ? "page" : undefined}
-                  aria-label={item.label}
-                  className={`flex size-9 items-center justify-center rounded-md transition-colors ${
+                  className={`flex min-h-10 items-center gap-3 rounded-md px-2.5 py-2 text-sm transition-colors ${
                     active
-                      ? "bg-[var(--color-selected)] text-[var(--color-primary-hover)]"
-                      : "text-[var(--text-muted)] hover:bg-[var(--color-hover)] hover:text-[var(--foreground)]"
+                      ? "bg-[var(--color-selected)] font-medium text-[var(--color-primary-hover)]"
+                      : "text-[var(--foreground)] hover:bg-[var(--color-hover)]"
                   }`}
                   href={item.href}
                   key={item.href}
-                  title={item.label}
                 >
-                  <Icon aria-hidden="true" size={18} />
+                  <Icon aria-hidden="true" size={16} />
+                  <span>{item.label}</span>
                 </Link>
               );
             })}
           </nav>
 
-          <button
-            aria-label="Open profile menu"
-            className="flex size-9 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--color-hover)] hover:text-[var(--foreground)]"
-            onClick={() => setActivePopover("profile")}
-            title="Profile menu"
-            type="button"
-          >
-            <CircleUserRound aria-hidden="true" size={19} />
-          </button>
-        </aside>
-
-        <aside className="hidden border-r border-[var(--border)] bg-[var(--sidebar)] px-3 py-5 lg:flex lg:flex-col">
-          <div className="border-b border-[var(--border)] px-2 pb-4">
-            <div className="text-sm font-semibold text-[var(--foreground)]">{data.organization.name}</div>
-            <div className="mt-1 text-xs text-[var(--text-muted)]">
-              {locationName ? `Location: ${locationName}` : "Clinic workspace"}
+          <div className="space-y-1 border-t border-[var(--border)] pt-3">
+            <div
+              className="relative"
+              onMouseEnter={() => setIsAttentionHovered(true)}
+              onMouseLeave={() => setIsAttentionHovered(false)}
+            >
+              <button
+                aria-expanded={activePopover === "notifications"}
+                aria-label={`Open attention center${notifications.length ? `, ${notifications.length} items` : ""}`}
+                className={`flex min-h-10 w-full items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm transition-colors ${
+                  activePopover === "notifications" || isAttentionHovered
+                    ? "bg-[var(--color-selected)] text-[var(--color-primary-hover)]"
+                    : "text-[var(--foreground)] hover:bg-[var(--color-hover)]"
+                }`}
+                onClick={() =>
+                  setActivePopover((current) => (current === "notifications" ? null : "notifications"))
+                }
+                type="button"
+              >
+                <Bell aria-hidden="true" size={16} />
+                <span className="flex-1">Attention</span>
+                {notifications.length ? (
+                  <span className="rounded-full bg-[var(--color-danger)] px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                    {notifications.length}
+                  </span>
+                ) : null}
+              </button>
+              {activePopover === "notifications" || isAttentionHovered ? (
+                <SidebarPopover title={activePopover === "notifications" ? "Attention center" : "Attention preview"}>
+                  {attentionUsesRouteData ? (
+                    <div className="px-3 py-3 text-sm text-[var(--text-muted)]">
+                      Open Overview for the current agenda and follow-ups.
+                    </div>
+                  ) : notifications.length ? (
+                    notifications.slice(0, activePopover === "notifications" ? undefined : 3).map((item) => (
+                      <div className="border-b border-[var(--border)] px-3 py-3 last:border-b-0" key={item.id}>
+                        <div className="text-sm font-medium text-[var(--foreground)]">{item.label}</div>
+                        <div className="mt-1 text-xs text-[var(--text-muted)]">{item.sublabel}</div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="px-3 py-3 text-sm text-[var(--text-muted)]">Nothing needs attention right now.</div>
+                  )}
+                  {activePopover !== "notifications" && notifications.length > 3 ? (
+                    <div className="border-t border-[var(--border)] px-3 py-2 text-xs text-[var(--text-muted)]">
+                      Click Attention to keep the full list open.
+                    </div>
+                  ) : null}
+                </SidebarPopover>
+              ) : null}
             </div>
-          </div>
 
-          <nav aria-label="Workspace navigation" className="mt-4 flex-1 space-y-5">
-            {visibleNavigationGroups.map((group) => (
-              <section aria-labelledby={`nav-group-${group.label}`} key={group.label}>
-                <h2
-                  className="px-2 text-xs font-semibold text-[var(--text-muted)]"
-                  id={`nav-group-${group.label}`}
-                >
-                  {group.label}
-                </h2>
-                <div className="mt-1 space-y-0.5">
-                  {group.items.map((item) => {
-                    const Icon = item.icon;
-                    const active = isCurrentPath(pathname, item.href);
-                    return (
-                      <Link
-                        aria-current={active ? "page" : undefined}
-                        className={`flex min-h-9 items-center gap-3 rounded-md px-2.5 py-2 text-sm transition-colors ${
-                          active
-                            ? "bg-[var(--color-selected)] font-medium text-[var(--color-primary-hover)]"
-                            : "text-[var(--foreground)] hover:bg-[var(--color-hover)]"
-                        }`}
-                        href={item.href}
-                        key={item.href}
-                      >
-                        <Icon aria-hidden="true" size={16} />
-                        <span>{item.label}</span>
-                      </Link>
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
-          </nav>
-
-          <div className="border-t border-[var(--border)] px-2 pt-4">
-            <div className="text-sm font-medium text-[var(--foreground)]">{sessionUser.name}</div>
-            <div className="mt-1 text-xs text-[var(--text-muted)]">{sessionUser.role}</div>
+            <div className="relative">
+              <button
+                aria-expanded={activePopover === "profile"}
+                aria-label="Open profile menu"
+                className="flex min-h-10 w-full items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm text-[var(--foreground)] hover:bg-[var(--color-hover)]"
+                onClick={() => setActivePopover((current) => (current === "profile" ? null : "profile"))}
+                type="button"
+              >
+                <CircleUserRound aria-hidden="true" size={16} />
+                <span className="min-w-0 flex-1 truncate">{sessionUser.name}</span>
+              </button>
+              {activePopover === "profile" ? (
+                <ProfileMenu
+                  inSidebar
+                  isLogoutBlocked={isBlocked}
+                  isLoggingOut={isSigningOut}
+                  onLogout={requestSignOut}
+                  sessionUser={sessionUser}
+                />
+              ) : null}
+            </div>
+            <button
+              aria-label={signOutButtonLabel({ isBlocked, isSigningOut })}
+              className="flex min-h-11 w-full items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm text-[var(--danger)] transition-colors hover:bg-[var(--danger-soft)] disabled:cursor-wait disabled:opacity-60"
+              disabled={isBlocked || isSigningOut}
+              onClick={requestSignOut}
+              type="button"
+            >
+              <LogOut aria-hidden="true" size={16} />
+              <span>{signOutButtonLabel({ isBlocked, isSigningOut })}</span>
+            </button>
           </div>
         </aside>
 
@@ -267,16 +315,28 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
           <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-[var(--surface)]/95 backdrop-blur">
             <div className="flex min-h-14 items-center justify-between gap-3 px-4 py-2 lg:px-6">
               <div className="min-w-0">
-                <h1 className="truncate text-xl font-semibold leading-7 text-[var(--foreground)]">{pageTitle}</h1>
-                <div className="truncate text-xs text-[var(--text-muted)]">
+                <h1 className="sr-only">{pageTitle}</h1>
+                <div className="truncate text-sm font-medium text-[var(--foreground)]">
                   {data.organization.name}
-                  {locationName ? ` · ${locationName}` : ""}
                 </div>
+                {locationName ? (
+                  <div className="truncate text-xs text-[var(--text-muted)]">{locationName}</div>
+                ) : null}
               </div>
 
               <div className="flex shrink-0 items-center gap-1.5">
+                {canQuickBook ? (
+                  <button
+                    className="hidden h-9 items-center gap-2 rounded-md bg-[var(--accent)] px-3 text-sm font-semibold text-white transition hover:bg-[var(--accent-strong)] lg:inline-flex"
+                    onClick={() => openQuickBook()}
+                    type="button"
+                  >
+                    <CalendarPlus2 aria-hidden="true" size={16} />
+                    Book appointment
+                  </button>
+                ) : null}
                 <CalendarModeToggle mode={calendarMode} onChange={setCalendarMode} />
-                <div className="relative">
+                <div className="relative lg:hidden">
                   <button
                     aria-expanded={activePopover === "notifications"}
                     aria-label="Open notifications"
@@ -291,7 +351,11 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
                   </button>
                   {activePopover === "notifications" ? (
                     <PopoverCard title="Notifications">
-                      {notifications.length ? (
+                      {attentionUsesRouteData ? (
+                        <div className="px-3 py-3 text-sm text-[var(--text-muted)]">
+                          Open Overview for the current agenda and follow-ups.
+                        </div>
+                      ) : notifications.length ? (
                         notifications.map((item) => (
                           <div className="border-b border-[var(--border)] px-3 py-3 last:border-b-0" key={item.id}>
                             <div className="text-sm font-medium text-[var(--foreground)]">{item.label}</div>
@@ -304,7 +368,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
                     </PopoverCard>
                   ) : null}
                 </div>
-                <div className="relative">
+                <div className="relative lg:hidden">
                   <button
                     aria-expanded={activePopover === "profile"}
                     aria-label="Open profile menu"
@@ -316,21 +380,12 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
                     <CircleUserRound aria-hidden="true" size={17} />
                   </button>
                   {activePopover === "profile" ? (
-                    <PopoverCard title="Profile">
-                      <div className="px-3 py-3">
-                        <div className="text-sm font-medium text-[var(--foreground)]">{sessionUser.name}</div>
-                        <div className="mt-1 text-xs text-[var(--text-muted)]">{sessionUser.role}</div>
-                        <div className="mt-3 text-xs text-[var(--text-muted)]">{sessionUser.email}</div>
-                        <button
-                          className="mt-4 flex min-h-9 w-full items-center justify-center gap-2 rounded-md border border-[var(--border)] px-3 py-2 text-sm text-[var(--danger)] hover:bg-[var(--danger-soft)]"
-                          onClick={logout}
-                          type="button"
-                        >
-                          <LogOut aria-hidden="true" size={16} />
-                          Sign out
-                        </button>
-                      </div>
-                    </PopoverCard>
+                    <ProfileMenu
+                      isLogoutBlocked={isBlocked}
+                      isLoggingOut={isSigningOut}
+                      onLogout={requestSignOut}
+                      sessionUser={sessionUser}
+                    />
                   ) : null}
                 </div>
               </div>
@@ -346,11 +401,15 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
           {mobileMoreOpen ? (
             <MobileWorkspaceMoreSheet
               hasBillingAccess={hasBillingAccess}
+              hasInventoryAccess={hasInventoryAccess}
+              hasStaffAccess={hasStaffAccess}
               hasMySchedule={Boolean(sessionUser.providerId)}
               hasArchiveAccess={hasArchiveAccess}
               hasSettingsAccess={hasSettingsAccess}
               onClose={() => setMobileMoreOpen(false)}
-              onLogout={logout}
+              isLogoutBlocked={isBlocked}
+              isLoggingOut={isSigningOut}
+              onLogout={requestSignOut}
               onNavigate={(href) => {
                 setMobileMoreOpen(false);
                 router.push(href);
@@ -359,7 +418,8 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
           ) : null}
           <MobileWorkspaceBottomNav
             active={pathname.startsWith("/reservations") || pathname.startsWith("/my-schedule") ? "schedule" : "more"}
-            onBook={() => router.push("/reservations?book=1")}
+            canBook={canQuickBook}
+            onBook={() => openQuickBook()}
             onMore={() => setMobileMoreOpen(true)}
             onSchedule={() => router.push(scheduleHref)}
           />
@@ -374,17 +434,70 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
           {toast.message}
         </div>
       ) : null}
+      <QuickBookSurface />
     </div>
   );
 }
 
 function PopoverCard({ children, title }: { children: ReactNode; title: string }) {
   return (
-    <div className="absolute right-0 top-[calc(100%+0.5rem)] z-30 w-72 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-[var(--card-shadow)]">
+    <div className="absolute right-0 top-[calc(100%+0.5rem)] z-30 max-h-[calc(100dvh-5rem)] w-72 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-[var(--card-shadow)]">
       <div className="border-b border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--foreground)]">
         {title}
       </div>
       {children}
     </div>
+  );
+}
+
+function SidebarPopover({ children, title }: { children: ReactNode; title: string }) {
+  return (
+    <div className="absolute bottom-0 left-[calc(100%+0.75rem)] z-30 max-h-[calc(100dvh-2rem)] w-80 max-w-[calc(100vw-19rem)] overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-[var(--popover-shadow)]">
+      <div className="border-b border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--foreground)]">
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function ProfileMenu({
+  inSidebar = false,
+  isLogoutBlocked,
+  isLoggingOut,
+  onLogout,
+  sessionUser,
+}: {
+  inSidebar?: boolean;
+  isLogoutBlocked: boolean;
+  isLoggingOut: boolean;
+  onLogout: () => void;
+  sessionUser: SessionUser;
+}) {
+  const content = (
+    <div className="px-3 py-3">
+      <div className="text-sm font-medium text-[var(--foreground)]">{sessionUser.name}</div>
+      <div className="mt-1 text-xs text-[var(--text-muted)]">{sessionUser.role}</div>
+      <div className="mt-3 text-xs text-[var(--text-muted)]">{sessionUser.email}</div>
+      <button
+        className="mt-4 flex min-h-9 w-full items-center justify-center gap-2 rounded-md border border-[var(--border)] px-3 py-2 text-sm text-[var(--danger)] hover:bg-[var(--danger-soft)]"
+        disabled={isLogoutBlocked || isLoggingOut}
+        onClick={onLogout}
+        type="button"
+      >
+        <LogOut aria-hidden="true" size={16} />
+        {signOutButtonLabel({ isBlocked: isLogoutBlocked, isSigningOut: isLoggingOut })}
+      </button>
+    </div>
+  );
+
+  if (inSidebar) {
+    return <SidebarPopover title="Profile">{content}</SidebarPopover>;
+  }
+
+  return (
+    <PopoverCard title="Profile">
+      {content}
+    </PopoverCard>
   );
 }

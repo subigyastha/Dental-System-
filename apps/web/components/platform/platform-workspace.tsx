@@ -1,14 +1,16 @@
 "use client";
 
 import { BarChart3, Flag, LifeBuoy, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { KoiPageLoader } from "@/components/koi-loader";
 import { Button, Panel } from "@/components/ui";
 import { EmptyState, Field, Modal, inputClassName, textareaClassName } from "@/components/workspace/elements";
-import { ApiRequestError, apiFetchJson, rememberCsrfToken } from "@/lib/api-client";
+import { ApiRequestError, apiFetchJson } from "@/lib/api-client";
 import type { SessionUser } from "@/lib/domain";
+import { logoutCurrentSession } from "@/lib/session-lifecycle";
+import { publishSessionEnd, subscribeToSessionEnd } from "@/lib/session-events";
 import { signedInRoute } from "@/lib/session-routing";
 
 type PlatformMetrics = {
@@ -83,6 +85,9 @@ export function PlatformWorkspace() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+  const signOutRequest = useRef<Promise<void> | null>(null);
   const [featureMutation, setFeatureMutation] = useState<
     { feature: FeatureFlag; organizationId?: string } | null
   >(null);
@@ -112,7 +117,6 @@ export function PlatformWorkspace() {
       await refreshPlatformData();
     } catch (loadError) {
       if (loadError instanceof ApiRequestError && loadError.status === 401) {
-        rememberCsrfToken();
         router.replace("/login");
         return;
       }
@@ -126,6 +130,40 @@ export function PlatformWorkspace() {
   useEffect(() => {
     void loadPlatform();
   }, [loadPlatform]);
+
+  useEffect(() => subscribeToSessionEnd(() => {
+    setUser(null);
+    setMetrics(null);
+    setFeatures([]);
+    setGrants([]);
+    router.replace("/login");
+  }), [router]);
+
+  const signOut = useCallback(() => {
+    if (signOutRequest.current) return signOutRequest.current;
+    setSignOutError(null);
+    setIsLoggingOut(true);
+    const request = (async () => {
+      try {
+        const reason = await logoutCurrentSession();
+        setUser(null);
+        setMetrics(null);
+        setFeatures([]);
+        setGrants([]);
+        if (reason === "signed-out") publishSessionEnd(reason);
+        router.replace("/login");
+      } catch {
+        setSignOutError(
+          "We could not sign you out because the server could not confirm session revocation. Check your connection and try again.",
+        );
+      } finally {
+        signOutRequest.current = null;
+        setIsLoggingOut(false);
+      }
+    })();
+    signOutRequest.current = request;
+    return request;
+  }, [router]);
 
   if (isLoading) {
     return (
@@ -165,13 +203,11 @@ export function PlatformWorkspace() {
             <RailIcon icon={LifeBuoy} label="Support access" />
           </nav>
           <button
-            aria-label="Sign out"
-            className="flex size-9 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--color-hover)] hover:text-[var(--foreground)]"
-            onClick={() => {
-              rememberCsrfToken();
-              router.replace("/login");
-            }}
-            title="Sign out"
+            aria-label={isLoggingOut ? "Signing out" : "Sign out"}
+            className="flex size-9 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--color-hover)] hover:text-[var(--foreground)] disabled:cursor-wait disabled:opacity-60"
+            disabled={isLoggingOut}
+            onClick={() => void signOut()}
+            title={isLoggingOut ? "Signing out" : "Sign out"}
             type="button"
           >
             <LogOut aria-hidden="true" size={18} />
@@ -200,20 +236,38 @@ export function PlatformWorkspace() {
               <h1 className="text-xl font-semibold leading-7">Platform overview</h1>
               <p className="mt-1 text-sm text-[var(--text-muted)]">De-identified operational adoption and configuration controls.</p>
             </div>
-            <Button
-              disabled={isRefreshing}
-              onClick={() => {
-                setIsRefreshing(true);
-                void refreshPlatformData()
-                  .catch((refreshError) => setError(toApiError(refreshError, "Could not refresh platform controls.")))
-                  .finally(() => setIsRefreshing(false));
-              }}
-              variant="secondary"
-            >
-              <RefreshCw aria-hidden="true" size={16} />
-              {isRefreshing ? "Refreshing..." : "Refresh"}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                disabled={isRefreshing || isLoggingOut}
+                onClick={() => {
+                  setIsRefreshing(true);
+                  void refreshPlatformData()
+                    .catch((refreshError) => setError(toApiError(refreshError, "Could not refresh platform controls.")))
+                    .finally(() => setIsRefreshing(false));
+                }}
+                variant="secondary"
+              >
+                <RefreshCw aria-hidden="true" size={16} />
+                {isRefreshing ? "Refreshing..." : "Refresh"}
+              </Button>
+              <Button
+                disabled={isLoggingOut}
+                loading={isLoggingOut}
+                loadingLabel="Signing out…"
+                onClick={() => void signOut()}
+                variant="ghost"
+              >
+                <LogOut aria-hidden="true" size={16} />
+                Sign out
+              </Button>
+            </div>
           </header>
+
+          {signOutError ? (
+            <p aria-live="assertive" className="mb-5 rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-[var(--danger)]" role="alert">
+              {signOutError}
+            </p>
+          ) : null}
 
           <section aria-label="Aggregate platform metrics" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <MetricCard label="Clinics onboarded" value={String(metrics?.organizations.total ?? 0)} />

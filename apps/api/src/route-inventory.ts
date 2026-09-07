@@ -4,7 +4,15 @@
  * below. Worker and payment-provider webhook route classes do not exist yet.
  */
 export const routeInventory = [
+  { controller: "v1/booking", classification: "authenticated", publicActions: [] },
   { controller: "v1/dashboard", classification: "authenticated", publicActions: [] },
+  { controller: "v1/clients", classification: "authenticated", publicActions: [] },
+  { controller: "v1/schedule", classification: "authenticated", publicActions: [] },
+  { controller: "v1/finance", classification: "authenticated", publicActions: [] },
+  { controller: "v1/inventory", classification: "authenticated", publicActions: [] },
+  { controller: "v1/staff", classification: "authenticated", publicActions: [] },
+  { controller: "v1/settings", classification: "authenticated", publicActions: [] },
+  { controller: "v1/workspace", classification: "authenticated", publicActions: [] },
   { controller: "appointments", classification: "authenticated", publicActions: [] },
   { controller: "auth", classification: "authenticated", publicActions: ["POST /login"] },
   { controller: "billing", classification: "authenticated", publicActions: [] },

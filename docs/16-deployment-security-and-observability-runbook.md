@@ -41,6 +41,9 @@ Schema changes use expand/contract sequencing. An application release must remai
 ## 4. Security baseline
 
 - Enforce HTTPS, HSTS, secure cookies, `HttpOnly`, `SameSite`, CSRF protection where cookie sessions are used, secure CORS allowlists, and standard security headers.
+- Use opaque, server-side session records with only token hashes persisted. Enforce absolute and inactivity expiry, rotate sessions on privilege-sensitive events, and revoke every active session when an administrator resets a password.
+- Store new passwords with versioned, salted `scrypt` (`N=2^17`, `r=8`, `p=1`) hashes; accept at least 15 characters, reject known-common values, allow at least 64 characters, and transparently upgrade older deployed hash records only after a successful login. Do not impose scheduled password rotation.
+- Production startup fails without a sufficiently long `AUTH_SECRET` or an explicit browser-origin allowlist. Development/demo configuration is never a production fallback.
 - Authenticate every non-public API endpoint. Central Nest guards derive organization/location scope from the session and enforce action-level authorization.
 - Super Admin is platform-scoped, sees aggregate/de-identified metrics by default, and receives time-bound, reasoned, audited, read-only support access only when approved.
 - Encrypt transport and managed database/backups. Restrict database network access to application/migration paths; use least-privilege service identities.
@@ -88,6 +91,6 @@ Alert the on-call owner for sustained API 5xx, readiness failure, database/Redis
 
 ## 9. Current gaps and launch gates
 
-The repository currently lacks deployment manifests/CI, managed-worker integration, shared Redis cache, secure cookie sessions, CORS restrictions, rate limits, structured logging, error tracking, telemetry, backup/restore automation, health/readiness endpoints, and a documented incident process. These are launch blockers, not optional improvements.
+The repository has server-side cookie sessions, CSRF protection, CORS allowlisting, per-process rate limiting, security headers, readiness endpoints, session rotation/revocation, and password-reset session revocation. Before launch, replace the per-process limiter with a shared Redis-backed limiter that throttles both source and account identity; add audited password-reset/activation links, email verification, breached-password screening, and phishing-resistant MFA (WebAuthn preferred; TOTP fallback) for Owner, Admin, and Super Admin users. Tenant selection or a global verified identity model is also required before allowing one email address to authenticate into multiple clinics. These are launch gates, not optional improvements.
 
 Production launch requires evidence for every section above, a successful staging disaster-recovery rehearsal, and a named on-call/incident owner.

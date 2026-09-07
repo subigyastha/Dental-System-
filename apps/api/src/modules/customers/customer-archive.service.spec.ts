@@ -8,12 +8,17 @@ import { CustomerArchiveService } from "./customer-archive.service";
 const owner = { id: "owner-a", organizationId: "clinic-a", name: "Owner", email: "owner@example.test", role: "Owner" };
 const admin = { ...owner, id: "admin-a", role: "Admin" };
 
-function archivePrisma(customer: Record<string, unknown>) {
+function archivePrisma(
+  customer: Record<string, unknown>,
+  options: { mergeSecondaries?: number } = {},
+) {
   const auditEvents: Array<Record<string, unknown>> = [];
   let deleted = false;
   const prisma = {
     customer: {
       findFirst: async () => customer,
+      count: async ({ where }: { where?: Record<string, unknown> } = {}) =>
+        where && "mergedIntoCustomerId" in where ? options.mergeSecondaries ?? 0 : 0,
       delete: async () => { deleted = true; return customer; },
     },
     appointment: { count: async () => 0 },
@@ -24,8 +29,15 @@ function archivePrisma(customer: Record<string, unknown>) {
     payment: { count: async () => 0 },
     patientDentalChart: { count: async () => 0 },
     dentalChartRevision: { count: async () => 0 },
+    clientMerge: { count: async () => 0 },
+    clientAlias: { count: async () => 0 },
     $transaction: async (callback: (tx: unknown) => unknown) => callback({
-      customer: { delete: async () => { deleted = true; return customer; } },
+      customer: {
+        updateMany: async () => ({ count: 0 }),
+        delete: async () => { deleted = true; return customer; },
+      },
+      clientMerge: { deleteMany: async () => ({ count: 0 }) },
+      clientAlias: { deleteMany: async () => ({ count: 0 }) },
       auditLog: { create: async ({ data }: { data: Record<string, unknown> }) => { auditEvents.push(data); return { id: "audit" }; } },
     }),
   } as never;
@@ -64,4 +76,18 @@ test("eligible Owner purge writes a tombstone audit before deleting", async () =
   assert.equal(wasDeleted(), true);
   assert.equal(auditEvents[0].entityType, "customer_tombstone");
   assert.equal(auditEvents[0].action, "permanently_deleted");
+});
+
+test("purge blocks a merge target instead of reactivating archived duplicate identities", async () => {
+  const { prisma, wasDeleted } = archivePrisma({
+    id: "client-primary", organizationId: "clinic-a", archivedAt: new Date(), retentionUntil: null,
+    legalHoldAt: null, legalHoldReason: null,
+  }, { mergeSecondaries: 1 });
+  const service = new CustomerArchiveService(prisma, { requireSession: async () => owner } as never);
+
+  await assert.rejects(
+    service.purge("client-primary", "client-primary", "Requested", owner),
+    /merge-secondary Clients depend on its canonical identity/,
+  );
+  assert.equal(wasDeleted(), false);
 });

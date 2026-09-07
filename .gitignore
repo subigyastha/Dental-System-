@@ -24,6 +24,8 @@ apps/*/.env.production.local
 # -----------------------------------------------------------------------------
 .next/
 **/.next/
+.next-dev/
+**/.next-dev/
 out/
 dist/
 apps/api/dist/
@@ -86,4 +88,3 @@ android/
 ios/
 .expo/
 .expo-shared/
-

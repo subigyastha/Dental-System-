@@ -17,7 +17,7 @@ export const organization: Organization = {
   phone: "+977 01-4420000",
   address: "Baluwatar, Kathmandu",
   timezone: "Asia/Kathmandu",
-  primaryCalendar: "BS",
+  primaryCalendar: "AD",
   businessDayStartsAt: "08:00",
   businessDayEndsAt: "18:00",
   defaultBufferMinutes: 10,

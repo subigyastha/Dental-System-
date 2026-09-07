@@ -19,6 +19,7 @@ test("only Owners and Admins may open the Access & Roles data flow", () => {
   assert.equal(isOwnerOrAdmin("Owner"), true);
   assert.equal(isOwnerOrAdmin("Admin"), true);
   assert.equal(isOwnerOrAdmin("Manager"), false);
+  assert.equal(isOwnerOrAdmin("Receptionist", ["Receptionist", "Admin"]), true);
   assert.equal(isOwnerOrAdmin(null), false);
 });
 

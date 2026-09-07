@@ -7,12 +7,16 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:tenancy": "node --import tsx --test src/modules/customers/customers.tenancy.spec.ts",
-    "test:auth": "node --import tsx --test src/http-security.spec.ts src/modules/auth/session-auth.guard.spec.ts src/modules/auth/csrf.guard.spec.ts src/modules/auth/phase-one-tenancy.spec.ts src/modules/auth/server-sessions.spec.ts src/modules/auth/request-session.spec.ts src/modules/auth/authorization-policy.spec.ts src/modules/auth/role-governance.service.spec.ts src/modules/auth/role-enforcement.spec.ts",
-    "test:archive": "node --import tsx --test src/modules/customers/customer-archive.service.spec.ts",
-    "test:platform": "node --import tsx --test src/modules/platform/platform.service.spec.ts",
-    "test:v1": "node --import tsx --test src/modules/api-v1/dashboard-bootstrap.service.spec.ts",
-    "test:phase-one-http": "node --import tsx --test src/integration/phase-one-http.integration.spec.ts"
+    "test:tenancy": "tsx --tsconfig tsconfig.json --test src/modules/customers/customers.tenancy.spec.ts",
+    "test:auth": "tsx --tsconfig tsconfig.json --test src/env-bootstrap.spec.ts src/http-security.spec.ts src/modules/auth/session-auth.guard.spec.ts src/modules/auth/csrf.guard.spec.ts src/modules/auth/phase-one-tenancy.spec.ts src/modules/auth/server-sessions.spec.ts src/modules/auth/request-session.spec.ts src/modules/auth/authorization-policy.spec.ts src/modules/auth/role-governance.service.spec.ts src/modules/auth/role-enforcement.spec.ts",
+    "test:archive": "tsx --tsconfig tsconfig.json --test src/modules/customers/customer-archive.service.spec.ts",
+    "test:platform": "tsx --tsconfig tsconfig.json --test src/modules/platform/platform.service.spec.ts",
+    "test:scheduling": "tsx --tsconfig tsconfig.json --test src/modules/providers/dto/list-provider-slots.dto.spec.ts src/modules/providers/providers.service.spec.ts src/modules/scheduling/schedule-cache.service.spec.ts src/modules/scheduling/scheduling.service.spec.ts",
+    "test:v1": "tsx --tsconfig tsconfig.json --test src/modules/customers/client-phone-normalization.spec.ts src/modules/api-v1/dto/client-hub.dto.spec.ts src/modules/api-v1/clinic-settings.service.spec.ts src/modules/api-v1/booking-bootstrap.service.spec.ts src/modules/api-v1/booking-availability.service.spec.ts src/modules/api-v1/booking-confirmation.service.spec.ts src/modules/api-v1/dashboard-bootstrap.service.spec.ts src/modules/api-v1/schedule-bootstrap.service.spec.ts src/modules/api-v1/schedule-v1.controller.spec.ts src/modules/api-v1/workspace-bootstrap.service.spec.ts src/modules/api-v1/clients-v1.service.spec.ts src/modules/api-v1/finance-ledger.service.spec.ts src/modules/api-v1/inventory.service.spec.ts src/modules/api-v1/staff-directory.service.spec.ts src/modules/staff/staff.service.spec.ts src/modules/appointments/appointments.service.spec.ts src/modules/billing/billing.service.spec.ts",
+    "test:booking-postgres": "tsx --tsconfig tsconfig.json --test src/integration/booking-confirmation.postgres.integration.spec.ts",
+    "test:client-postgres": "tsx --tsconfig tsconfig.json --test src/integration/client-creation.postgres.integration.spec.ts",
+    "test:finance-postgres": "tsx --tsconfig tsconfig.json --test src/integration/finance-ledger.postgres.integration.spec.ts",
+    "test:phase-one-http": "tsx --tsconfig tsconfig.json --test src/integration/phase-one-http.integration.spec.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.19",

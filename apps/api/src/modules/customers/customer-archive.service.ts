@@ -91,7 +91,19 @@ export class CustomerArchiveService {
     if (customer.retentionUntil && customer.retentionUntil > new Date()) {
       throw new ForbiddenException("Client retention period has not ended");
     }
-    const [appointments, reports, followUps, communications, invoices, payments, charts, revisions] = await Promise.all([
+    const [
+      appointments,
+      reports,
+      followUps,
+      communications,
+      invoices,
+      payments,
+      charts,
+      revisions,
+      mergeLineage,
+      aliases,
+      mergeSecondaries,
+    ] = await Promise.all([
       this.prisma.appointment.count({ where: { customerId: id } }),
       this.prisma.appointmentSession.count({ where: { customerId: id } }),
       this.prisma.followUpTask.count({ where: { customerId: id } }),
@@ -100,9 +112,19 @@ export class CustomerArchiveService {
       this.prisma.payment.count({ where: { customerId: id } }),
       this.prisma.patientDentalChart.count({ where: { customerId: id } }),
       this.prisma.dentalChartRevision.count({ where: { customerId: id } }),
+      this.prisma.clientMerge.count({
+        where: { OR: [{ primaryCustomerId: id }, { secondaryCustomerId: id }] },
+      }),
+      this.prisma.clientAlias.count({ where: { customerId: id } }),
+      this.prisma.customer.count({ where: { mergedIntoCustomerId: id } }),
     ]);
     if (appointments || reports || followUps || communications || invoices || payments || charts || revisions) {
       throw new BadRequestException("Client cannot be permanently deleted while operational, financial, or clinical history exists");
+    }
+    if (mergeSecondaries) {
+      throw new BadRequestException(
+        "Client cannot be permanently deleted while archived merge-secondary Clients depend on its canonical identity",
+      );
     }
     await this.prisma.$transaction(async (tx) => {
       await tx.auditLog.create({
@@ -113,10 +135,18 @@ export class CustomerArchiveService {
           entityId: customer.id,
           action: "permanently_deleted",
           oldValue: { archivedAt: customer.archivedAt?.toISOString() ?? null },
-          newValue: { confirmationId, reason: reason.trim() },
+          newValue: {
+            confirmationId,
+            reason: reason.trim(),
+            removedGovernanceLinks: { mergeLineage, aliases, mergeSecondaries },
+          },
           description: "Owner confirmed permanent client deletion from archive",
         },
       });
+      await tx.clientMerge.deleteMany({
+        where: { OR: [{ primaryCustomerId: customer.id }, { secondaryCustomerId: customer.id }] },
+      });
+      await tx.clientAlias.deleteMany({ where: { customerId: customer.id } });
       await tx.customer.delete({ where: { id: customer.id } });
     });
     return { ok: true };

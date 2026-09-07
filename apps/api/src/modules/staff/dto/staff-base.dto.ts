@@ -16,6 +16,8 @@ export const staffRoles = [
   "Scheduler",
   "Provider",
   "Assistant",
+  "Finance",
+  "InventoryManager",
 ] as const;
 
 export class StaffBaseDto {
@@ -91,6 +93,6 @@ export class StaffBaseDto {
 
 export class PasswordDto {
   @IsString()
-  @MinLength(8)
+  @MinLength(15)
   password!: string;
 }

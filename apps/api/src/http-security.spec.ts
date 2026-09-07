@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { allowedOrigins, createRateLimit, securityHeaders } from "./http-security";
+import {
+  allowedOrigins,
+  createRateLimit,
+  requestTiming,
+  securityHeaders,
+} from "./http-security";
 
 function responseRecorder() {
   const headers = new Map<string, string>();
@@ -21,7 +26,12 @@ function responseRecorder() {
 }
 
 test("CORS defaults are local only and production requires explicit origins", () => {
-  assert.deepEqual(allowedOrigins({ NODE_ENV: "development" }), ["http://localhost:3000", "http://127.0.0.1:3000"]);
+  assert.deepEqual(allowedOrigins({ NODE_ENV: "development" }), [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+  ]);
   assert.deepEqual(allowedOrigins({ NODE_ENV: "production" }), []);
   assert.deepEqual(allowedOrigins({ NODE_ENV: "production", CORS_ORIGINS: "https://clinic.example, https://admin.example" }), ["https://clinic.example", "https://admin.example"]);
 });
@@ -53,4 +63,26 @@ test("login rate limiting returns 429 after the configured threshold", () => {
   assert.equal(nextCalls, 1);
   assert.equal(second.result().statusCode, 429);
   assert.deepEqual(second.result().body, { statusCode: 429, message: "Too many requests" });
+});
+
+test("request timing exposes a browser-readable processing duration", () => {
+  const capture = responseRecorder();
+  let endCalls = 0;
+  const response = {
+    ...capture.response,
+    headersSent: false,
+    end: () => { endCalls += 1; },
+  };
+  let nextCalls = 0;
+  requestTiming(
+    { path: "/api/v1/schedule/bootstrap", header: () => undefined },
+    response,
+    () => { nextCalls += 1; },
+  );
+  response.end();
+
+  assert.equal(nextCalls, 1);
+  assert.equal(endCalls, 1);
+  assert.match(capture.headers.get("server-timing") ?? "", /^app;dur=\d+\.\d$/);
+  assert.match(capture.headers.get("x-response-time-ms") ?? "", /^\d+\.\d$/);
 });

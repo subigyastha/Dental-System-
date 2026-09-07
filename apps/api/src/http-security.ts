@@ -10,6 +10,8 @@ export type HttpRequest = {
 export type HttpResponse = {
   setHeader(name: string, value: string): void;
   status(code: number): { json(body: unknown): void };
+  end?: (...args: unknown[]) => unknown;
+  headersSent?: boolean;
 };
 
 export type Next = () => void;
@@ -26,7 +28,12 @@ export function allowedOrigins(environment = process.env) {
 
   return environment.NODE_ENV === "production"
     ? []
-    : ["http://localhost:3000", "http://127.0.0.1:3000"];
+    : [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+      ];
 }
 
 export function createRateLimit(options?: {
@@ -72,5 +79,29 @@ export function securityHeaders(req: HttpRequest, res: HttpResponse, next: Next)
   res.setHeader("x-frame-options", "DENY");
   res.setHeader("permissions-policy", "camera=(), microphone=(), geolocation=()");
   req.requestId = requestId;
+  next();
+}
+
+/**
+ * Makes end-to-end API latency visible in browser Network tools without
+ * logging Client data. The value measures Nest processing through response
+ * serialization; proxies may append their own Server-Timing entries later.
+ */
+export function requestTiming(req: HttpRequest, res: HttpResponse, next: Next) {
+  if (!res.end) {
+    next();
+    return;
+  }
+  const startedAt = process.hrtime.bigint();
+  const originalEnd = res.end.bind(res);
+  res.end = (...args: unknown[]) => {
+    if (!res.headersSent) {
+      const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+      const rounded = durationMs.toFixed(1);
+      res.setHeader("server-timing", `app;dur=${rounded}`);
+      res.setHeader("x-response-time-ms", rounded);
+    }
+    return originalEnd(...args);
+  };
   next();
 }

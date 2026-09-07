@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -10,18 +11,20 @@ import {
   PaymentMethod,
   PaymentStatus,
   Prisma,
+  type FinancialCorrection,
   type Invoice,
   type Payment,
 } from "@prisma/client";
 
 import { AuthService } from "../auth/auth.service";
-import { assertFinanceOperator } from "../auth/authz";
+import { assertFinanceOperator, effectiveRoleUnion, financeRoles } from "../auth/authz";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 import { InvoiceLineItemDto } from "./dto/invoice-line-item.dto";
 import { ListInvoicesDto } from "./dto/list-invoices.dto";
 import { RecordPaymentDto } from "./dto/record-payment.dto";
 import { UpdateInvoiceDto } from "./dto/update-invoice.dto";
+import { CreateFinancialCorrectionDto } from "./dto/create-financial-correction.dto";
 
 @Injectable()
 export class BillingService {
@@ -37,6 +40,9 @@ export class BillingService {
     const invoices = await this.prisma.invoice.findMany({
       where: {
         organizationId: session.organizationId,
+        ...(this.financeLocationWhere(session)
+          ? { locationId: this.financeLocationWhere(session) }
+          : {}),
         customerId: query.customerId,
         appointmentId: query.appointmentId,
         status: query.status as InvoiceStatus | undefined,
@@ -44,6 +50,7 @@ export class BillingService {
       include: {
         lineItems: { orderBy: [{ sortOrder: "asc" }] },
         payments: { orderBy: [{ paidAt: "desc" }] },
+        corrections: { orderBy: [{ executedAt: "desc" }] },
       },
       orderBy: [{ issuedAt: "desc" }],
     });
@@ -54,10 +61,17 @@ export class BillingService {
   async getInvoice(id: string, authorization?: string) {
     const session = await this.requireFinance(authorization);
     const invoice = await this.prisma.invoice.findFirst({
-      where: { id, organizationId: session.organizationId },
+      where: {
+        id,
+        organizationId: session.organizationId,
+        ...(this.financeLocationWhere(session)
+          ? { locationId: this.financeLocationWhere(session) }
+          : {}),
+      },
       include: {
         lineItems: { orderBy: [{ sortOrder: "asc" }] },
         payments: { orderBy: [{ paidAt: "desc" }] },
+        corrections: { orderBy: [{ executedAt: "desc" }] },
       },
     });
 
@@ -74,9 +88,17 @@ export class BillingService {
     const normalized = await this.normalizeInvoiceDraft(dto);
 
     const invoice = await this.prisma.$transaction(async (tx) => {
+      const requestedInvoiceNumber = dto.invoiceNumber?.trim().toUpperCase() || undefined;
       const invoiceNumber =
-        dto.invoiceNumber?.trim().toUpperCase() ??
+        requestedInvoiceNumber ??
         (await this.generateInvoiceNumber(tx, dto.organizationId));
+
+      // A manually supplied invoice number can reserve a future automatic
+      // `INV-` number. Advance the sequence in the same transaction so the
+      // generated series never catches up and collides with that invoice.
+      if (requestedInvoiceNumber) {
+        await this.reserveInvoiceNumber(tx, dto.organizationId, requestedInvoiceNumber);
+      }
 
       const created = await tx.invoice.create({
         data: {
@@ -85,7 +107,7 @@ export class BillingService {
           customerId: dto.customerId,
           appointmentId: dto.appointmentId,
           invoiceNumber,
-          status: normalized.status,
+          status: "Draft",
           dueAt: dto.dueAtIso ? new Date(dto.dueAtIso) : undefined,
           notes: dto.notes,
           subtotal: normalized.totals.subtotal,
@@ -109,6 +131,7 @@ export class BillingService {
         include: {
           lineItems: { orderBy: [{ sortOrder: "asc" }] },
           payments: true,
+          corrections: true,
         },
       });
 
@@ -123,7 +146,7 @@ export class BillingService {
             customerId: dto.customerId,
             appointmentId: dto.appointmentId ?? null,
             invoiceNumber,
-            status: normalized.status,
+            status: "Draft",
             lineItems: normalized.lineItems.map((item) => ({
               description: item.description,
               quantity: item.quantity,
@@ -155,8 +178,13 @@ export class BillingService {
       throw new NotFoundException("Invoice not found");
     }
 
-    if (existing.status === "Paid") {
-      throw new BadRequestException("Paid invoices cannot be edited");
+    if (existing.status !== "Draft") {
+      throw new BadRequestException(
+        "Issued invoices cannot be edited; use a correction or void workflow",
+      );
+    }
+    if (dto.status && dto.status !== "Draft") {
+      throw new BadRequestException("Issue an invoice through the dedicated issue command");
     }
 
     const normalized = await this.normalizeInvoiceDraft(dto);
@@ -206,6 +234,7 @@ export class BillingService {
         include: {
           lineItems: { orderBy: [{ sortOrder: "asc" }] },
           payments: { orderBy: [{ paidAt: "desc" }] },
+          corrections: { orderBy: [{ executedAt: "desc" }] },
         },
       });
 
@@ -233,8 +262,73 @@ export class BillingService {
     return this.mapInvoice(updated);
   }
 
+  async issueInvoice(id: string, organizationId: string, authorization?: string) {
+    const session = await this.requireFinanceAuthority(authorization);
+    this.assertSameOrganization(session.organizationId, organizationId);
+
+    const invoice = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(
+        Prisma.sql`SELECT id FROM "Invoice" WHERE id = ${id} AND "organizationId" = ${organizationId} FOR UPDATE`,
+      );
+      const existing = await tx.invoice.findFirst({
+        where: { id, organizationId },
+        include: { lineItems: true, payments: true },
+      });
+      if (!existing) throw new NotFoundException("Invoice not found");
+      if (existing.status !== "Draft") throw new BadRequestException("Only a draft invoice can be issued");
+      if (!existing.lineItems.length) throw new BadRequestException("Invoice requires line items before issue");
+      const issued = await tx.invoice.update({
+        where: { id },
+        data: { status: "Issued", issuedAt: new Date(), balanceAmount: existing.totalAmount },
+        include: {
+          lineItems: { orderBy: [{ sortOrder: "asc" }] },
+          payments: { orderBy: [{ paidAt: "desc" }] },
+          corrections: { orderBy: [{ executedAt: "desc" }] },
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          actorId: session.id,
+          entityType: "invoice",
+          entityId: id,
+          action: "issued",
+          oldValue: { status: "Draft" },
+          newValue: { status: "Issued", totalAmount: issued.totalAmount.toNumber() },
+          description: "Invoice issued; financial snapshot is now immutable",
+        },
+      });
+      return issued;
+    });
+    return this.mapInvoice(invoice);
+  }
+
+  async voidInvoice(id: string, organizationId: string, reason: string, authorization?: string) {
+    const session = await this.requireFinanceAuthority(authorization);
+    this.assertSameOrganization(session.organizationId, organizationId);
+    if (!reason.trim()) throw new BadRequestException("Void reason is required");
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "Invoice" WHERE id = ${id} AND "organizationId" = ${organizationId} FOR UPDATE`);
+      const existing = await tx.invoice.findFirst({ where: { id, organizationId }, include: { payments: true } });
+      if (!existing) throw new NotFoundException("Invoice not found");
+      if (existing.status !== "Issued") throw new BadRequestException("Only an issued unpaid invoice can be voided");
+      if (existing.payments.length) throw new BadRequestException("Invoices with payment history require a correction, not a void");
+      const invoice = await tx.invoice.update({
+        where: { id }, data: { status: "Void", balanceAmount: new Prisma.Decimal(0), notes: existing.notes ? `${existing.notes}\nVoid reason: ${reason.trim()}` : `Void reason: ${reason.trim()}` },
+        include: {
+          lineItems: { orderBy: [{ sortOrder: "asc" }] },
+          payments: { orderBy: [{ paidAt: "desc" }] },
+          corrections: { orderBy: [{ executedAt: "desc" }] },
+        },
+      });
+      await tx.financialCorrection.create({ data: { organizationId, invoiceId: id, kind: "InvoiceVoid", status: "Executed", amount: new Prisma.Decimal(0), reason: reason.trim(), initiatedByUserId: session.id, executedAt: new Date() } });
+      await tx.auditLog.create({ data: { organizationId, actorId: session.id, entityType: "invoice", entityId: id, action: "voided", oldValue: { status: "Issued" }, newValue: { status: "Void", reason: reason.trim() }, description: "Issued unpaid invoice voided" } });
+      return this.mapInvoice(invoice);
+    });
+  }
+
   async deleteInvoice(id: string, authorization?: string) {
-    const session = await this.requireFinance(authorization);
+    const session = await this.requireFinanceAuthority(authorization);
     const existing = await this.prisma.invoice.findFirst({
       where: { id, organizationId: session.organizationId },
       include: {
@@ -276,21 +370,33 @@ export class BillingService {
     const session = await this.requireFinance(authorization);
     this.assertSameOrganization(session.organizationId, dto.organizationId);
 
-    const invoice = await this.prisma.invoice.findFirst({
-      where: { id: invoiceId, organizationId: dto.organizationId },
-      include: { payments: true },
-    });
-
-    if (!invoice) {
-      throw new NotFoundException("Invoice not found");
-    }
-
     const amount = new Prisma.Decimal(dto.amount);
-    if (amount.greaterThan(invoice.balanceAmount)) {
-      throw new BadRequestException("Payment amount cannot exceed invoice balance");
+    if (dto.status && dto.status !== "Completed") {
+      throw new BadRequestException(
+        "Manual payment recording creates a completed receipt; provider payments use payment intents",
+      );
     }
 
     const payment = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(
+        Prisma.sql`SELECT id FROM "Invoice" WHERE id = ${invoiceId} AND "organizationId" = ${dto.organizationId} FOR UPDATE`,
+      );
+
+      const invoice = await tx.invoice.findFirst({
+        where: { id: invoiceId, organizationId: dto.organizationId },
+        include: { payments: true },
+      });
+
+      if (!invoice) {
+        throw new NotFoundException("Invoice not found");
+      }
+
+      this.assertInvoiceCanAcceptPayment(invoice.status);
+
+      if (amount.greaterThan(invoice.balanceAmount)) {
+        throw new BadRequestException("Payment amount cannot exceed invoice balance");
+      }
+
       const created = await tx.payment.create({
         data: {
           id: dto.id,
@@ -355,6 +461,12 @@ export class BillingService {
       throw new NotFoundException("Payment or invoice not found");
     }
 
+    if (existing.status === "Completed") {
+      throw new BadRequestException(
+        "Completed payments cannot be edited; record a refund or reversal instead",
+      );
+    }
+
     const peers = await this.prisma.payment.findMany({
       where: {
         invoiceId,
@@ -417,6 +529,21 @@ export class BillingService {
     return this.mapPayment(updated);
   }
 
+  async createFinancialCorrection(
+    invoiceId: string,
+    paymentId: string,
+    dto: CreateFinancialCorrectionDto,
+    authorization?: string,
+  ) {
+    void invoiceId;
+    void paymentId;
+    void dto;
+    await this.requireFinanceAuthority(authorization);
+    throw new BadRequestException(
+      "Legacy financial correction is disabled; use the governed v1 correction workflow",
+    );
+  }
+
   async deletePayment(invoiceId: string, paymentId: string, authorization?: string) {
     const session = await this.requireFinance(authorization);
     const payment = await this.prisma.payment.findFirst({
@@ -429,6 +556,12 @@ export class BillingService {
 
     if (!payment) {
       throw new NotFoundException("Payment not found");
+    }
+
+    if (payment.status === "Completed") {
+      throw new BadRequestException(
+        "Completed payments cannot be deleted; record a refund or reversal instead",
+      );
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -454,6 +587,51 @@ export class BillingService {
     const session = await this.auth.requireSession(authorization);
     assertFinanceOperator(session);
     return session;
+  }
+
+  private async requireFinanceAuthority(authorization?: string) {
+    const session = await this.requireFinance(authorization);
+    if (!effectiveRoleUnion(session).some((role) => ["Owner", "Admin", "Manager", "Finance"].includes(role))) {
+      throw new ForbiddenException(
+        "Receptionists may record eligible payments but cannot issue, delete, or correct invoices",
+      );
+    }
+    return session;
+  }
+
+  private financeLocationWhere(session: {
+    effectiveRoleScopes?: Array<{ role: string; locationId: string | null }>;
+  }) {
+    if (!session.effectiveRoleScopes) return undefined;
+    if (
+      session.effectiveRoleScopes.some(
+        (scope) => scope.locationId === null && financeRoles.has(scope.role),
+      )
+    ) {
+      return undefined;
+    }
+    return {
+      in: [
+        ...new Set(
+          session.effectiveRoleScopes
+            .filter(
+              (scope) =>
+                scope.locationId !== null && financeRoles.has(scope.role),
+            )
+            .map((scope) => scope.locationId!),
+        ),
+      ],
+    };
+  }
+
+  private assertInvoiceCanAcceptPayment(status: InvoiceStatus) {
+    if (status === "Draft") {
+      throw new BadRequestException("Issue the invoice before recording payment");
+    }
+
+    if (status === "Paid" || status === "Cancelled" || status === "Void") {
+      throw new BadRequestException("Payments can only be recorded on issued invoices with a remaining balance");
+    }
   }
 
   private assertSameOrganization(sessionOrganizationId: string, targetOrganizationId: string) {
@@ -609,8 +787,35 @@ export class BillingService {
   }
 
   private async generateInvoiceNumber(tx: Prisma.TransactionClient, organizationId: string) {
-    const count = await tx.invoice.count({ where: { organizationId } });
-    return `INV-${String(count + 1).padStart(5, "0")}`;
+    const sequence = await tx.invoiceNumberSequence.upsert({
+      where: { organizationId }, create: { organizationId, nextValue: 2 }, update: { nextValue: { increment: 1 } },
+    });
+    return `INV-${String(sequence.nextValue - 1).padStart(5, "0")}`;
+  }
+
+  private async reserveInvoiceNumber(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    invoiceNumber: string,
+  ) {
+    const match = /^INV-(\d+)$/.exec(invoiceNumber);
+    if (!match) return;
+
+    const numericValue = Number(match[1]);
+    if (!Number.isSafeInteger(numericValue) || numericValue >= 2_147_483_647) {
+      throw new BadRequestException("Invoice number is outside the supported sequence range");
+    }
+
+    const nextValue = numericValue + 1;
+    await tx.$executeRaw(
+      Prisma.sql`
+        INSERT INTO "InvoiceNumberSequence" ("organizationId", "nextValue", "createdAt", "updatedAt")
+        VALUES (${organizationId}, ${nextValue}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT ("organizationId") DO UPDATE
+        SET "nextValue" = GREATEST("InvoiceNumberSequence"."nextValue", EXCLUDED."nextValue"),
+            "updatedAt" = CURRENT_TIMESTAMP
+      `,
+    );
   }
 
   private sumCompletedPayments(payments: Array<{ amount: Prisma.Decimal; status: PaymentStatus }>) {
@@ -646,9 +851,13 @@ export class BillingService {
   ) {
     const invoice = await tx.invoice.findUniqueOrThrow({
       where: { id: invoiceId },
-      include: { payments: true },
+      include: { payments: true, corrections: true },
     });
-    const paidAmount = this.sumCompletedPayments(invoice.payments);
+    const paidAmount = this.sumCompletedPayments(invoice.payments).minus(
+      invoice.corrections
+        .filter((correction) => correction.status === "Executed")
+        .reduce((sum, correction) => sum.plus(correction.amount), new Prisma.Decimal(0)),
+    );
     const status = this.deriveInvoiceStatus(
       invoice.status,
       invoice.totalAmount,
@@ -681,6 +890,7 @@ export class BillingService {
         sortOrder: number;
       }>;
       payments: Payment[];
+      corrections: FinancialCorrection[];
     },
   ) {
     return {
@@ -710,6 +920,19 @@ export class BillingService {
         sortOrder: item.sortOrder,
       })),
       payments: invoice.payments.map((payment) => this.mapPayment(payment)),
+      corrections: invoice.corrections.map((correction) => ({
+        id: correction.id,
+        organizationId: correction.organizationId,
+        invoiceId: correction.invoiceId,
+        paymentId: correction.paymentId ?? undefined,
+        kind: correction.kind as "Refund" | "Reversal",
+        amount: correction.amount.toNumber(),
+        reason: correction.reason,
+        initiatedByUserId: correction.initiatedByUserId,
+        executedAtIso: correction.executedAt?.toISOString(),
+        providerReference: correction.providerReference ?? undefined,
+        createdAtIso: correction.createdAt.toISOString(),
+      })),
       createdAtIso: invoice.createdAt.toISOString(),
       updatedAtIso: invoice.updatedAt.toISOString(),
     };

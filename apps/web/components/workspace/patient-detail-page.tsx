@@ -23,6 +23,12 @@ import {
   formatClockRange,
   formatDualDate,
 } from "@/components/workspace/workspace-utils";
+import { loadFinanceWorkspace } from "@/lib/finance-api";
+import {
+  formatNpr,
+  type FinanceInvoiceRow,
+} from "@/lib/finance-domain";
+import { isAbortedRequest } from "@/lib/request-error";
 
 export function PatientDetailPage({ customerId }: { customerId: string }) {
   const router = useRouter();
@@ -31,9 +37,6 @@ export function PatientDetailPage({ customerId }: { customerId: string }) {
     createVisitReport,
     data,
     deleteCustomer,
-    invoices,
-    invoicesLoading,
-    loadInvoices,
     mergeCustomers,
     updateCustomer,
   } = useWorkspaceApp();
@@ -41,6 +44,9 @@ export function PatientDetailPage({ customerId }: { customerId: string }) {
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [isBookingOpen, setIsBookingOpen] = useState(false);
   const [isMergeOpen, setIsMergeOpen] = useState(false);
+  const [financeInvoices, setFinanceInvoices] = useState<FinanceInvoiceRow[]>([]);
+  const [financeLoading, setFinanceLoading] = useState(true);
+  const [financeError, setFinanceError] = useState(false);
   const customer = data.customers.find((item) => item.id === customerId);
 
   const appointments = useMemo(
@@ -65,11 +71,24 @@ export function PatientDetailPage({ customerId }: { customerId: string }) {
   const nextAppointment = [...appointments]
     .filter((appointment) => new Date(appointment.startsAtIso).getTime() > Date.now())
     .sort((a, b) => new Date(a.startsAtIso).getTime() - new Date(b.startsAtIso).getTime())[0];
-  const customerInvoices = invoices.filter((invoice) => invoice.customerId === customerId);
+  const customerInvoices = financeInvoices.filter(
+    (invoice) => invoice.clientId === customerId,
+  );
 
   useEffect(() => {
-    void loadInvoices(customerId);
-  }, [customerId, loadInvoices]);
+    const controller = new AbortController();
+    setFinanceLoading(true);
+    setFinanceError(false);
+    void loadFinanceWorkspace({ clientId: customerId, signal: controller.signal })
+      .then((workspace) => setFinanceInvoices(workspace.invoices))
+      .catch((cause: unknown) => {
+        if (!isAbortedRequest(cause)) setFinanceError(true);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setFinanceLoading(false);
+      });
+    return () => controller.abort();
+  }, [customerId]);
 
   if (!customer) {
     return (
@@ -257,15 +276,19 @@ export function PatientDetailPage({ customerId }: { customerId: string }) {
 
       <Panel title="Billing history">
         <div className="divide-y divide-[var(--border)]">
-          {invoicesLoading ? (
+          {financeLoading ? (
             <KoiInlineLoader label="Loading billing" />
+          ) : financeError ? (
+            <div className="p-4 text-sm text-[var(--danger)]" role="alert">
+              Finance history could not be loaded.
+            </div>
           ) : customerInvoices.length ? (
             customerInvoices.map((invoice) => (
               <div className="flex items-start justify-between gap-3 px-4 py-4" key={invoice.id}>
                 <div>
                   <div className="font-medium text-[var(--foreground)]">{invoice.invoiceNumber}</div>
                   <div className="mt-1 text-sm text-[var(--text-muted)]">
-                    Total {invoice.totalAmount.toFixed(2)} · Balance {invoice.balanceAmount.toFixed(2)}
+                    Total {formatNpr(invoice.totalNpr)} · Balance {formatNpr(invoice.balanceNpr)}
                   </div>
                 </div>
                 <StatusPill status={invoice.status === "Paid" ? "Completed" : "Scheduled"} />

@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString } from "class-validator";
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsOptional, IsString } from "class-validator";
 
 import { CustomerBaseDto } from "./customer-base.dto";
 
@@ -12,4 +12,14 @@ export class ResolveCustomerForAppointmentDto extends CustomerBaseDto {
   @IsOptional()
   @IsString()
   existingCustomerId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  priorVisitedClinic?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(12)
+  @IsString({ each: true })
+  skippedPossibleMatchClientIds?: string[];
 }

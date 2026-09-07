@@ -1,16 +1,41 @@
 "use client";
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
-import { KoiPageLoader } from "@/components/koi-loader";
 import { WorkspaceProvider } from "@/components/workspace/app-state";
+import { QuickBookProvider } from "@/components/workspace/quick-book-provider";
+import { SecureSignOutProvider } from "@/components/workspace/secure-sign-out";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
+import {
+  WorkspaceContentSkeleton,
+  WorkspaceShellSkeleton,
+} from "@/components/workspace/workspace-shell-skeleton";
 import { ApiRequestError, apiFetchJson } from "@/lib/api-client";
 import type { OperationalData } from "@/lib/database-data";
-import { resolveWorkspaceGate } from "@/lib/workspace-access";
-import { isPlatformOnlyUser } from "@/lib/session-routing";
 import type { SessionUser } from "@/lib/domain";
+import { resolveWorkspaceGate } from "@/lib/workspace-access";
+import {
+  minimalOperationalData,
+  type WorkspaceBootstrap,
+} from "@/lib/workspace-bootstrap";
+import { workspaceDataPolicy } from "@/lib/workspace-data-policy";
+import {
+  scheduleOperationalData,
+  unwrapScheduleBootstrap,
+  type ScheduleBootstrap,
+} from "@/lib/schedule-bootstrap";
+import { isPlatformOnlyUser } from "@/lib/session-routing";
+import { subscribeToSessionEnd } from "@/lib/session-events";
+import {
+  clearWorkspaceSessionCache,
+  loadWorkspaceSession,
+} from "@/lib/workspace-session-loader";
+
+type V1Envelope<T> = {
+  data: T;
+  meta: { apiVersion: "v1"; requestId?: string };
+};
 
 export function WorkspaceRoot({
   children,
@@ -20,7 +45,13 @@ export function WorkspaceRoot({
   todayDateKey: string;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const dataPolicy = workspaceDataPolicy(pathname);
+  const redirectProviderFromDashboard = pathname === "/dashboard";
   const [data, setData] = useState<OperationalData | null>(null);
+  const [workspaceBootstrap, setWorkspaceBootstrap] =
+    useState<WorkspaceBootstrap | null>(null);
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [requiresSignIn, setRequiresSignIn] = useState(false);
 
@@ -28,19 +59,48 @@ export function WorkspaceRoot({
     setRequiresSignIn(false);
     setError(null);
     try {
-      const user = await apiFetchJson<SessionUser>("/auth/me", { cache: "no-store" });
+      const scheduleRequest = dataPolicy === "schedule-bootstrap"
+        ? apiFetchJson<V1Envelope<ScheduleBootstrap>>(
+            `/v1/schedule/bootstrap?detail=${pathname.startsWith("/my-schedule") ? "full" : "summary"}`,
+            {
+            cache: "no-store",
+            },
+          )
+        : null;
+      void scheduleRequest?.catch(() => undefined);
+      const { bootstrap, user } = await loadWorkspaceSession();
       if (isPlatformOnlyUser(user)) {
         router.replace("/platform");
         return;
       }
-      const response = await apiFetchJson<OperationalData>(
-        "/operational-data",
-        { cache: "no-store" },
-      );
-      setData(response);
+
+      if (
+        redirectProviderFromDashboard &&
+        user.providerId &&
+        ["Provider", "Assistant"].includes(user.role)
+      ) {
+        router.replace("/my-schedule");
+        return;
+      }
+
+      setSessionUser(user);
+      setWorkspaceBootstrap(bootstrap);
+      setData(minimalOperationalData(bootstrap));
+      if (dataPolicy === "schedule-bootstrap" && scheduleRequest) {
+        const scheduleResponse = await scheduleRequest;
+        setData(
+          scheduleOperationalData(
+            bootstrap,
+            unwrapScheduleBootstrap(scheduleResponse),
+          ),
+        );
+      }
     } catch (loadError) {
       setData(null);
+      setWorkspaceBootstrap(null);
+      setSessionUser(null);
       if (loadError instanceof ApiRequestError && loadError.status === 401) {
+        clearWorkspaceSessionCache();
         setRequiresSignIn(true);
         router.replace("/login");
         return;
@@ -49,27 +109,47 @@ export function WorkspaceRoot({
         "Clinic data is temporarily unavailable. Check your connection and try again.",
       );
     }
-  }, [router]);
+  }, [dataPolicy, pathname, redirectProviderFromDashboard, router]);
 
   useEffect(() => {
     void loadWorkspace();
   }, [loadWorkspace]);
 
   useEffect(() => {
-    const handleSessionExpired = () => {
+    return subscribeToSessionEnd(() => {
+      clearWorkspaceSessionCache();
       setData(null);
+      setWorkspaceBootstrap(null);
+      setSessionUser(null);
       setError(null);
       setRequiresSignIn(true);
       router.replace("/login");
-    };
-
-    window.addEventListener("clinicflow:session-expired", handleSessionExpired);
-    return () => window.removeEventListener("clinicflow:session-expired", handleSessionExpired);
+    });
   }, [router]);
 
+  useEffect(() => {
+    const handleSettingsChanged = () => {
+      clearWorkspaceSessionCache();
+      void loadWorkspace();
+    };
+    window.addEventListener(
+      "clinicflow:workspace-settings-changed",
+      handleSettingsChanged,
+    );
+    return () => window.removeEventListener(
+      "clinicflow:workspace-settings-changed",
+      handleSettingsChanged,
+    );
+  }, [loadWorkspace]);
+
+  const hasRequiredRouteData = Boolean(
+    data &&
+      workspaceBootstrap &&
+      (dataPolicy !== "schedule-bootstrap" || data.dataScope === "schedule"),
+  );
   const gate = resolveWorkspaceGate({
     requiresSignIn,
-    hasData: Boolean(data),
+    hasData: hasRequiredRouteData,
     hasError: Boolean(error),
   });
 
@@ -77,19 +157,56 @@ export function WorkspaceRoot({
     return <WorkspaceUnavailable onRetry={() => void loadWorkspace()} />;
   }
 
+  if (
+    gate === "loading" &&
+    data &&
+    workspaceBootstrap &&
+    sessionUser
+  ) {
+    return (
+      <WorkspaceProvider
+        initialData={data}
+        initialSessionUser={sessionUser}
+        initialWorkspaceBootstrap={workspaceBootstrap}
+        key={`${workspaceBootstrap.context.organization.id}:${data.dataScope ?? "unknown"}`}
+        todayDateKey={todayDateKey}
+      >
+        <QuickBookProvider>
+          <SecureSignOutProvider>
+            <WorkspaceShell>
+              <WorkspaceContentSkeleton
+                label="Loading schedule references"
+                pathname={pathname}
+              />
+            </WorkspaceShell>
+          </SecureSignOutProvider>
+        </QuickBookProvider>
+      </WorkspaceProvider>
+    );
+  }
+
   if (gate === "redirecting" || gate === "loading") {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[var(--background)]">
-        <KoiPageLoader
-          label={gate === "redirecting" ? "Redirecting to sign in" : "Loading secure clinic data"}
-        />
-      </div>
+      <WorkspaceShellSkeleton
+        label={gate === "redirecting" ? "Redirecting to sign in" : "Loading secure clinic data"}
+        pathname={pathname}
+      />
     );
   }
 
   return (
-    <WorkspaceProvider initialData={data!} todayDateKey={todayDateKey}>
-      <WorkspaceShell>{children}</WorkspaceShell>
+    <WorkspaceProvider
+      initialData={data!}
+      initialSessionUser={sessionUser!}
+      initialWorkspaceBootstrap={workspaceBootstrap!}
+      key={`${workspaceBootstrap!.context.organization.id}:${data!.dataScope ?? "unknown"}`}
+      todayDateKey={todayDateKey}
+    >
+      <QuickBookProvider>
+        <SecureSignOutProvider>
+          <WorkspaceShell>{children}</WorkspaceShell>
+        </SecureSignOutProvider>
+      </QuickBookProvider>
     </WorkspaceProvider>
   );
 }

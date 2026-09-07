@@ -68,6 +68,15 @@ Only valid workflow commands are offered. Status controls are labelled verbs (`C
 
 Archive is an explicit reversible-looking first step only where policy permits. Archive confirmation states what becomes unavailable and links to archive history. Owner-only deletion from archive requires a separate confirmation/re-authentication dialog, reason, retention result, and clear warning that it may be irreversible. A failed policy check must not offer a workaround.
 
+### 3.4 Drawers and transactional forms
+
+- Every create, update, detailed review, configuration, and other multi-field interaction uses the shared right-side drawer so the originating page remains visible as context. This includes Client, appointment, Record, invoice, payment, staff, role, schedule, settings, and platform-control workflows.
+- The standard drawer is 480 CSS pixels wide on supported desktop viewports and becomes a bounded, safe-area-aware bottom sheet on mobile. Wider desktop variants require demonstrated content need and must still pass 320-pixel reflow, virtual-keyboard, and reachable-action checks.
+- Only one workflow surface owns the foreground at a time. Opening Edit or Reschedule from Appointment Detail replaces that detail surface; it must never render behind or compete with the detail drawer. Cancel may restore the unchanged detail surface, while a successful save returns to authoritative Schedule state.
+- The header identifies the task and context; the body is independently scrollable; primary and secondary actions remain visible in a fixed footer. Multi-step tasks show progress and preserve safe draft values through validation, conflict, and recoverable network errors.
+- Opening moves focus into the drawer. Tab and Shift+Tab remain inside it, Escape closes only when safe, and closing restores focus to the launching control. The backdrop is not the only close mechanism.
+- A compact centered dialog is reserved for a short confirmation decision, particularly an irreversible action. If the interaction asks for multiple fields, detailed review, or extended explanation, it is a drawer rather than a centered popup.
+
 ## 4. Screen specifications
 
 | Screen | Required behavior | Important empty / error state |
@@ -75,6 +84,8 @@ Archive is an explicit reversible-looking first step only where policy permits. 
 | Dashboard | Show only permitted daily schedule, follow-up queue, quick client search, operational alerts, and role-relevant KPI cards. Link to underlying filtered work lists. | Empty: explain no work is scheduled. Error: card-level retry and timestamp; do not display seeded totals. |
 | Schedule | Day/week provider grid; AD primary date picker with optional BS secondary label; provider/location filters; availability/blocks; create, confirm, check-in, cancel, reschedule and no-show actions only when valid. | No provider/availability: explain how authorized staff can configure it. Conflict: refresh valid slots and name a safe category, never another client. API failure: explicit unavailable schedule state. |
 | Appointment detail | Show client/appointment context, provider, service timing/buffer, communication history, valid lifecycle actions, Record and billing links. Reschedule creates a linked successor, not in-place time replacement. | If already changed/terminal: render current state and history; disable invalid actions with reason. |
+
+Appointment Edit keeps Client identity read-only and uses the shared responsive change drawer for Provider, service, AD-first date/time, duration, priority, location, and notes. Appointment Reschedule uses the same visual system but requires live Provider/service availability, an explicitly different time, a reason, and a final summary explaining that the original remains in history and a linked successor is created. Both flows preserve entered values on conflict, guard dirty close, and use a mobile bottom sheet rather than the legacy all-fields booking form.
 | Client directory/profile | Search/create, duplicate candidates, demographics/contact, archive/merge history, permitted Records, appointment history, communications and billing summary. Client profile excludes a client-facing account. | No results: offer authorized create flow; no direct database/seed fallback. Unauthorized clinical section: omit content, not a misleading blank panel. |
 | Record | Draft editor with save state/version, assigned-work context, sign action, immutable signed display and amendment timeline. Assistants see draft-only controls where permitted. | Sign failure/stale draft: preserve local unsaved content safely and require refresh/review; never overwrite signed content. |
 | Follow-ups | Default to due/overdue owned work; filters for status/type/priority/location; state commands require required reasons/next review dates. | Empty: distinguish no assigned work from filtered-out work. Failed task change: retain prior visible state and show retry after refresh. |
@@ -112,6 +123,10 @@ Every data-bearing screen implements all states below. Skeletons mirror final la
 ## 7. Responsive and accessibility requirements
 
 The supported minimum viewport is 320 CSS pixels. Desktop scheduling may use a dense grid; at mobile widths it becomes a chronological provider list with date/provider filters and the same booking actions. Tables must offer horizontally reachable data or an accessible card/detail alternative; no essential action is hover-only.
+
+The final responsive certification occurs after core functional flows stabilize and is a production-release gate. It covers 320/360/390/430px phones, 768/820px tablets in portrait and landscape, 1024px compact desktop, 1280/1440px standard desktop, and 1920px large desktop. Each production route, drawer, form, table, schedule and platform screen must be reviewed at the applicable sizes.
+
+“Responsive” means the workflow feels native to the active device rather than merely shrinking the desktop layout. Mobile controls use appropriate input purpose and virtual keyboards; fixed actions respect safe-area insets and remain visible above the keyboard; touch targets work with a coarse pointer; orientation changes preserve safe draft state; compact and large desktops use space without creating excessively wide reading lines. The same pass covers 200% browser zoom, operating-system text scaling, reduced motion, keyboard-only use and representative screen-reader behavior.
 
 WCAG 2.2 AA release requirements include:
 

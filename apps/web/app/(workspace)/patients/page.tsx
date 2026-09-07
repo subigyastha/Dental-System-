@@ -1,5 +1,5 @@
-import { PatientsPage } from "@/components/workspace/patients-page";
+import { redirect } from "next/navigation";
 
 export default function PatientsRoute() {
-  return <PatientsPage />;
+  redirect("/clients");
 }

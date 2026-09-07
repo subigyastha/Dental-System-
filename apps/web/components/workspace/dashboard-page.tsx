@@ -12,10 +12,12 @@ import {
   MobileWorkspaceBottomNav,
   MobileWorkspaceMoreSheet,
 } from "@/components/workspace/mobile-workspace-nav";
+import { useQuickBook } from "@/components/workspace/quick-book-provider";
+import { useSecureSignOut } from "@/components/workspace/secure-sign-out";
 import { ApiRequestError, apiFetchJson } from "@/lib/api-client";
 import type { AppointmentStatus, Priority } from "@/lib/domain";
 
-const billingRoles = new Set(["Owner", "Admin", "Manager", "Receptionist", "Scheduler"]);
+const billingRoles = new Set(["Owner", "Admin", "Manager", "Receptionist", "Scheduler", "Finance"]);
 
 type V1Envelope<T> = { data: T; meta: { apiVersion: "v1"; requestId?: string } };
 
@@ -75,14 +77,59 @@ export function dashboardBootstrapError(error: unknown) {
   return error instanceof Error ? error.message : "The dashboard could not be loaded.";
 }
 
+export function applyOptimisticDashboardStatus(
+  bootstrap: DashboardBootstrap,
+  appointmentId: string,
+  status: "Completed" | "Confirmed",
+): DashboardBootstrap {
+  const containsAppointment = bootstrap.schedule.items.some(
+    (appointment) => appointment.id === appointmentId,
+  );
+  if (!containsAppointment) return bootstrap;
+
+  const removesFromUpcoming = status === "Completed";
+  const items = removesFromUpcoming
+    ? bootstrap.schedule.items.filter(
+        (appointment) => appointment.id !== appointmentId,
+      )
+    : bootstrap.schedule.items.map((appointment) =>
+        appointment.id === appointmentId
+          ? { ...appointment, status }
+          : appointment,
+      );
+
+  return {
+    ...bootstrap,
+    summary: {
+      ...bootstrap.summary,
+      appointmentsNext24Hours: removesFromUpcoming
+        ? Math.max(0, bootstrap.summary.appointmentsNext24Hours - 1)
+        : bootstrap.summary.appointmentsNext24Hours,
+    },
+    schedule: {
+      ...bootstrap.schedule,
+      items,
+      page: {
+        ...bootstrap.schedule.page,
+        count: removesFromUpcoming
+          ? Math.max(0, bootstrap.schedule.page.count - 1)
+          : bootstrap.schedule.page.count,
+      },
+    },
+  };
+}
+
 export function DashboardPage() {
   const router = useRouter();
-  const { sessionUser, logout, updateAppointmentStatus } = useWorkspaceApp();
+  const { sessionUser, updateAppointmentStatus, workspaceBootstrap } = useWorkspaceApp();
+  const { canOpen: canQuickBook, openQuickBook } = useQuickBook();
+  const { isBlocked: isLogoutBlocked, isSigningOut, requestSignOut } = useSecureSignOut();
   const [bootstrap, setBootstrap] = useState<DashboardBootstrap | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const [mobileTab, setMobileTab] = useState<"agenda" | "followups" | "clinic">("agenda");
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
 
@@ -106,20 +153,57 @@ export function DashboardPage() {
     void loadBootstrap();
   }, [loadBootstrap]);
 
+  useEffect(() => {
+    const refreshAfterBooking = () => {
+      setIsRefreshing(true);
+      void loadBootstrap();
+    };
+    window.addEventListener(
+      "clinicflow:booking-completed",
+      refreshAfterBooking,
+    );
+    return () =>
+      window.removeEventListener(
+        "clinicflow:booking-completed",
+        refreshAfterBooking,
+      );
+  }, [loadBootstrap]);
+
   const scheduleLabel = sessionUser?.providerId ? "Schedule" : "Reservations";
   const scheduleHref = sessionUser?.providerId ? "/my-schedule" : "/reservations";
+  const sessionRoles = sessionUser?.effectiveRoles?.length
+    ? sessionUser.effectiveRoles
+    : sessionUser
+      ? [sessionUser.role]
+      : [];
+  const hasBillingAccess = sessionRoles.some((role) => billingRoles.has(role));
+  const hasArchiveAccess = sessionRoles.some((role) => ["Owner", "Admin"].includes(role));
+  const hasSettingsAccess = sessionRoles.some((role) => ["Owner", "Admin", "Manager"].includes(role));
   const updateStatus = async (appointmentId: string, status: "Completed" | "Confirmed") => {
+    const previous = bootstrap;
+    if (!previous) return;
     setUpdatingId(appointmentId);
+    setMutationError(null);
+    setBootstrap(applyOptimisticDashboardStatus(previous, appointmentId, status));
     try {
       await updateAppointmentStatus(appointmentId, status);
-      await loadBootstrap();
+      // The command response is authoritative. The dashboard snapshot is
+      // already reconciled locally; the next explicit/event refresh can pull
+      // newer unrelated clinic activity without blocking this interaction.
+    } catch (updateError) {
+      setBootstrap(previous);
+      setMutationError(
+        updateError instanceof Error
+          ? updateError.message
+          : "The appointment could not be updated.",
+      );
     } finally {
       setUpdatingId(null);
     }
   };
 
   if (isLoading) {
-    return <DashboardState body="Loading the server-confirmed dashboard snapshot..." title="Loading overview" />;
+    return <DashboardSkeleton />;
   }
 
   if (error || !bootstrap) {
@@ -164,6 +248,12 @@ export function DashboardPage() {
 
         <DashboardMetrics bootstrap={bootstrap} />
 
+        {mutationError ? (
+          <div aria-live="polite" className="rounded-md border border-[var(--danger)] bg-[var(--danger-soft)] px-4 py-3 text-sm text-[var(--danger)]">
+            {mutationError} The previous dashboard state was restored.
+          </div>
+        ) : null}
+
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.9fr)]">
           <Panel title="Upcoming appointments · next 24 hours">
             <BootstrapAppointments
@@ -202,6 +292,11 @@ export function DashboardPage() {
 
         {mobileTab === "agenda" ? (
           <div className="space-y-4">
+            {mutationError ? (
+              <div aria-live="polite" className="rounded-md border border-[var(--danger)] bg-[var(--danger-soft)] px-4 py-3 text-sm text-[var(--danger)]">
+                {mutationError} The previous dashboard state was restored.
+              </div>
+            ) : null}
             <DashboardMetrics bootstrap={bootstrap} compact />
             <Panel title="Upcoming appointments">
               <BootstrapAppointments
@@ -228,8 +323,9 @@ export function DashboardPage() {
             <Panel title="Quick actions">
               <div className="space-y-3 p-4">
                 <QuickLink body="Open the provider board and move into booking from there." href={scheduleHref} label={scheduleLabel} />
-                <QuickLink body="Review client records and visit history from one place." href="/patients" label="Clients" />
-                {billingRoles.has(sessionUser?.role ?? "") ? <QuickLink body="Check invoices and record payments." href="/billing" label="Billing" /> : null}
+                <QuickLink body="Review client records and visit history from one place." href="/clients" label="Clients" />
+                {hasBillingAccess ? <QuickLink body="Check invoices and record payments." href="/billing" label="Finance" /> : null}
+                {workspaceBootstrap.context.capabilities.canAccessInventory ? <QuickLink body="Review stock levels, receive supplies, and record counts." href="/inventory" label="Inventory" /> : null}
               </div>
             </Panel>
           </div>
@@ -237,12 +333,16 @@ export function DashboardPage() {
 
         {mobileMoreOpen ? (
           <MobileWorkspaceMoreSheet
-            hasArchiveAccess={["Owner", "Admin"].includes(sessionUser?.role ?? "")}
-            hasBillingAccess={billingRoles.has(sessionUser?.role ?? "")}
+            hasArchiveAccess={hasArchiveAccess}
+            hasBillingAccess={hasBillingAccess}
+            hasInventoryAccess={workspaceBootstrap.context.capabilities.canAccessInventory}
+            hasStaffAccess={workspaceBootstrap.context.capabilities.canAccessStaff}
             hasMySchedule={Boolean(sessionUser?.providerId)}
-            hasSettingsAccess={["Owner", "Admin", "Manager"].includes(sessionUser?.role ?? "")}
+            hasSettingsAccess={hasSettingsAccess}
+            isLogoutBlocked={isLogoutBlocked}
+            isLoggingOut={isSigningOut}
             onClose={() => setMobileMoreOpen(false)}
-            onLogout={logout}
+            onLogout={requestSignOut}
             onNavigate={(href) => {
               setMobileMoreOpen(false);
               router.push(href);
@@ -251,12 +351,47 @@ export function DashboardPage() {
         ) : null}
         <MobileWorkspaceBottomNav
           active="more"
-          onBook={() => router.push("/reservations?book=1")}
+          canBook={canQuickBook}
+          onBook={() => openQuickBook()}
           onMore={() => setMobileMoreOpen(true)}
           onSchedule={() => router.push(scheduleHref)}
         />
       </div>
     </>
+  );
+}
+
+function DashboardSkeleton() {
+  return (
+    <div aria-busy="true" aria-live="polite" className="space-y-5" role="status">
+      <span className="sr-only">Loading the server-confirmed dashboard snapshot</span>
+      <div className="animate-pulse space-y-2 motion-reduce:animate-none">
+        <div className="h-7 w-44 rounded bg-[color:rgba(112,140,151,0.18)]" />
+        <div className="h-4 w-full max-w-md rounded bg-[color:rgba(112,140,151,0.12)]" />
+      </div>
+      <div className="grid animate-pulse gap-4 sm:grid-cols-2 xl:grid-cols-4 motion-reduce:animate-none">
+        {[0, 1, 2, 3].map((item) => (
+          <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4" key={item}>
+            <div className="h-3 w-24 rounded bg-[color:rgba(112,140,151,0.15)]" />
+            <div className="h-8 w-16 rounded bg-[color:rgba(112,140,151,0.20)]" />
+            <div className="h-3 w-32 rounded bg-[color:rgba(112,140,151,0.12)]" />
+          </div>
+        ))}
+      </div>
+      <div className="grid animate-pulse gap-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.9fr)] motion-reduce:animate-none">
+        {[0, 1].map((panel) => (
+          <div className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4" key={panel}>
+            <div className="h-5 w-44 rounded bg-[color:rgba(112,140,151,0.16)]" />
+            {[0, 1, 2, 3].map((row) => (
+              <div className="space-y-2 border-b border-[var(--border)] py-3" key={row}>
+                <div className="h-4 w-2/3 rounded bg-[color:rgba(112,140,151,0.14)]" />
+                <div className="h-3 w-1/2 rounded bg-[color:rgba(112,140,151,0.10)]" />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -274,7 +409,7 @@ function DashboardMetrics({ bootstrap, compact = false }: { bootstrap: Dashboard
 
 function BootstrapAppointments({ appointments, hasMore, isUpdatingId, onComplete, onConfirm, timezone }: { appointments: DashboardBootstrap["schedule"]["items"]; hasMore: boolean; isUpdatingId: string | null; onComplete: (id: string) => void; onConfirm: (id: string) => void; timezone: string }) {
   if (!appointments.length) return <div className="px-4 py-6 text-sm text-[var(--text-muted)]">No active appointments in the next 24 hours.</div>;
-  return <div className="divide-y divide-[var(--border)]">{appointments.map((appointment) => <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between" key={appointment.id}><div className="min-w-0"><div className="truncate font-medium text-[var(--foreground)]">{appointment.client.name}</div><div className="mt-1 text-sm text-[var(--text-muted)]">{formatTimeRange(appointment.startsAtIso, appointment.endsAtIso, timezone)} · {appointment.provider.name}</div><div className="mt-1 text-sm text-[var(--text-muted)]">{appointment.location?.name ?? "No location assigned"}</div></div><div className="flex flex-wrap items-center gap-2"><PriorityTag priority={appointment.priority} /><StatusPill status={appointment.status} />{appointment.status === "Scheduled" ? <button className="rounded-md border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] disabled:opacity-60" disabled={isUpdatingId === appointment.id} onClick={() => onConfirm(appointment.id)} type="button">Confirm</button> : null}{appointment.status !== "Completed" ? <button className="rounded-md border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] disabled:opacity-60" disabled={isUpdatingId === appointment.id} onClick={() => onComplete(appointment.id)} type="button">Complete</button> : null}</div></div>)}{hasMore ? <div className="px-4 py-3 text-sm text-[var(--text-muted)]">More appointments are available in Reservations.</div> : null}</div>;
+  return <div className="divide-y divide-[var(--border)]">{appointments.map((appointment) => <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between" key={appointment.id}><div className="min-w-0"><div className="truncate font-medium text-[var(--foreground)]">{appointment.client.name}</div><div className="mt-1 text-sm text-[var(--text-muted)]">{formatTimeRange(appointment.startsAtIso, appointment.endsAtIso, timezone)} · {appointment.provider.name}</div><div className="mt-1 text-sm text-[var(--text-muted)]">{appointment.location?.name ?? "No location assigned"}</div></div><div className="flex flex-wrap items-center gap-2"><PriorityTag priority={appointment.priority} /><StatusPill status={appointment.status} />{appointment.status === "Scheduled" ? <button className="rounded-md border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] disabled:opacity-60" disabled={isUpdatingId === appointment.id} onClick={() => onConfirm(appointment.id)} type="button">Confirm</button> : null}{appointment.status === "InProgress" ? <button className="rounded-md border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] disabled:opacity-60" disabled={isUpdatingId === appointment.id} onClick={() => onComplete(appointment.id)} type="button">Complete</button> : null}</div></div>)}{hasMore ? <div className="px-4 py-3 text-sm text-[var(--text-muted)]">More appointments are available in Reservations.</div> : null}</div>;
 }
 
 function BootstrapFollowUps({ followUps, hasMore, timezone }: { followUps: DashboardBootstrap["followUps"]["items"]; hasMore: boolean; timezone: string }) {

@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Billing Workspace | Central Dental</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            display: inline-block;
+            line-height: 1;
+            text-transform: none;
+            letter-spacing: normal;
+            word-wrap: normal;
+            white-space: nowrap;
+            direction: ltr;
+        }
+        body { font-family: 'Inter', sans-serif; }
+        .tabular-nums { font-variant-numeric: tabular-nums; }
+        
+        /* Hide scrollbars for cleaner clinical look */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                "on-secondary-fixed": "#002109",
+                "surface-dim": "#d1dbe9",
+                "surface-container-low": "#edf4ff",
+                "secondary": "#006d2f",
+                "secondary-container": "#95f8a5",
+                "primary": "#005578",
+                "surface-tint": "#00658e",
+                "on-primary-container": "#cfeaff",
+                "on-error": "#ffffff",
+                "on-error-container": "#93000a",
+                "on-secondary": "#ffffff",
+                "on-secondary-container": "#007433",
+                "on-surface-variant": "#40484e",
+                "danger": "#C2352B",
+                "inverse-primary": "#84cfff",
+                "on-primary": "#ffffff",
+                "on-primary-fixed-variant": "#004c6c",
+                "surface-bright": "#f7f9ff",
+                "on-tertiary-fixed": "#291800",
+                "sidebar": "#F1F5F9",
+                "primary-fixed": "#c7e7ff",
+                "on-background": "#121c26",
+                "inverse-on-surface": "#e8f2ff",
+                "surface-container-high": "#dfe9f7",
+                "surface-variant": "#d9e3f1",
+                "text-muted": "#5C6B78",
+                "outline": "#70787f",
+                "surface-container-lowest": "#ffffff",
+                "tertiary-container": "#8d5e00",
+                "on-primary-fixed": "#001e2e",
+                "surface-container": "#e4effd",
+                "primary-fixed-dim": "#84cfff",
+                "brand-teal": "#7BC8C3",
+                "on-tertiary": "#ffffff",
+                "background": "#f7f9ff",
+                "outline-variant": "#bfc7cf",
+                "tertiary-fixed-dim": "#fbbb58",
+                "primary-container": "#0b6e99",
+                "canvas": "#FFFFFF",
+                "brand-lavender": "#C196C2",
+                "error": "#ba1a1a",
+                "on-surface": "#121c26",
+                "surface-container-highest": "#d9e3f1",
+                "on-tertiary-container": "#ffe2be",
+                "secondary-fixed-dim": "#7adb8c",
+                "error-container": "#ffdad6",
+                "tertiary": "#6d4800",
+                "on-tertiary-fixed-variant": "#624000",
+                "secondary-fixed": "#95f8a5",
+                "on-secondary-fixed-variant": "#005322",
+                "surface": "#F8FAFC",
+                "border": "#D7E0E8",
+                "tertiary-fixed": "#ffddb1",
+                "inverse-surface": "#27313c"
+              },
+              "borderRadius": {
+                "DEFAULT": "0.125rem",
+                "lg": "0.25rem",
+                "xl": "0.5rem",
+                "full": "0.75rem"
+              },
+              "spacing": {
+                "sidebar-collapsed": "72px",
+                "control-dense": "28px",
+                "control-std": "36px",
+                "gutter": "16px",
+                "unit": "4px",
+                "margin-page": "24px",
+                "sidebar-width": "272px",
+                "utility-rail": "56px"
+              },
+              "fontFamily": {
+                "label-caps": ["Inter"],
+                "section-title": ["Inter"],
+                "dense-row": ["Inter"],
+                "page-title": ["Inter"],
+                "base-body": ["Inter"],
+                "label-metadata": ["Inter"]
+              },
+              "fontSize": {
+                "label-caps": ["11px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                "section-title": ["14px", {"lineHeight": "20px", "fontWeight": "600"}],
+                "dense-row": ["13px", {"lineHeight": "18px", "fontWeight": "400"}],
+                "page-title": ["20px", {"lineHeight": "28px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                "base-body": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                "label-metadata": ["12px", {"lineHeight": "16px", "fontWeight": "400"}]
+              }
+            }
+          }
+        }
+    </script>
+</head>
+<body class="bg-background text-on-surface overflow-hidden h-screen flex">
+<!-- Region 1: Utility Rail (SideNavBar type: rail) -->
+<nav class="fixed left-0 top-0 h-screen w-[56px] z-50 bg-on-secondary-fixed flex flex-col items-center py-4 gap-4">
+<div class="mb-4">
+<span class="material-symbols-outlined text-surface-container-lowest font-page-title text-page-title" style="font-variation-settings: 'FILL' 1;">business_center</span>
+</div>
+<!-- Organization -->
+<button class="w-10 h-10 flex items-center justify-center text-secondary-fixed-dim opacity-70 hover:bg-secondary/20 transition-colors scale-95 transition-transform duration-150">
+<span class="material-symbols-outlined">business_center</span>
+</button>
+<!-- Dashboard -->
+<button class="w-10 h-10 flex items-center justify-center text-secondary-fixed-dim opacity-70 hover:bg-secondary/20 transition-colors scale-95 transition-transform duration-150">
+<span class="material-symbols-outlined">dashboard</span>
+</button>
+<!-- Schedule -->
+<button class="w-10 h-10 flex items-center justify-center text-secondary-fixed-dim opacity-70 hover:bg-secondary/20 transition-colors scale-95 transition-transform duration-150">
+<span class="material-symbols-outlined">calendar_month</span>
+</button>
+<!-- Analytics -->
+<button class="w-10 h-10 flex items-center justify-center text-secondary-fixed-dim opacity-70 hover:bg-secondary/20 transition-colors scale-95 transition-transform duration-150">
+<span class="material-symbols-outlined">equalizer</span>
+</button>
+<div class="mt-auto">
+<button class="w-10 h-10 flex items-center justify-center text-secondary-fixed-dim opacity-70 hover:bg-secondary/20 transition-colors scale-95 transition-transform duration-150">
+<span class="material-symbols-outlined">settings</span>
+</button>
+</div>
+</nav>
+<!-- Region 2: Context Sidebar (SideNavBar type: standard) -->
+<aside class="fixed left-[56px] top-0 h-screen w-[272px] z-40 bg-sidebar border-r border-border flex flex-col px-margin-page py-gutter">
+<div class="mb-8">
+<h2 class="font-section-title text-section-title text-on-surface">Navigation</h2>
+<p class="text-label-metadata text-text-muted">Clinical Stream</p>
+</div>
+<div class="flex flex-col gap-1">
+<!-- Today -->
+<a class="flex items-center gap-3 px-3 py-2 rounded text-text-muted hover:bg-surface-container-low transition-all translate-x-1 transition-transform" href="#">
+<span class="material-symbols-outlined text-[18px]">event_note</span>
+<span class="font-section-title text-section-title">Today</span>
+</a>
+<!-- Care -->
+<a class="flex items-center gap-3 px-3 py-2 rounded text-text-muted hover:bg-surface-container-low transition-all translate-x-1 transition-transform" href="#">
+<span class="material-symbols-outlined text-[18px]">medical_services</span>
+<span class="font-section-title text-section-title">Care</span>
+</a>
+<!-- Finance (ACTIVE) -->
+<a class="flex items-center gap-3 px-3 py-2 rounded bg-surface-container-highest text-on-surface-variant font-semibold translate-x-1 transition-transform" href="#">
+<span class="material-symbols-outlined text-[18px]">payments</span>
+<span class="font-section-title text-section-title">Finance</span>
+</a>
+<!-- Practice -->
+<a class="flex items-center gap-3 px-3 py-2 rounded text-text-muted hover:bg-surface-container-low transition-all translate-x-1 transition-transform" href="#">
+<span class="material-symbols-outlined text-[18px]">home_work</span>
+<span class="font-section-title text-section-title">Practice</span>
+</a>
+</div>
+<button class="mt-8 w-full h-control-std bg-primary text-on-primary rounded-xl font-section-title text-section-title flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined text-[18px]">add</span>
+            New Appointment
+        </button>
+<div class="mt-auto pt-4 border-t border-border flex flex-col gap-1">
+<a class="flex items-center gap-3 px-3 py-2 text-text-muted hover:bg-surface-container-low transition-all" href="#">
+<span class="material-symbols-outlined text-[18px]">contact_support</span>
+<span class="text-dense-row">Support</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-text-muted hover:bg-surface-container-low transition-all" href="#">
+<span class="material-symbols-outlined text-[18px]">help_outline</span>
+<span class="text-dense-row">Help</span>
+</a>
+</div>
+</aside>
+<!-- Region 3: Main Canvas -->
+<main class="ml-[328px] w-[calc(100%-328px)] h-screen flex flex-col">
+<!-- TopNavBar -->
+<header class="bg-canvas border-b border-border flex justify-between items-center px-gutter h-16 shrink-0 z-30">
+<div class="flex items-center gap-8">
+<h1 class="font-page-title text-page-title font-bold text-primary">Central Dental</h1>
+<div class="relative w-64">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-[20px]">search</span>
+<input class="w-full bg-surface-container-low border-none rounded-lg pl-10 pr-4 h-9 text-dense-row focus:ring-2 focus:ring-primary focus:ring-offset-2" placeholder="Search finance records..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-1">
+<button class="p-2 text-on-surface-variant hover:bg-surface-container-low transition-colors opacity-80 active:opacity-100">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:bg-surface-container-low transition-colors opacity-80 active:opacity-100">
+<span class="material-symbols-outlined">chat_bubble</span>
+</button>
+</div>
+<div class="h-8 w-[1px] bg-border"></div>
+<div class="flex items-center gap-3">
+<button class="px-4 h-9 border border-primary text-primary rounded-lg font-section-title text-section-title hover:bg-surface-container-low transition-colors">Quick Billing</button>
+<button class="px-4 h-9 bg-primary text-on-primary rounded-lg font-section-title text-section-title hover:opacity-90 transition-opacity">Check In</button>
+</div>
+<img class="w-9 h-9 rounded-full border border-border object-cover" data-alt="A professional headshot of a mid-40s female dentist with a warm, confident smile, wearing a clean white lab coat and a subtle teal stethoscope around her neck. The background is a soft-focus clinical dental office with modern equipment and bright, natural lighting. The image captures a sense of professional reliability and empathetic patient care, aligning with a premium healthcare brand aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCX4c7z0UQZh1A6d4LxN_RZpHNWj9ZWLAToZrGVV_imLVdzucv5k6xbsMksWwdTqZAOLKwLMngxCdj9F0zG6inWy2ol8MpIcMBe-pu8wZbqlQMxEo0D-36Tll1lZnBaGBXrD4R80qztTDYGTzRDAm3RheWVHc0QDKzYLdiPzLdRypy5RkkWAw3PXohvYrnuNeOg-cetNJH3Q6yKRt9X4WwW23R9P-fu6voit2XV36KtAUfuLEqpP-Cshqn3ZEi0W5DJuJxpBDwlzik"/>
+</div>
+</header>
+<!-- Content Area -->
+<div class="flex-1 overflow-y-auto bg-surface p-margin-page no-scrollbar">
+<div class="flex justify-between items-end mb-8">
+<div>
+<h2 class="font-page-title text-page-title text-on-surface">Billing Workspace</h2>
+<p class="text-label-metadata text-text-muted">Review and manage office-wide financial transactions.</p>
+</div>
+<button class="flex items-center gap-2 px-4 h-control-std bg-on-secondary-fixed text-secondary-fixed rounded-xl font-section-title text-section-title hover:opacity-90 transition-all shadow-sm">
+<span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
+                    Batch Process Insurance
+                </button>
+</div>
+<!-- Bento Grid KPIs -->
+<div class="grid grid-cols-12 gap-gutter mb-gutter">
+<div class="col-span-4 bg-canvas border border-border p-5 rounded-xl flex flex-col justify-between h-32">
+<div class="flex justify-between items-start">
+<span class="text-label-caps font-label-caps text-text-muted">TOTAL OUTSTANDING</span>
+<span class="material-symbols-outlined text-danger opacity-80">account_balance_wallet</span>
+</div>
+<div>
+<div class="text-[28px] font-bold tabular-nums">$42,850.12</div>
+<div class="text-label-metadata text-danger flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">trending_up</span>
+                            +12.4% from last month
+                        </div>
+</div>
+</div>
+<div class="col-span-4 bg-canvas border border-border p-5 rounded-xl flex flex-col justify-between h-32">
+<div class="flex justify-between items-start">
+<span class="text-label-caps font-label-caps text-text-muted">PENDING INSURANCE</span>
+<span class="material-symbols-outlined text-primary opacity-80">verified_user</span>
+</div>
+<div>
+<div class="text-[28px] font-bold tabular-nums">$18,244.50</div>
+<div class="text-label-metadata text-text-muted">142 claims awaiting verification</div>
+</div>
+</div>
+<div class="col-span-4 bg-canvas border border-border p-5 rounded-xl flex flex-col justify-between h-32">
+<div class="flex justify-between items-start">
+<span class="text-label-caps font-label-caps text-text-muted">COLLECTIONS RATIO</span>
+<span class="material-symbols-outlined text-secondary opacity-80">analytics</span>
+</div>
+<div>
+<div class="text-[28px] font-bold tabular-nums">96.8%</div>
+<div class="w-full bg-surface-container-high h-1 rounded-full mt-2">
+<div class="bg-secondary h-1 rounded-full" style="width: 96.8%"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Ledger Table Section -->
+<div class="bg-canvas border border-border rounded-xl overflow-hidden">
+<div class="px-gutter py-4 border-b border-border flex justify-between items-center bg-surface-container-lowest">
+<h3 class="font-section-title text-section-title text-on-surface">Invoice Ledger</h3>
+<div class="flex items-center gap-2">
+<button class="p-1.5 hover:bg-surface-container-low rounded border border-border">
+<span class="material-symbols-outlined text-[18px]">filter_list</span>
+</button>
+<button class="p-1.5 hover:bg-surface-container-low rounded border border-border">
+<span class="material-symbols-outlined text-[18px]">file_download</span>
+</button>
+</div>
+</div>
+<table class="w-full text-left border-collapse">
+<thead class="bg-surface-container-low">
+<tr>
+<th class="px-gutter py-3 text-label-caps font-label-caps text-text-muted border-b border-border">INVOICE #</th>
+<th class="px-gutter py-3 text-label-caps font-label-caps text-text-muted border-b border-border">PATIENT</th>
+<th class="px-gutter py-3 text-label-caps font-label-caps text-text-muted border-b border-border">SERVICE DATE</th>
+<th class="px-gutter py-3 text-label-caps font-label-caps text-text-muted border-b border-border text-right">AMOUNT</th>
+<th class="px-gutter py-3 text-label-caps font-label-caps text-text-muted border-b border-border">STATUS</th>
+<th class="px-gutter py-3 text-label-caps font-label-caps text-text-muted border-b border-border text-right">ACTIONS</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-border">
+<!-- Row 1 -->
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="px-gutter py-3 font-dense-row text-dense-row font-semibold">INV-2024-001</td>
+<td class="px-gutter py-3 font-dense-row text-dense-row flex items-center gap-2">
+<div class="w-6 h-6 rounded-full bg-brand-teal/20 text-secondary flex items-center justify-center text-[10px] font-bold">SM</div>
+                                Sarah Miller
+                            </td>
+<td class="px-gutter py-3 font-dense-row text-dense-row text-text-muted">Oct 24, 2023</td>
+<td class="px-gutter py-3 font-dense-row text-dense-row text-right tabular-nums font-semibold">$1,240.00</td>
+<td class="px-gutter py-3">
+<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-secondary-container text-on-secondary-container">
+                                    Paid
+                                </span>
+</td>
+<td class="px-gutter py-3 text-right">
+<button class="text-outline hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[20px]">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="px-gutter py-3 font-dense-row text-dense-row font-semibold">INV-2024-002</td>
+<td class="px-gutter py-3 font-dense-row text-dense-row flex items-center gap-2">
+<div class="w-6 h-6 rounded-full bg-brand-lavender/20 text-tertiary flex items-center justify-center text-[10px] font-bold">JD</div>
+                                James Donovan
+                            </td>
+<td class="px-gutter py-3 font-dense-row text-dense-row text-text-muted">Oct 26, 2023</td>
+<td class="px-gutter py-3 font-dense-row text-dense-row text-right tabular-nums font-semibold">$350.00</td>
+<td class="px-gutter py-3">
+<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-error-container text-on-error-container">
+                                    Overdue
+                                </span>
+</td>
+<td class="px-gutter py-3 text-right">
+<button class="text-outline hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[20px]">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="px-gutter py-3 font-dense-row text-dense-row font-semibold">INV-2024-003</td>
+<td class="px-gutter py-3 font-dense-row text-dense-row flex items-center gap-2">
+<div class="w-6 h-6 rounded-full bg-primary-fixed text-primary flex items-center justify-center text-[10px] font-bold">EK</div>
+                                Elena Kostic
+                            </td>
+<td class="px-gutter py-3 font-dense-row text-dense-row text-text-muted">Oct 27, 2023</td>
+<td class="px-gutter py-3 font-dense-row text-dense-row text-right tabular-nums font-semibold">$2,400.00</td>
+<td class="px-gutter py-3">
+<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-surface-container-high text-on-surface-variant">
+                                    Draft
+                                </span>
+</td>
+<td class="px-gutter py-3 text-right">
+<button class="text-outline hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[20px]">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="px-gutter py-3 font-dense-row text-dense-row font-semibold">INV-2024-004</td>
+<td class="px-gutter py-3 font-dense-row text-dense-row flex items-center gap-2">
+<div class="w-6 h-6 rounded-full bg-secondary-fixed text-on-secondary-fixed flex items-center justify-center text-[10px] font-bold">RW</div>
+                                Robert White
+                            </td>
+<td class="px-gutter py-3 font-dense-row text-dense-row text-text-muted">Oct 28, 2023</td>
+<td class="px-gutter py-3 font-dense-row text-dense-row text-right tabular-nums font-semibold">$89.00</td>
+<td class="px-gutter py-3">
+<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-secondary-container text-on-secondary-container">
+                                    Paid
+                                </span>
+</td>
+<td class="px-gutter py-3 text-right">
+<button class="text-outline hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[20px]">more_vert</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+<div class="px-gutter py-3 bg-surface-container-lowest flex items-center justify-between border-t border-border">
+<span class="text-label-metadata text-text-muted">Showing 1-4 of 1,248 transactions</span>
+<div class="flex items-center gap-2">
+<button class="px-3 py-1 text-dense-row border border-border rounded hover:bg-surface-container-low disabled:opacity-30" disabled="">Previous</button>
+<button class="px-3 py-1 text-dense-row border border-border rounded hover:bg-surface-container-low">Next</button>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Side Drawer Overlay for Details (Hidden by default) -->
+<div class="fixed right-0 top-0 h-screen w-[400px] bg-canvas shadow-xl z-50 translate-x-full transition-transform duration-300 border-l border-border" id="patient-drawer">
+<div class="p-margin-page flex flex-col h-full">
+<div class="flex justify-between items-center mb-6">
+<h2 class="font-page-title text-page-title text-on-surface">Invoice Details</h2>
+<button class="p-2 hover:bg-surface-container-low rounded-full" onclick="toggleDrawer()">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<!-- Dynamic content would go here -->
+<div class="flex-1">
+<div class="bg-surface-container-low p-4 rounded-lg mb-6 border border-border">
+<p class="text-label-caps font-label-caps text-text-muted mb-1">PATIENT CONTACT</p>
+<p class="font-section-title text-section-title">Sarah Miller</p>
+<p class="text-dense-row text-primary">(555) 012-3456</p>
+</div>
+<div class="space-y-4">
+<div class="flex justify-between text-dense-row">
+<span class="text-text-muted">Prophylaxis (D1110)</span>
+<span class="tabular-nums font-semibold">$120.00</span>
+</div>
+<div class="flex justify-between text-dense-row">
+<span class="text-text-muted">Full Arch X-Ray (D0210)</span>
+<span class="tabular-nums font-semibold">$210.00</span>
+</div>
+<div class="flex justify-between text-dense-row">
+<span class="text-text-muted">Ceramic Crown (D2740)</span>
+<span class="tabular-nums font-semibold">$910.00</span>
+</div>
+<div class="pt-4 border-t border-border flex justify-between font-section-title">
+<span>Total Due</span>
+<span class="tabular-nums text-primary">$1,240.00</span>
+</div>
+</div>
+</div>
+<div class="mt-auto space-y-3">
+<button class="w-full h-control-std bg-primary text-on-primary rounded-xl font-semibold">Resend Invoice</button>
+<button class="w-full h-control-std border border-border rounded-xl font-semibold hover:bg-surface-container-low transition-colors">Void Transaction</button>
+</div>
+</div>
+</div>
+<script>
+        function toggleDrawer() {
+            const drawer = document.getElementById('patient-drawer');
+            drawer.classList.toggle('translate-x-full');
+        }
+
+        // Add row click listener to trigger drawer
+        document.querySelectorAll('tbody tr').forEach(row => {
+            row.addEventListener('click', toggleDrawer);
+            row.style.cursor = 'pointer';
+        });
+    </script>
+</body></html>

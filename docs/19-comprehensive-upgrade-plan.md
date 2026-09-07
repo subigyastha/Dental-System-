@@ -28,8 +28,10 @@ The audited codebase already has useful foundations: a monorepo, Nest API, Next 
 | Critical-data governance | Direct delete paths and destructive cascade relations exist. | Archive first; Owner-only permanent deletion from archive with explicit confirmation, retention/legal-hold checks, and audit evidence. |
 | Scheduling | No database commit-time overlap guard; resource/chair logic remains active; status updates are generic. | Provider-only scheduling, AD/IANA timezone rules, database-safe booking concurrency, named lifecycle commands. |
 | Clinical data | Current Record/chart data can be mutated or deleted. | Draft/sign/amend governance and append-only revisions. |
-| Finance | Issued invoices and completed payments may be mutated/deleted; no dedicated Finance role or provider flow. | Immutable invoice/payment lifecycle, correction ledger, separation of duties, Fonepay-ready adapter model. |
+| Finance | P4B manual ledger is implemented: location-scoped Finance roles, idempotent draft/issue/payment commands, immutable completed receipts, governed corrections/approval, and read-only reconciliation. Provider settlement is not implemented. | Complete disposable-PostgreSQL concurrency evidence, archive/retention and persisted reconciliation resolution; then add the provider-neutral/Fonepay sandbox adapter in P6B. |
 | Platform functions | No inventory domain, background worker, Super Admin platform workspace, feature flags, or notification adapter controls. | Separate inventory, durable jobs/outbox, aggregate platform metrics, global integration kill switches. |
+| Performance and data loading | Dashboard/Client bounded reads exist, but Schedule and several settings/operations routes still wait for the oversized `/operational-data` compatibility payload; client startup also contains avoidable request waterfalls. | Make P2R the active blocker: establish route budgets and telemetry, remove serial/duplicate reads, finish route-owned read models, add scoped caching/prefetch/optimistic rollback, and prove p50/p95 behavior under realistic clinic data. |
+| Navigation and responsive UX | Shared shell/drawer foundations exist, but clinic review found repeated headings, sidebar actions leaving the viewport, weak mobile layouts, and an unusable Super Admin experience. | Fix reachability/permission regressions immediately, then complete the calendar, platform, and system-wide responsive redesign against stable workflows and the approved visual references. |
 | Operations | No CI pipeline, deployable worker/Redis architecture, health/readiness, observability, or recovery evidence. | Tested delivery pipeline and production runbook evidence. |
 
 ## 3. Delivery rules
@@ -100,6 +102,7 @@ flowchart LR
 **Purpose:** Replace browser-readable bearer credentials with the documented session design.
 
 - Create server-side session records with expiry, rotation, revocation, logout, device/session metadata, and audit events.
+- Expose a clearly labelled **Sign out** action that remains reachable in the anchored desktop shell and the mobile/profile surface without relying on hover. One activation must enter a disabled pending state, revoke the active server session, clear all tenant-scoped in-memory caches and sensitive drafts, notify other tabs, and redirect to sign-in without briefly rendering clinic data. An expired/revoked session follows the same local cleanup and redirect path. Ordinary sign-out needs no confirmation unless an unsaved protected form would be discarded; sign-out-all-devices remains a separate explicit session-management action.
 - Issue short-lived secure `HttpOnly`, `Secure`, `SameSite` cookies; add CSRF defenses for state-changing browser requests.
 - Validate required production secrets at startup; remove fallback secrets and browser `localStorage` token persistence.
 - Build a Nest request actor context that resolves active user, organization, effective roles, and permitted locations server-side.
@@ -138,23 +141,30 @@ flowchart LR
 
 - Add an atomic organization-scoped Client-code allocator and immutable opaque Client ID.
 - Remove organization-unique phone enforcement; store normalized searchable contacts and duplicate-match signals while allowing shared family contacts.
+- Replace the scalar phone as contact authority with auditable multi-phone Client contacts. Allow shared household numbers, append a new number when reception chooses an existing Client, and retain the scalar phone only as a temporary compatibility projection.
+- Add a pending identity-review workflow for minimal booking intake, prior-visit claims, and skipped possible matches. These signals may suggest merge candidates but must never auto-merge records.
 - Add Client aliases, duplicate-review/merge history, conflict resolution, authorized rollback/repair procedure, and archive-not-delete behavior for merge secondaries.
 - Introduce `/clients` contracts and migrate screens/routes/copy from patient/customer/reservation to Client/Appointment. Keep narrowly scoped legacy aliases until all callers migrate.
 - Ensure Clients may later receive portal identities/consent records without enabling client-facing apps now.
 
 **Done when:** two Clients in one organization may share a phone; concurrently created Clients receive unique codes; a merge preserves history and archives rather than destroys the secondary Client.
 
+**Implementation evidence (2026-07-27):** the standalone `/clients` intake now uses the same minimal fields and number-first match review as booking. Receptionists and Providers who receive a new caller can select an existing record and append a genuinely new number, or explicitly continue as a distinct Client. Provider authority is deliberately limited to governed creation and caller-phone append; general profile correction, archive, merge, deletion, and review resolution remain denied. New creation revalidates the exact candidate set inside one serializable transaction, allocates the code, creates Client/chart/primary phone/review/audit data, and writes a minimal idempotency receipt. Supabase-backed tests prove concurrent replay, different-key same-identity serialization, and complete rollback when receipt persistence fails. Receipt storage excludes contact, demographic, and clinical fields and cascades with an Owner-governed Client purge. Authenticated responsive QA remains open.
+
 ### UP-06 — Scheduling correctness core
 
 **Purpose:** Make provider-based bookings correct under concurrent usage.
 
 - Change canonical defaults to AD/ISO; retain BS only as a centralized derived display/input conversion. Migrate organization calendar defaults and seed/UI behavior from BS to AD.
+- Replace the large custom picker interaction with one compact native-like date primitive: native AD input fallback, consistent styled popover behavior, keyboard/focus support, and optional derived BS context.
 - Resolve scheduling with the location IANA timezone (Nepal default `Asia/Kathmandu`), honoring availability effective dates, one-time/recurring blocks, service/provider duration overrides, and buffers.
 - Make provider capacity the only release constraint. Detach `Resource`/chair logic from booking validation, slot generation, and UI; retain it only as dormant future-extension data.
-- Use 15-minute configurable slot starts and a 12-month booking horizon; remove legacy `FollowUpRequired` as an appointment capacity state.
+- Use Owner-controlled organization slot starts (allowed 5/10/15/20/30/60 minutes, default 15) and a 12-month booking horizon; keep cadence independent from service/appointment duration and remove legacy `FollowUpRequired` as an appointment capacity state.
 - Commit create/update/reschedule through PostgreSQL transactions with a provider-time-range exclusion constraint or equivalent database lock-and-recheck guard.
 
 **Done when:** simultaneous requests cannot double-book a provider; different providers do not conflict; cache absence cannot affect correctness; timezone/effective-date/buffer tests pass.
+
+**Implementation evidence (2026-07-26):** guided Client-first and slot-first booking now converge on a durable idempotent confirmation receipt and one serializable PostgreSQL transaction. The transaction re-derives the effective Provider-window/service buffer, validates the exact hold, rejects stale Client candidate sets, creates Client/appointment/audit/workflow data together, and consumes the hold only on commit. Supabase-backed integration coverage proves concurrent same-key replay, same-slot exclusion, identity-phantom retry, expired-hold denial, and rollback after Client creation. Authenticated responsive/browser QA remains open.
 
 ### UP-07 — Finance ledger and invoice lifecycle
 
@@ -169,15 +179,20 @@ flowchart LR
 
 **Done when:** parallel payment attempts cannot over-collect; issued snapshots cannot change; completed payments cannot be edited/deleted; the Receptionist permission boundary is proven by server-denial tests.
 
+**Implementation evidence (2026-07-27):** `/api/v1/finance` owns location-scoped workspace/detail reads and idempotent draft-create, issue, payment, Refund/Reversal, approval/rejection, and reconciliation contracts using NPR decimal strings. Invoice, payment, correction, and audit writes share serializable transactions and deterministic replay hashes; completed receipts are never edited. The default correction threshold fails safe to distinct Owner/Admin approval, and self-approval is denied. The responsive Finance UI exposes New Invoice, Issue, Record Payment, immutable ledger, correction, approval, and daily reconciliation drawers without Inventory coupling. Legacy billing mutations are retired and remaining compatibility reads are location-scoped. Migrations `20260727_000019` and `20260727_000020` are applied to Supabase. A Supabase-backed gate proves concurrent partial payments cannot over-collect and concurrent correction requests cannot over-reserve the same receipt, with exact durable ledger/audit results. Authenticated visual QA remains open; Fonepay stays in P6B.
+
 ### UP-08 — Scoped operational read models
 
 **Purpose:** Replace bootstrap coupling with small, auditable read surfaces.
 
-- Deliver session bootstrap, dashboard, provider schedule, Client profile, billing workspace, finance reconciliation, and platform aggregate read models with field-level capability filtering.
+- Deliver session bootstrap, dashboard, provider schedule, Client profile, billing workspace, finance reconciliation, Staff Management, and platform aggregate read models with field-level capability filtering.
+- Give Staff Management a bounded, paginated `/api/v1` projection for summary counts, search, status, additive roles, location scope, provider linkage, invitation/session readiness, and permitted actions. Do not make the page wait for the clinic-wide operational aggregate or download sensitive fields that the acting user cannot use.
 - Version read-model schemas and define stable cache/invalidation ownership, but keep PostgreSQL/Nest as the authority.
 - Add loading, empty, unavailable, and permission-denied states. An API outage must never trigger direct database or seed-data fallback.
 
 **Done when:** each workspace loads only its required, authorized data and has an explicit degraded state.
+
+**Implementation evidence (2026-08-22):** Staff Management now owns a bounded, paginated `/api/v1/staff` projection with server search/filter/sort, role/location scope, summary counts, capability metadata, and demand-loaded Provider schedule detail. Settings owns `/api/v1/settings`, enforces organization-scoped Owner/Admin access, and limits slot-start interval control to the Owner. Every frontend workspace route now starts from either the minimal workspace shell projection or the bounded Schedule bootstrap; the legacy `/operational-data` aggregate has no frontend caller. Schedule reads are grouped under `/api/v1/schedule`; Day view uses one appointment-plus-grid snapshot, aborts superseded visible reads, and prefetches adjacent dates into a bounded session cache. Ordinary clinic-route transitions share the authenticated session/workspace bootstrap; logout, expiry, session end, mutation invalidation, and 401 clear the applicable caches. Authenticated viewport evidence and representative-volume latency/query-plan gates remain open.
 
 ### UP-09 — Record and dental-chart governance
 
@@ -198,8 +213,12 @@ flowchart LR
 - Require cancellation reason; enforce no-show timing; make reschedule create a linked successor while terminally preserving the original appointment.
 - Emit workflow/audit/outbox events atomically with every transition and create follow-up tasks as outcomes, not appointment states.
 - Migrate booking/schedule UI to provider-first selection, capacity-safe conflict messages, AD default with optional BS display, and no chair/resource requirements.
+- Make booking globally available from the authenticated shell and implement two guided paths—Client first and slot first—that share number-first Client matching, minimal New Client intake, possible-match review, a single confirmation payload, collapsed optional details, draft preservation, and server-confirmed submission.
+- In slot-first booking, create a short hold only after a slot is selected; display the held slot throughout Client identification and convert it transactionally on confirmation.
 
 **Done when:** invalid transitions fail server-side; rescheduling never rewrites history; UI supports provider-only booking at the same rules used by the API.
+
+**Implementation evidence (2026-08-22):** named lifecycle commands, successor-based rescheduling, Provider-based availability, both guided paths, short slot holds, and one idempotent atomic confirmation contract are implemented. Confirmation remains server-authoritative. When a confirmation is still pending after 400 ms, the drawer minimizes into a persistent status surface so staff can continue using the workspace; the protected request stays mounted, success is shown only after the PostgreSQL commit response, and uncertain results reopen with the exact payload fingerprint/idempotency key for deterministic replay. Signed-in slow-network, accessibility, and responsive QA remain open.
 
 ### UP-11 — Payment-provider platform and Fonepay sandbox readiness
 
@@ -227,6 +246,8 @@ flowchart LR
 
 **Purpose:** Ship inventory independently of finance and scheduling resources.
 
+**Delivery status (2026-08-16):** the **R0I Inventory Operations** core is implemented and its migrations are applied. It includes the tangible catalog, audited reorder settings, location balances, receive/use/adjust/stocktake/transfer commands, lot/expiry handling, suppliers, archive/restore/eligible Owner-confirmed purge, alerts, and immutable history. Authenticated responsive and role/location workflow QA remains the acceptance gate before release certification. Procurement automation, automatic Record consumption, supplier lifecycle management, and accounting/COGS integration remain future work.
+
 - Add inventory item, category, supplier, location balance, lot/expiry where needed, immutable stock movement, transfer, adjustment, stocktake, and reorder projection models.
 - Enforce `InventoryManager`/Owner/Admin controls with location scope and archive-first lifecycle where eligible.
 - Build inventory APIs and UI for receiving, consuming, transferring, counting, adjusting, expiry/reorder views, and auditable correction movements.
@@ -250,10 +271,12 @@ flowchart LR
 
 - Migrate navigation and actions from hard-coded role lists to server-provided capabilities.
 - Complete Client, Record, scheduling, invoice/ledger/correction/reconciliation, inventory, messaging, staff-role, archive/delete, and Super Admin platform screens.
+- Replace the compatibility Staff screen with a professional Staff Management workspace: concise page header and primary action; real summary counts; debounced search; role, location, and account-status filters; sortable/paginated desktop table; equivalent mobile cards; clear role/location/status chips; and accessible loading, empty, denied, unavailable, and retry states. Create, invite, edit, assign additive roles/location scope, link Provider identity, deactivate/archive, restore, and other permitted actions use the shared right-side drawer with dirty-state protection and server capability checks. Destructive or access-changing actions show their consequences, produce audit evidence, and never rely on a UI-only role decision.
 - Add platform views for clinic onboarding, de-identified usage/adoption metrics, feature flag control, and audited support-access grants.
 - Verify responsive layout, keyboard flow, focus/error handling, WCAG 2.2 AA, loading/empty/error states, idempotency/conflict feedback, and AD/BS labeling.
+- After functional workflows stabilize, run a dedicated responsive/native-feel certification across 320–430px phones, 768/820px tablets in both orientations, 1024px compact desktop, 1280/1440px standard desktop, and 1920px large desktop. Include safe areas, virtual keyboards, touch/coarse-pointer use, 200% zoom, OS text scaling, reduced motion, keyboard-only navigation, native input purpose/autocomplete and slow-device behavior.
 
-**Done when:** every visible sensitive action has a matching server permission test; core screens pass accessibility checks and explicit unavailable/error states.
+**Done when:** every visible sensitive action has a matching server permission test; core screens pass accessibility checks and explicit unavailable/error states; no production workflow has page-level overflow, clipped or unreachable actions, hover-only essentials, virtual-keyboard obstruction, or a desktop-shrunk mobile presentation.
 
 ### UP-16 — Production operations and release certification
 

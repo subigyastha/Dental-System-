@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, viewport-fit=cover" name="viewport"/>
+<title>Central Dental - Schedule</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+        }
+        .timeline-container::-webkit-scrollbar {
+            display: none;
+        }
+        .timeline-container {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        /* Custom Dental-specific highlight for time marker */
+        .time-glow {
+            box-shadow: 0 0 12px rgba(0, 85, 120, 0.2);
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-tertiary": "#ffffff",
+                        "secondary": "#006d2f",
+                        "secondary-fixed": "#95f8a5",
+                        "sidebar": "#F1F5F9",
+                        "secondary-container": "#95f8a5",
+                        "on-primary": "#ffffff",
+                        "brand-teal": "#7BC8C3",
+                        "inverse-primary": "#84cfff",
+                        "on-secondary-container": "#007433",
+                        "surface-bright": "#f7f9ff",
+                        "canvas": "#FFFFFF",
+                        "surface-container-highest": "#d9e3f1",
+                        "on-secondary-fixed": "#002109",
+                        "primary-fixed": "#c7e7ff",
+                        "text-muted": "#5C6B78",
+                        "brand-lavender": "#C196C2",
+                        "on-tertiary-fixed": "#291800",
+                        "surface-container-high": "#dfe9f7",
+                        "on-surface-variant": "#40484e",
+                        "inverse-surface": "#27313c",
+                        "tertiary-fixed-dim": "#fbbb58",
+                        "tertiary": "#6d4800",
+                        "tertiary-fixed": "#ffddb1",
+                        "outline": "#70787f",
+                        "on-surface": "#121c26",
+                        "on-primary-fixed": "#001e2e",
+                        "error-container": "#ffdad6",
+                        "on-primary-container": "#cfeaff",
+                        "border": "#D7E0E8",
+                        "on-background": "#121c26",
+                        "on-error-container": "#93000a",
+                        "primary-container": "#0b6e99",
+                        "surface": "#F8FAFC",
+                        "on-tertiary-container": "#ffe2be",
+                        "primary-fixed-dim": "#84cfff",
+                        "on-error": "#ffffff",
+                        "surface-variant": "#d9e3f1",
+                        "surface-container": "#e4effd",
+                        "tertiary-container": "#8d5e00",
+                        "background": "#f7f9ff",
+                        "primary": "#005578",
+                        "surface-container-low": "#edf4ff",
+                        "outline-variant": "#bfc7cf",
+                        "surface-dim": "#d1dbe9",
+                        "surface-container-lowest": "#ffffff",
+                        "secondary-fixed-dim": "#7adb8c",
+                        "inverse-on-surface": "#e8f2ff",
+                        "on-secondary": "#ffffff",
+                        "error": "#ba1a1a",
+                        "danger": "#C2352B",
+                        "on-tertiary-fixed-variant": "#624000",
+                        "on-primary-fixed-variant": "#004c6c",
+                        "on-secondary-fixed-variant": "#005322",
+                        "surface-tint": "#00658e"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "gutter": "16px",
+                        "sidebar-collapsed": "72px",
+                        "sidebar-width": "272px",
+                        "margin-page": "24px",
+                        "control-dense": "28px",
+                        "unit": "4px",
+                        "utility-rail": "56px",
+                        "control-std": "36px"
+                    },
+                    "fontFamily": {
+                        "label-caps": ["Inter"],
+                        "base-body": ["Inter"],
+                        "label-metadata": ["Inter"],
+                        "section-title": ["Inter"],
+                        "page-title": ["Inter"],
+                        "dense-row": ["Inter"]
+                    },
+                    "fontSize": {
+                        "label-caps": ["11px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                        "base-body": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "label-metadata": ["12px", {"lineHeight": "16px", "fontWeight": "400"}],
+                        "section-title": ["14px", {"lineHeight": "20px", "fontWeight": "600"}],
+                        "page-title": ["20px", {"lineHeight": "28px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "dense-row": ["13px", {"lineHeight": "18px", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface font-base-body text-on-surface antialiased overflow-hidden">
+<!-- Top App Bar -->
+<header class="fixed top-0 w-full z-50 bg-canvas border-b border-border flex items-center justify-between px-margin-page h-control-std">
+<div class="flex items-center gap-3">
+<div class="w-7 h-7 rounded-lg bg-primary-container flex items-center justify-center overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="A macro close-up of a professional dental branding icon with a minimalist teal tooth design against a clean white background. High-key lighting, corporate and clean aesthetic, matching the Central Dental brand identity with soft shadows and precise vector lines." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDMxEgdtqUiYFOhBnS0frhFJUlcUIGbkENJKZPijn2nLu1kYldzY_4T4rT9dTEEeA6oukqI6DXifl0f3gQ9al-XHDC3rRC9qsb3o28H4P0M_WijsVd1iORzt54VfXF4nZ78c7DZLRJRSML2WfsMXuqPd4seRD4GIuxFsfhuw1JdNcvCSbyHUS30vALZcicOSGpmfYsYjhZdqHvzPbagCmZqreq0H9XgYOGDWz6bHD62AorwH0qciSyZYAqF9xf6ItrEdaQwAyD4SEk"/>
+</div>
+<div class="flex flex-col leading-tight">
+<h1 class="font-page-title text-[15px] text-primary font-bold">Central Dental</h1>
+<span class="text-[10px] text-text-muted font-label-caps tracking-wider">DOWNTOWN CLINIC</span>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<button class="w-8 h-8 flex items-center justify-center hover:bg-surface-container rounded-lg transition-colors">
+<span class="material-symbols-outlined text-[20px] text-primary">location_on</span>
+</button>
+<div class="w-8 h-8 rounded-full border border-border overflow-hidden bg-surface-container-highest">
+<img class="w-full h-full object-cover" data-alt="A professional headshot of a female dentist, Dr. Moore, wearing clinical scrubs in a bright, modern dental office. Soft morning light, clinical yet warm atmosphere, blurred dental chair in the background, 8k resolution, corporate photography style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCvfLnSuQ0qXUy5wEQG8FGuqbxG2lBw0zuqbimpApCejq3L-tf9gG4liYB4AF2cykdNGaT63v08HigQ30lwXU3lYA548tc_1lv3PFQMPMMAFRU9-rcVqJ_-1kzYEu2JmSEx2UScVaIC4zs7Lcsg_oWO6nQNqJkGaD3fUd3gp1OpxVr7Hwz5GRU80j6p7TodB25LR2gbL-dr4HCmKMFg6tEZgUorYageWOHYdjIJ1ea9VfiSp9HK4chwNUMXO0s2zCPc9fkoVLcNR7M"/>
+</div>
+</div>
+</header>
+<!-- Sub-Header Area: Date Picker & Scope Toggle -->
+<div class="mt-control-std pt-4 pb-2 px-margin-page bg-canvas">
+<!-- Date Selector -->
+<div class="flex items-center justify-between mb-4">
+<button class="p-1 hover:bg-surface-container rounded-lg text-primary transition-colors">
+<span class="material-symbols-outlined">chevron_left</span>
+</button>
+<div class="flex flex-col items-center">
+<span class="font-section-title text-section-title text-on-surface">October 23, 2023</span>
+<span class="text-label-metadata font-label-metadata text-text-muted">Today</span>
+</div>
+<button class="p-1 hover:bg-surface-container rounded-lg text-primary transition-colors">
+<span class="material-symbols-outlined">chevron_right</span>
+</button>
+</div>
+<!-- Scope Toggle (Slack-style segmented control) -->
+<div class="flex p-1 bg-surface-container-low rounded-lg border border-border">
+<button class="flex-1 py-1.5 text-label-metadata font-bold bg-canvas text-primary rounded shadow-sm border border-border/50">
+                My Schedule
+            </button>
+<button class="flex-1 py-1.5 text-label-metadata font-label-metadata text-text-muted hover:text-on-surface-variant transition-colors">
+                Clinic View
+            </button>
+</div>
+</div>
+<!-- Main Content: Vertical Timeline -->
+<main class="h-[calc(100vh-210px)] overflow-y-auto timeline-container px-margin-page pb-20 relative pt-4">
+<!-- Timeline Background Line -->
+<div class="absolute left-[54px] top-0 bottom-0 w-[1px] bg-border z-0"></div>
+<!-- Appointment: 09:00 AM -->
+<div class="flex gap-4 mb-8 relative z-10">
+<div class="w-10 text-right">
+<span class="text-label-metadata font-label-metadata text-text-muted block">09:00</span>
+<span class="text-[10px] font-label-caps text-outline-variant block">AM</span>
+</div>
+<div class="flex-1 bg-canvas border border-border rounded-xl p-3 hover:border-brand-teal transition-all">
+<div class="flex justify-between items-start mb-1">
+<h3 class="font-section-title text-section-title text-primary">Eleanor Shellstrop</h3>
+<span class="px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container text-[10px] font-bold uppercase tracking-wide">Confirmed</span>
+</div>
+<p class="text-dense-row font-dense-row text-on-surface-variant mb-2">Routine Cleaning</p>
+<div class="flex items-center gap-3 pt-2 border-t border-surface-container">
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px] text-outline">chair</span>
+<span class="text-label-metadata font-label-metadata text-text-muted">Op 1</span>
+</div>
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px] text-outline">history</span>
+<span class="text-label-metadata font-label-metadata text-text-muted">45m</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Appointment: 10:30 AM -->
+<div class="flex gap-4 mb-4 relative z-10">
+<div class="w-10 text-right pt-2">
+<span class="text-label-metadata font-label-metadata text-text-muted block">10:30</span>
+<span class="text-[10px] font-label-caps text-outline-variant block">AM</span>
+</div>
+<div class="flex-1 bg-canvas border-l-4 border-l-danger border border-border rounded-xl p-3 shadow-sm">
+<div class="flex justify-between items-start mb-1">
+<h3 class="font-section-title text-section-title text-on-surface">Chidi Anagonye</h3>
+<span class="px-2 py-0.5 rounded-full bg-surface-container-highest text-on-surface text-[10px] font-bold uppercase tracking-wide">Arrived</span>
+</div>
+<div class="flex items-center gap-2 mb-2">
+<span class="text-dense-row font-dense-row text-danger font-semibold">Emergency Consultation</span>
+</div>
+<div class="flex items-center justify-between pt-2 border-t border-surface-container">
+<div class="flex items-center gap-2">
+<div class="w-5 h-5 rounded-full overflow-hidden bg-surface-container-highest border border-border">
+<img class="w-full h-full object-cover" data-alt="Small circular avatar of a professional dental surgeon with a focus on clinical expertise. The lighting is crisp and cool, maintaining a medical professional vibe that is clean and high-fidelity." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAeH8MqhCYd68dLntyA1ay3e_qV7acGAp8sfFlnOrRPpsWokbK1sKHKMHyd94XDhEmUH4Duk4QxiP0mgkXTFU8YTYV3ZqtM8Oc8KnDBG5JAh7adVLq98lqtTFODh_nFhQUM-E2HnQQUPqIvtGldcplxDyYNmmxWDmr1f9-FG5TCmvrcVU8X7512Avf6pkNic5KDOu2VmZjDRuPtLiVjIr53eHw4xV_bTaQ6eAfcgf_muwu-2Lb-xpx-La6BsQ0PUVAzXJmayG22B1I"/>
+</div>
+<span class="text-label-metadata font-label-metadata text-text-muted">Dr. Moore</span>
+</div>
+<span class="material-symbols-outlined text-danger text-[18px]">priority_high</span>
+</div>
+</div>
+</div>
+<!-- CURRENT TIME MARKER -->
+<div class="flex gap-4 items-center mb-8 relative z-20">
+<div class="w-10 text-right">
+<span class="text-label-metadata font-bold text-primary block">11:15</span>
+</div>
+<div class="flex-1 flex items-center">
+<div class="w-2 h-2 rounded-full bg-primary ring-4 ring-primary/10"></div>
+<div class="flex-1 h-[2px] bg-gradient-to-r from-primary to-transparent"></div>
+</div>
+</div>
+<!-- Appointment: 11:30 AM -->
+<div class="flex gap-4 mb-8 relative z-10 opacity-70">
+<div class="w-10 text-right">
+<span class="text-label-metadata font-label-metadata text-text-muted block">11:30</span>
+<span class="text-[10px] font-label-caps text-outline-variant block">AM</span>
+</div>
+<div class="flex-1 bg-surface-container-low border border-border border-dashed rounded-xl p-3">
+<div class="flex justify-between items-start mb-1">
+<h3 class="font-section-title text-section-title text-on-surface">Tahani Al-Jamil</h3>
+<span class="px-2 py-0.5 rounded-full border border-outline-variant text-outline text-[10px] font-bold uppercase tracking-wide">Pending</span>
+</div>
+<p class="text-dense-row font-dense-row text-on-surface-variant mb-2">Invisalign Check-up</p>
+<div class="flex items-center gap-3 pt-2 border-t border-border/40">
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px] text-outline" style="font-variation-settings: 'FILL' 1;">stars</span>
+<span class="text-label-metadata font-label-metadata text-brand-teal font-semibold">VIP Patient</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Appointment: 01:00 PM -->
+<div class="flex gap-4 mb-8 relative z-10 opacity-70">
+<div class="w-10 text-right">
+<span class="text-label-metadata font-label-metadata text-text-muted block">01:00</span>
+<span class="text-[10px] font-label-caps text-outline-variant block">PM</span>
+</div>
+<div class="flex-1 bg-surface-container-low border border-border rounded-xl p-3">
+<div class="flex justify-between items-start mb-1">
+<h3 class="font-section-title text-section-title text-on-surface">Jason Mendoza</h3>
+<span class="px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container text-[10px] font-bold uppercase tracking-wide">Confirmed</span>
+</div>
+<p class="text-dense-row font-dense-row text-on-surface-variant">Deep Scaling & Root Planing</p>
+</div>
+</div>
+</main>
+<!-- FAB for Quick Actions -->
+<button class="fixed right-6 bottom-24 w-14 h-14 bg-primary text-on-primary rounded-full shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-all z-40">
+<span class="material-symbols-outlined text-[28px]">add</span>
+</button>
+<!-- Bottom Nav Bar -->
+<nav class="fixed bottom-0 w-full z-50 bg-surface border-t border-border flex justify-around items-center h-utility-rail pb-safe">
+<!-- Schedule (Active) -->
+<a class="flex flex-col items-center justify-center text-secondary font-bold scale-95 active:scale-90 transition-transform" href="#">
+<span class="material-symbols-outlined mb-1" style="font-variation-settings: 'FILL' 1;">calendar_today</span>
+<span class="font-label-metadata text-label-metadata">Schedule</span>
+</a>
+<!-- Book -->
+<a class="flex flex-col items-center justify-center text-text-muted hover:bg-surface-container-low transition-all scale-95 active:scale-90" href="#">
+<span class="material-symbols-outlined mb-1 text-[24px]">add_circle</span>
+<span class="font-label-metadata text-label-metadata">Book</span>
+</a>
+<!-- More -->
+<a class="flex flex-col items-center justify-center text-text-muted hover:bg-surface-container-low transition-all scale-95 active:scale-90" href="#">
+<span class="material-symbols-outlined mb-1">more_horiz</span>
+<span class="font-label-metadata text-label-metadata">More</span>
+</a>
+</nav>
+<script>
+        // Micro-interactions for the schedule cards
+        document.querySelectorAll('.timeline-container > div').forEach(card => {
+            card.addEventListener('touchstart', () => {
+                card.classList.add('scale-[0.98]');
+            });
+            card.addEventListener('touchend', () => {
+                card.classList.remove('scale-[0.98]');
+            });
+        });
+
+        // Current time indicator animation logic
+        function updateTimeMarker() {
+            // In a real app, this would dynamically position the marker
+            // For this UI demo, we keep the static placement requested.
+        }
+        setInterval(updateTimeMarker, 60000);
+    </script>
+</body></html>

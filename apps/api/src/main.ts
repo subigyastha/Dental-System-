@@ -1,55 +1,40 @@
 import "reflect-metadata";
-import type { INestApplication } from "@nestjs/common";
 import { Logger, ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 
 import { loadMonorepoEnv } from "./env-bootstrap";
-import { allowedOrigins, createRateLimit, securityHeaders } from "./http-security";
+import {
+  allowedOrigins,
+  createRateLimit,
+  requestTiming,
+  securityHeaders,
+} from "./http-security";
 
 loadMonorepoEnv();
 
 const logger = new Logger("HttpSecurity");
 const rateLimit = createRateLimit();
 
-function isAddrInUse(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    (err as NodeJS.ErrnoException).code === "EADDRINUSE"
-  );
+function isProductionRuntime() {
+  return process.env.NODE_ENV === "production" || Boolean(process.env.RENDER) || Boolean(process.env.VERCEL);
 }
 
-async function listenOnAvailablePort(
-  app: INestApplication,
-  preferredPort: number,
-  maxAttempts = 15,
-): Promise<number> {
-  let lastErr: unknown;
-  for (let offset = 0; offset < maxAttempts; offset++) {
-    const port = preferredPort + offset;
-    try {
-      await app.listen(port);
-      if (offset > 0) {
-        console.warn(
-          `[api] Port ${preferredPort} is in use; listening on ${port} instead. Set API_PORT=${port} in .env or stop the other process.`,
-        );
-      }
-      return port;
-    } catch (err) {
-      lastErr = err;
-      if (isAddrInUse(err)) {
-        continue;
-      }
-      throw err;
-    }
+function assertProductionSecurityConfiguration(origins: string[]) {
+  if (!isProductionRuntime()) {
+    return;
   }
-  throw lastErr;
+  if (!process.env.AUTH_SECRET || process.env.AUTH_SECRET.length < 32) {
+    throw new Error("AUTH_SECRET must be configured with at least 32 random characters in production");
+  }
+  if (origins.length === 0) {
+    throw new Error("CORS_ORIGINS must contain the approved browser origin(s) in production");
+  }
 }
 
 async function bootstrap() {
   const { AppModule } = await import("./app.module.js");
   const origins = allowedOrigins();
+  assertProductionSecurityConfiguration(origins);
   const app = await NestFactory.create(AppModule, {
     cors: {
       origin(origin, callback) {
@@ -68,11 +53,18 @@ async function bootstrap() {
         "x-request-id",
         "x-csrf-token",
       ],
-      exposedHeaders: ["x-request-id", "ratelimit-limit", "ratelimit-remaining"],
+      exposedHeaders: [
+        "x-request-id",
+        "x-response-time-ms",
+        "server-timing",
+        "ratelimit-limit",
+        "ratelimit-remaining",
+      ],
     },
   });
   app.setGlobalPrefix("api");
   app.use(securityHeaders);
+  app.use(requestTiming);
   app.use(rateLimit);
   app.useGlobalPipes(
     new ValidationPipe({
@@ -82,8 +74,11 @@ async function bootstrap() {
     }),
   );
 
-  const preferred = Number(process.env.API_PORT ?? 4000);
-  const port = await listenOnAvailablePort(app, preferred);
+  const port = Number(process.env.API_PORT ?? 4000);
+  // The web rewrite targets this exact configured port. Falling forward to a
+  // different port leaves Next proxying to an older API process, which is much
+  // harder to diagnose than a clear EADDRINUSE startup failure.
+  await app.listen(port);
   logger.log({ event: "api_started", port, allowedOrigins: origins.length });
   console.log(`Nest API listening on http://localhost:${port}/api`);
 }

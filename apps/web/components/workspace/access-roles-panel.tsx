@@ -4,9 +4,12 @@ import { ShieldCheck, UserMinus, UserPlus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button, Panel } from "@/components/ui";
-import { EmptyState, Field, Modal, inputClassName, textareaClassName } from "@/components/workspace/elements";
+import { Drawer, EmptyState, Field, inputClassName, textareaClassName } from "@/components/workspace/elements";
 import { ApiRequestError, apiFetchJson } from "@/lib/api-client";
 import type { Location, SessionUser, StaffMember } from "@/lib/domain";
+import { loadStaffDirectory } from "@/lib/staff-api";
+import { directoryItemToStaffMember } from "@/lib/staff-domain";
+import { isAbortedRequest } from "@/lib/request-error";
 
 type GovernableRole =
   | "Owner"
@@ -64,8 +67,11 @@ const governableRoles: GovernableRole[] = [
   "InventoryManager",
 ];
 
-export function isOwnerOrAdmin(role?: SessionUser["role"] | null) {
-  return role === "Owner" || role === "Admin";
+export function isOwnerOrAdmin(
+  role?: SessionUser["role"] | null,
+  effectiveRoles: SessionUser["effectiveRoles"] = [],
+) {
+  return role === "Owner" || role === "Admin" || effectiveRoles?.some((item) => item === "Owner" || item === "Admin") === true;
 }
 
 function formatEffectiveDate(value?: string | null) {
@@ -95,7 +101,7 @@ export function AccessRolesPanel({
   locations: Location[];
   staff: StaffMember[];
 }) {
-  const canGovern = isOwnerOrAdmin(currentUser?.role);
+  const canGovern = isOwnerOrAdmin(currentUser?.role, currentUser?.effectiveRoles);
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(canGovern);
@@ -356,8 +362,55 @@ function GrantRoleModal({
   });
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const availableRoles = currentUser?.role === "Owner" ? governableRoles : governableRoles.filter((role) => role !== "Owner");
-  const staffById = useMemo(() => new Map(staff.map((member) => [member.id, member])), [staff]);
+  const [staffQuery, setStaffQuery] = useState("");
+  const [staffOptions, setStaffOptions] = useState(staff);
+  const [staffSearchError, setStaffSearchError] = useState<string | null>(null);
+  const [isSearchingStaff, setIsSearchingStaff] = useState(false);
+  const hasOwnerRole = currentUser?.role === "Owner" || currentUser?.effectiveRoles?.includes("Owner") === true;
+  const availableRoles = hasOwnerRole ? governableRoles : governableRoles.filter((role) => role !== "Owner");
+  const staffById = useMemo(() => new Map(staffOptions.map((member) => [member.id, member])), [staffOptions]);
+
+  useEffect(() => {
+    if (!staffQuery.trim()) {
+      setStaffOptions(staff);
+      setStaffSearchError(null);
+      setIsSearchingStaff(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setIsSearchingStaff(true);
+      setStaffSearchError(null);
+      void loadStaffDirectory({
+        limit: 25,
+        query: staffQuery.trim(),
+        status: "Active",
+        signal: controller.signal,
+      })
+        .then((result) => {
+          setStaffOptions(
+            result.items.map((item) =>
+              directoryItemToStaffMember(currentUser?.organizationId ?? "", item),
+            ),
+          );
+        })
+        .catch((requestError) => {
+          if (isAbortedRequest(requestError)) return;
+          setStaffSearchError(
+            requestError instanceof Error ? requestError.message : "Could not search staff.",
+          );
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setIsSearchingStaff(false);
+        });
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [currentUser?.organizationId, staff, staffQuery]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -383,12 +436,22 @@ function GrantRoleModal({
   }
 
   return (
-    <Modal
+    <Drawer
+      closeDisabled={isSaving}
+      context="A grant is audited and applied only after the API confirms it."
       onClose={onClose}
-      subtitle="A grant is recorded in the organization audit trail and is not applied locally until the API confirms it."
       title="Grant organization role"
     >
       <form className="space-y-4" onSubmit={handleSubmit}>
+        <Field label="Find staff">
+          <input
+            autoComplete="off"
+            className={inputClassName}
+            onChange={(event) => setStaffQuery(event.target.value)}
+            placeholder="Search name, email, role, or department"
+            value={staffQuery}
+          />
+        </Field>
         <Field label="Staff member">
           <select
             className={inputClassName}
@@ -397,13 +460,18 @@ function GrantRoleModal({
             value={form.userId}
           >
             <option value="">Select a staff member</option>
-            {staff.map((member) => (
+            {staffOptions.map((member) => (
               <option disabled={member.id === currentUser?.id} key={member.id} value={member.id}>
                 {member.name} · {member.email}
               </option>
             ))}
           </select>
         </Field>
+        {isSearchingStaff ? <p className="text-xs text-[var(--text-muted)]">Searching staff...</p> : null}
+        {staffSearchError ? <p className="text-sm text-[var(--danger)]">{staffSearchError}</p> : null}
+        {!isSearchingStaff && staffQuery.trim() && !staffOptions.length ? (
+          <p className="text-sm text-[var(--text-muted)]">No active staff accounts matched that search.</p>
+        ) : null}
         {form.userId && !staffById.has(form.userId) ? (
           <p className="text-sm text-[var(--danger)]">The selected account is no longer available.</p>
         ) : null}
@@ -473,7 +541,7 @@ function GrantRoleModal({
           </Button>
         </div>
       </form>
-    </Modal>
+    </Drawer>
   );
 }
 
@@ -517,9 +585,10 @@ function RevokeAccessModal({
   }
 
   return (
-    <Modal
+    <Drawer
+      closeDisabled={isSaving}
+      context="This consequential action is audited and takes effect after server confirmation."
       onClose={onClose}
-      subtitle="This consequential action is audited. The access view refreshes only after the server confirms the revocation."
       title="Confirm access revocation"
     >
       <form className="space-y-4" onSubmit={handleSubmit}>
@@ -545,6 +614,6 @@ function RevokeAccessModal({
           </Button>
         </div>
       </form>
-    </Modal>
+    </Drawer>
   );
 }

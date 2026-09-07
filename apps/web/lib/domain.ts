@@ -156,6 +156,19 @@ export type Appointment = {
   chair: string;
   notes: string;
   communicationState: "Unconfirmed" | "Confirmed by phone" | "SMS sent" | "Needs call";
+  /** Directory-safe labels returned with bounded schedule range reads. */
+  clientSummary?: {
+    id: string;
+    name: string;
+    patientCode?: string;
+  };
+  providerSummary?: {
+    id: string;
+    name: string;
+    color: string;
+    specialty?: string;
+  };
+  serviceSummaries?: Service[];
 };
 
 export type AppointmentDaySummary = {
@@ -287,21 +300,27 @@ export type Location = {
   isActive: boolean;
 };
 
+export type WorkspaceUserRole =
+  | "SuperAdmin"
+  | "Owner"
+  | "Admin"
+  | "Manager"
+  | "Receptionist"
+  | "Scheduler"
+  | "Provider"
+  | "Assistant"
+  | "Finance"
+  | "InventoryManager"
+  | "Client";
+
 export type SessionUser = {
   id: string;
   organizationId: string;
   name: string;
   email: string;
-  role:
-    | "SuperAdmin"
-    | "Owner"
-    | "Admin"
-    | "Manager"
-    | "Receptionist"
-    | "Scheduler"
-    | "Provider"
-    | "Assistant"
-    | "Client";
+  role: WorkspaceUserRole;
+  /** The server-authoritative union of active role assignments. */
+  effectiveRoles?: WorkspaceUserRole[];
   providerId?: string;
 };
 

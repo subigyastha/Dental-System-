@@ -80,12 +80,13 @@ Legend: **M** manage/create/update where workflow permits; **R** read; **D** dra
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Organization configuration, locations, services | M | limited operational config | — | — | R as needed | R as needed | payment config only | inventory config only | platform configuration only |
 | Invite/suspend staff; role assignments | M | staff coordination only | — | — | — | — | — | — | platform staff only |
-| Client demographic/contact records | M | M | M | R | R all clients initially | R for support workflow | R as billing requires | — | no standing access |
+| Client demographic/contact records | M | M | M | R | create new + append caller phone; R all clients initially | R for support workflow | R as billing requires | — | no standing access |
 | Client clinical records | M, audited exceptional access | R operationally; no clinical authoring | R only where needed for front desk; no clinical-note content by default | R appointment context only | R all clients initially | R only necessary assigned-work context | R billing context only | — | no standing access |
 | Clinical record / visit outcome | M only through authorized clinical workflow | — | — | — | M for assigned work | D for permitted assigned work | — | — | no standing access |
 | Finalize/sign clinical record | M only when clinically authorized | — | — | — | M for own assigned work | — | — | — | no standing access |
 | Appointments, check-in, status updates | M | M | M | M | M for assigned work | limited workflow support | R finance context | — | no standing access |
 | Provider availability and schedule blocks | M | M | R | M | manage own availability where permitted | R | — | — | no standing access |
+| Organization slot-start interval | M (Owner only in phase one) | R | R | R | R | R | — | — | no standing access |
 | Operational and utilization reporting | M | R | limited front-desk views | R schedule views | R own/work views | R assigned-work views | finance only | inventory only | aggregate platform only |
 | Draft invoice and line items | M | — | D | — | draft only if clinic enables provider billing workflow | — | M | — | no standing access |
 | Issue/cancel/void invoice | M | — | — | — | — | — | M | — | no standing access |
@@ -107,6 +108,7 @@ Legend: **M** manage/create/update where workflow permits; **R** read; **D** dra
 Until a later client-access policy is approved and implemented, each Provider assignment may read client records for all clients within its valid organization/location scope. This is an intentional first-release operating policy, not an implication that all users may read all clinical content.
 
 - Provider clinical writes, amendments, outcomes, and signatures are limited to the Provider's assigned appointment or work item, except an audited Owner/Admin exceptional-access workflow.
+- Providers may register a new caller through the same duplicate-reviewed, idempotent Client intake used by reception and may append the caller's phone after intentionally selecting an existing Client. This does not grant general profile correction, archive, merge, deletion, or identity-review resolution.
 - Assistants may create or edit a permitted clinical draft only for assigned work. They cannot sign, finalize, or alter a finalized Provider record.
 - Receptionist, Scheduler, Manager, and Finance views must expose only the minimum client/appointment/billing data required by their rows in the matrix. They do not receive clinical-note authoring permissions.
 - A future per-client care-team or consent-based access policy must replace this broad Provider read rule only through a versioned policy change, migration, and negative authorization tests.

@@ -1,5 +1,5 @@
-import { KoiPageLoader } from "@/components/koi-loader";
+import { WorkspaceShellSkeleton } from "@/components/workspace/workspace-shell-skeleton";
 
 export default function WorkspaceLoading() {
-  return <KoiPageLoader label="Page loading" />;
+  return <WorkspaceShellSkeleton label="Loading page" />;
 }

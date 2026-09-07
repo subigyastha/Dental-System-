@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, viewport-fit=cover" name="viewport"/>
+<title>Central Dental - Book Appointment</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-tertiary": "#ffffff",
+                        "secondary": "#006d2f",
+                        "secondary-fixed": "#95f8a5",
+                        "sidebar": "#F1F5F9",
+                        "secondary-container": "#95f8a5",
+                        "on-primary": "#ffffff",
+                        "brand-teal": "#7BC8C3",
+                        "inverse-primary": "#84cfff",
+                        "on-secondary-container": "#007433",
+                        "surface-bright": "#f7f9ff",
+                        "canvas": "#FFFFFF",
+                        "surface-container-highest": "#d9e3f1",
+                        "on-secondary-fixed": "#002109",
+                        "primary-fixed": "#c7e7ff",
+                        "text-muted": "#5C6B78",
+                        "brand-lavender": "#C196C2",
+                        "on-tertiary-fixed": "#291800",
+                        "surface-container-high": "#dfe9f7",
+                        "on-surface-variant": "#40484e",
+                        "inverse-surface": "#27313c",
+                        "tertiary-fixed-dim": "#fbbb58",
+                        "tertiary": "#6d4800",
+                        "tertiary-fixed": "#ffddb1",
+                        "outline": "#70787f",
+                        "on-surface": "#121c26",
+                        "on-primary-fixed": "#001e2e",
+                        "error-container": "#ffdad6",
+                        "on-primary-container": "#cfeaff",
+                        "border": "#D7E0E8",
+                        "on-background": "#121c26",
+                        "on-error-container": "#93000a",
+                        "primary-container": "#0b6e99",
+                        "surface": "#F8FAFC",
+                        "on-tertiary-container": "#ffe2be",
+                        "primary-fixed-dim": "#84cfff",
+                        "on-error": "#ffffff",
+                        "surface-variant": "#d9e3f1",
+                        "surface-container": "#e4effd",
+                        "tertiary-container": "#8d5e00",
+                        "background": "#f7f9ff",
+                        "primary": "#005578",
+                        "surface-container-low": "#edf4ff",
+                        "outline-variant": "#bfc7cf",
+                        "surface-dim": "#d1dbe9",
+                        "surface-container-lowest": "#ffffff",
+                        "secondary-fixed-dim": "#7adb8c",
+                        "inverse-on-surface": "#e8f2ff",
+                        "on-secondary": "#ffffff",
+                        "error": "#ba1a1a",
+                        "danger": "#C2352B",
+                        "on-tertiary-fixed-variant": "#624000",
+                        "on-primary-fixed-variant": "#004c6c",
+                        "on-secondary-fixed-variant": "#005322",
+                        "surface-tint": "#00658e"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "gutter": "16px",
+                        "sidebar-collapsed": "72px",
+                        "sidebar-width": "272px",
+                        "margin-page": "24px",
+                        "control-dense": "28px",
+                        "unit": "4px",
+                        "utility-rail": "56px",
+                        "control-std": "36px"
+                    },
+                    "fontFamily": {
+                        "label-caps": ["Inter"],
+                        "base-body": ["Inter"],
+                        "label-metadata": ["Inter"],
+                        "section-title": ["Inter"],
+                        "page-title": ["Inter"],
+                        "dense-row": ["Inter"]
+                    },
+                    "fontSize": {
+                        "label-caps": ["11px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                        "base-body": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "label-metadata": ["12px", {"lineHeight": "16px", "fontWeight": "400"}],
+                        "section-title": ["14px", {"lineHeight": "20px", "fontWeight": "600"}],
+                        "page-title": ["20px", {"lineHeight": "28px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "dense-row": ["13px", {"lineHeight": "18px", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        body { font-family: 'Inter', sans-serif; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .slot-pill:active { transform: scale(0.95); transition: transform 0.1s ease; }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-surface antialiased min-h-screen flex flex-col">
+<!-- Top AppBar (from JSON guidance) -->
+<header class="fixed top-0 w-full z-50 bg-canvas border-b border-border flex items-center justify-between px-margin-page h-control-std">
+<div class="flex items-center gap-2">
+<button class="p-2 -ml-2 text-primary">
+<span class="material-symbols-outlined">arrow_back</span>
+</button>
+<h1 class="font-page-title text-page-title text-primary">Book Appointment</h1>
+</div>
+<div class="flex items-center">
+<span class="material-symbols-outlined text-primary">location_on</span>
+</div>
+</header>
+<main class="flex-grow pt-[56px] pb-[120px] px-margin-page max-w-md mx-auto w-full">
+<!-- Step Indicator -->
+<div class="py-6">
+<div class="flex items-center justify-between mb-2">
+<span class="font-label-caps text-label-caps text-text-muted">STEP 1 OF 4</span>
+<span class="font-label-metadata text-label-metadata text-primary font-bold">Choose Time</span>
+</div>
+<div class="h-1 w-full bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-primary w-1/4 rounded-full"></div>
+</div>
+</div>
+<!-- Appointment Summary / Context -->
+<div class="bg-canvas border border-border p-4 rounded-xl mb-6 flex flex-col gap-3">
+<div class="flex items-start gap-4">
+<div class="w-12 h-12 rounded-lg bg-surface flex items-center justify-center border border-border overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="Close-up professional portrait of a female dentist, Dr. Julianne Moore, with a friendly expression, wearing clinical white scrubs. The lighting is bright and clinical, typical of a modern high-end dental office. The background is softly blurred with a hint of teal and purple accents, maintaining the professional corporate minimalist aesthetic of Central Dental." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDAOyYgQHcT-lG27AUk51eF088EHDoouPmrkLFhmmUV4aJ4itciCF5umN-shRZtBnxXqEOcwXdv4kgmmgUKUKg_gWFTN5KLssy9agQfl8hYbp-5HN8iDxA7f6hghB4C8QKbAZQScwN66XwntnG8ELONUCRyL47_OCqnBIDiJS0AfRtTuIWiuwWfSgzyGN-4CEiy3Oksoo1XsFdYv3hg3yLzGqdONwWXdkW2zH_1WBHxslyxS7LhdkZrBdTzuAdOFiwndQ5PlNGtkYg"/>
+</div>
+<div>
+<p class="font-label-caps text-label-caps text-brand-teal">PROVIDER</p>
+<p class="font-section-title text-section-title text-on-surface">Dr. Julianne Moore</p>
+</div>
+</div>
+<div class="pt-3 border-t border-border flex items-center justify-between">
+<div>
+<p class="font-label-caps text-label-caps text-brand-teal">SERVICE</p>
+<p class="font-base-body text-base-body">Prophylaxis (Cleaning)</p>
+</div>
+<span class="material-symbols-outlined text-text-muted">edit</span>
+</div>
+</div>
+<!-- Date Selector -->
+<section class="mb-8">
+<div class="flex items-center justify-between mb-4">
+<h3 class="font-section-title text-section-title">October 2024</h3>
+<button class="text-primary flex items-center gap-1 font-label-metadata">
+<span class="material-symbols-outlined text-sm">calendar_month</span>
+                    Calendar
+                </button>
+</div>
+<div class="flex overflow-x-auto gap-3 no-scrollbar pb-2">
+<!-- Days generator -->
+<div class="flex flex-col items-center justify-center min-w-[56px] h-[72px] rounded-xl border border-border bg-canvas opacity-50">
+<span class="font-label-caps text-label-caps">MON</span>
+<span class="font-page-title text-page-title">21</span>
+</div>
+<div class="flex flex-col items-center justify-center min-w-[56px] h-[72px] rounded-xl border border-border bg-canvas opacity-50">
+<span class="font-label-caps text-label-caps">TUE</span>
+<span class="font-page-title text-page-title">22</span>
+</div>
+<div class="flex flex-col items-center justify-center min-w-[56px] h-[72px] rounded-xl border border-border bg-canvas opacity-50">
+<span class="font-label-caps text-label-caps">WED</span>
+<span class="font-page-title text-page-title">23</span>
+</div>
+<!-- Active Day: Oct 24 -->
+<div class="flex flex-col items-center justify-center min-w-[64px] h-[80px] -mt-1 rounded-xl bg-primary text-on-primary ring-2 ring-primary ring-offset-2 ring-offset-surface">
+<span class="font-label-caps text-label-caps">THU</span>
+<span class="font-page-title text-page-title">24</span>
+</div>
+<div class="flex flex-col items-center justify-center min-w-[56px] h-[72px] rounded-xl border border-border bg-canvas">
+<span class="font-label-caps text-label-caps">FRI</span>
+<span class="font-page-title text-page-title">25</span>
+</div>
+<div class="flex flex-col items-center justify-center min-w-[56px] h-[72px] rounded-xl border border-border bg-canvas">
+<span class="font-label-caps text-label-caps">SAT</span>
+<span class="font-page-title text-page-title">26</span>
+</div>
+</div>
+</section>
+<!-- Time Slots Grid -->
+<section>
+<div class="flex items-center gap-2 mb-4">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">schedule</span>
+<h3 class="font-section-title text-section-title">Available Slots</h3>
+</div>
+<div class="grid grid-cols-3 gap-3">
+<!-- Slot Item -->
+<button class="slot-pill bg-canvas border border-border py-3 rounded-lg flex flex-col items-center transition-colors hover:bg-surface-container-low active:bg-surface-container-high" onclick="selectSlot(this)">
+<span class="font-section-title text-section-title">08:00</span>
+<span class="font-label-metadata text-label-metadata text-text-muted">AM</span>
+</button>
+<button class="slot-pill bg-canvas border border-border py-3 rounded-lg flex flex-col items-center transition-colors hover:bg-surface-container-low active:bg-surface-container-high" onclick="selectSlot(this)">
+<span class="font-section-title text-section-title">08:30</span>
+<span class="font-label-metadata text-label-metadata text-text-muted">AM</span>
+</button>
+<button class="slot-pill bg-canvas border border-border py-3 rounded-lg flex flex-col items-center transition-colors hover:bg-surface-container-low active:bg-surface-container-high" onclick="selectSlot(this)">
+<span class="font-section-title text-section-title">09:00</span>
+<span class="font-label-metadata text-label-metadata text-text-muted">AM</span>
+</button>
+<!-- Selected Slot (Example State) -->
+<button class="slot-pill bg-secondary-container border border-on-secondary-container py-3 rounded-lg flex flex-col items-center" onclick="selectSlot(this)">
+<span class="font-section-title text-section-title text-on-secondary-container">09:30</span>
+<span class="font-label-metadata text-label-metadata text-on-secondary-container">AM</span>
+</button>
+<button class="slot-pill bg-canvas border border-border py-3 rounded-lg flex flex-col items-center opacity-40 cursor-not-allowed">
+<span class="font-section-title text-section-title">10:00</span>
+<span class="font-label-metadata text-label-metadata text-text-muted">AM</span>
+</button>
+<button class="slot-pill bg-canvas border border-border py-3 rounded-lg flex flex-col items-center transition-colors hover:bg-surface-container-low active:bg-surface-container-high" onclick="selectSlot(this)">
+<span class="font-section-title text-section-title">10:30</span>
+<span class="font-label-metadata text-label-metadata text-text-muted">AM</span>
+</button>
+<button class="slot-pill bg-canvas border border-border py-3 rounded-lg flex flex-col items-center transition-colors hover:bg-surface-container-low active:bg-surface-container-high" onclick="selectSlot(this)">
+<span class="font-section-title text-section-title">11:00</span>
+<span class="font-label-metadata text-label-metadata text-text-muted">AM</span>
+</button>
+<button class="slot-pill bg-canvas border border-border py-3 rounded-lg flex flex-col items-center transition-colors hover:bg-surface-container-low active:bg-surface-container-high" onclick="selectSlot(this)">
+<span class="font-section-title text-section-title">11:30</span>
+<span class="font-label-metadata text-label-metadata text-text-muted">AM</span>
+</button>
+<button class="slot-pill bg-canvas border border-border py-3 rounded-lg flex flex-col items-center transition-colors hover:bg-surface-container-low active:bg-surface-container-high" onclick="selectSlot(this)">
+<span class="font-section-title text-section-title">01:00</span>
+<span class="font-label-metadata text-label-metadata text-text-muted">PM</span>
+</button>
+</div>
+</section>
+</main>
+<!-- Fixed Footer Action -->
+<footer class="fixed bottom-0 w-full p-margin-page bg-canvas border-t border-border z-50">
+<div class="max-w-md mx-auto">
+<button class="w-full bg-primary text-on-primary py-4 rounded-xl font-section-title text-section-title flex items-center justify-center gap-2 shadow-lg shadow-primary/10 active:scale-[0.98] transition-transform">
+                Next
+                <span class="material-symbols-outlined">arrow_forward</span>
+</button>
+</div>
+</footer>
+<!-- Bottom Nav (Hidden for focused flow as per suppression rules) -->
+<nav class="hidden md:hidden fixed bottom-0 w-full h-utility-rail bg-surface border-t border-border flex justify-around items-center px-4">
+<!-- Suppressed for booking flow to focus on action -->
+</nav>
+<script>
+        function selectSlot(element) {
+            // Simple visual toggle for demonstration
+            document.querySelectorAll('.slot-pill').forEach(pill => {
+                pill.classList.remove('bg-secondary-container', 'border-on-secondary-container');
+                pill.querySelectorAll('span').forEach(s => s.classList.remove('text-on-secondary-container'));
+                
+                if (!pill.classList.contains('opacity-40')) {
+                    pill.classList.add('bg-canvas', 'border-border');
+                    pill.querySelector('span').classList.add('text-on-surface');
+                }
+            });
+
+            element.classList.remove('bg-canvas', 'border-border');
+            element.classList.add('bg-secondary-container', 'border-on-secondary-container');
+            element.querySelectorAll('span').forEach(s => s.classList.add('text-on-secondary-container'));
+        }
+    </script>
+</body></html>
