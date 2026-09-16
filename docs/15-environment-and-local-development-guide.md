@@ -40,7 +40,8 @@ Use a local `.env.local` file for developer overrides and never commit it. The N
 | `SESSION_TTL_SECONDS` | Recommended | Absolute server-session lifetime | Defaults to 8 hours. |
 | `SESSION_IDLE_TIMEOUT_SECONDS` | Recommended | Inactive server-session timeout | Defaults to 30 minutes. |
 | `SESSION_TOUCH_INTERVAL_SECONDS` | Recommended | Session activity persistence interval | Defaults to 5 minutes and is capped at one-third of the idle timeout, preventing a database write on every protected read. |
-| `API_PORT` | Local API | Nest listener port | Current default is `4000`; production is platform-configured. |
+| `PORT` | Hosted API | Platform-provided Nest listener port | Render injects this value. The API binds it on `0.0.0.0`; do not hard-code a competing production port. |
+| `API_PORT` | Local API | Nest listener port | Current default is `4000`; used only when `PORT` is absent. |
 | `NEXT_PUBLIC_API_URL` | Web | Nest API base URL | Must point only to the approved API origin. |
 | `REDIS_URL` | Production/staging | Shared cache, queues, invalidation | Required once distributed scheduling/cache features ship. |
 | `APP_ENV` | Yes | Environment identity | `development`, `test`, `staging`, or `production`. |

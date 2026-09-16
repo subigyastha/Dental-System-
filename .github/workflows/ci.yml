@@ -67,7 +67,9 @@ jobs:
         run: npm run check:secrets
 
       - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+        # Prisma is a dev-only CLI, but @prisma/client exposes it as an optional
+        # peer. Omit optional tooling so this gate audits the deployed runtime.
+        run: npm audit --omit=dev --omit=optional --audit-level=high
 
       - name: Validate Prisma schema
         run: npx prisma validate

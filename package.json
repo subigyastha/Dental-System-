@@ -28,7 +28,7 @@
     "db:push": "prisma db push",
     "db:seed": "node prisma/seed.mjs",
     "platform:admin:provision": "node scripts/provision-super-admin.mjs",
-    "postinstall": "prisma generate"
+    "postinstall": "node scripts/generate-prisma-client.mjs"
   },
   "devDependencies": {
     "prisma": "6.19.3"

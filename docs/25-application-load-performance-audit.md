@@ -191,7 +191,7 @@ Relevant source: `apps/web/components/workspace/inventory/inventory-workspace.ts
 
 ### PERF-01 — Remote database latency dominates every local request
 
-**Severity:** Critical / confirmed  
+**Severity:** Critical / confirmed
 **Confidence:** High
 
 `DATABASE_URL` targets the Supabase transaction pooler in the Tokyo region. Next and Nest are local, but data is not. The measured `SELECT 1` cost of roughly 700-850 ms is already above the project's p95 target of 500 ms before any business query chain begins.
@@ -200,7 +200,7 @@ This explains why caching seems attractive but cannot be the first correction: a
 
 ### PERF-02 — One Prisma connection converts parallel page work into queued work
 
-**Severity:** Critical / confirmed  
+**Severity:** Critical / confirmed
 **Confidence:** High
 
 `apps/api/src/env-bootstrap.ts:96-105` adds `pgbouncer=true&connection_limit=1` for the Supabase 6543 transaction pool. This avoids prepared-statement and pool-exhaustion failures, but it serializes the application's database work. The 25-request benchmarks directly show queue growth.
@@ -209,7 +209,7 @@ The setting is defensible as a safety fallback for this pool mode. It is not a t
 
 ### PERF-03 — Schedule cold path contains too many serial database phases
 
-**Severity:** Critical / confirmed  
+**Severity:** Critical / confirmed
 **Confidence:** High
 
 Cold Schedule grid time is 5.21 seconds before HTTP guard/access-controller overhead. The path reads configuration, context, Providers, and appointments in sequential phases. Context itself contains five reads. The `/v1/schedule/day` controller separately loads appointments while grid generation loads appointments again for slot state, so overlapping appointment data is queried twice.
@@ -218,7 +218,7 @@ This is the largest code-level contributor and the first endpoint to redesign.
 
 ### PERF-04 — Cache hits still require a remote configuration query
 
-**Severity:** High / confirmed  
+**Severity:** High / confirmed
 **Confidence:** High
 
 `listScheduleGridForDay()` calls `getScheduleConfiguration()` before it can construct the versioned cache key. The measured warm call is therefore 723 ms instead of an in-memory response. Similar key construction should be reviewed for slot reads.
@@ -227,7 +227,7 @@ The current `ScheduleCacheService` is also an unbounded process-local `Map` with
 
 ### PERF-05 — Session validation and session-touch writes are multiplied per page
 
-**Severity:** High / confirmed by source and guard timing  
+**Severity:** High / confirmed by source and guard timing
 **Confidence:** High
 
 Every protected HTTP call reads `UserSession` and its User relation. `requireSessionToken()` then fires an unawaited `lastSeenAt` update. An initial Dashboard uses auth/me, workspace, and Dashboard requests; Schedule adds bootstrap/day/prefetch requests. Thus a read-only page creates multiple session reads and multiple database writes.
@@ -236,28 +236,28 @@ The write is off the direct await chain, but not off the pool. With one Prisma c
 
 ### PERF-06 — Shell gating creates an avoidable network waterfall
 
-**Severity:** High / confirmed by source  
+**Severity:** High / confirmed by source
 **Confidence:** High
 
 Most route-owned data cannot begin until `WorkspaceRoot` has completed auth and workspace bootstrap and mounted the child. The correct move away from the legacy `/operational-data` aggregate has reduced payload/privacy risk, but the new reads still need orchestration so route data and shell data do not become serial phases.
 
 ### PERF-07 — Adjacent Schedule prefetch is too aggressive for a constrained connection
 
-**Severity:** High / confirmed by source; signed-in waterfall pending  
+**Severity:** High / confirmed by source; signed-in waterfall pending
 **Confidence:** Medium-high
 
 Two heavy day snapshots start 250 ms after the visible day succeeds. On a healthy multi-connection/local database this is useful. On the current single connection, the prefetch can delay the next user action, route-owned request, or quick-book request. It also warms only the current API process's cache.
 
 ### PERF-08 — Browser requests have no shared latency budget
 
-**Severity:** Medium-high / confirmed by source  
+**Severity:** Medium-high / confirmed by source
 **Confidence:** High
 
 `apiFetch` passes the caller signal but defines no default timeout. A database/pool stall can leave the skeleton visible until the database, proxy, or browser eventually fails. The UI needs a bounded “still working” state and a typed timeout, but timeouts must accompany root-cause reduction rather than hiding it.
 
 ### PERF-09 — Current data shapes are mostly bounded, with four growth risks
 
-**Severity:** Medium / not the current tiny-data cause  
+**Severity:** Medium / not the current tiny-data cause
 **Confidence:** High
 
 Positive findings:
@@ -277,14 +277,14 @@ Growth risks:
 
 ### PERF-10 — Synchronous password hashing blocks the Nest event loop during login
 
-**Severity:** Medium / confirmed  
+**Severity:** Medium / confirmed
 **Confidence:** High
 
 The current `scryptSync` parameters block the event loop for about 310 ms on this machine, in addition to login database reads/writes. This is not a 30-second page-navigation cause, but concurrent logins can pause unrelated API work. Move verification/hashing off the main event loop or use an asynchronous implementation while retaining the approved cost parameters.
 
 ### PERF-11 — Development process hygiene can recreate old 10-second stalls
 
-**Severity:** Medium-high / historical evidence  
+**Severity:** Medium-high / historical evidence
 **Confidence:** Medium
 
 The checked-in logs show:
@@ -296,14 +296,14 @@ Current startup deliberately fails instead of moving to another port, which is g
 
 ### PERF-12 — Direct Prisma tools can bypass runtime URL normalization
 
-**Severity:** Medium / confirmed in diagnostic  
+**Severity:** Medium / confirmed in diagnostic
 **Confidence:** High
 
 The Nest entrypoint calls `loadMonorepoEnv()`, which adds pooler-compatible parameters. A raw PrismaClient script that only loads `.env` does not. The audit reproduced PostgreSQL `26000: prepared statement ... does not exist` in that bypass path. Runtime scripts must import the shared environment bootstrap or receive an already-normalized URL. Migration commands should continue to use `DIRECT_URL` and the documented session/direct endpoint.
 
 ### PERF-13 — In-process maps need lifecycle bounds
 
-**Severity:** Low-medium / source risk  
+**Severity:** Low-medium / source risk
 **Confidence:** High
 
 `ScheduleCacheService` has no TTL or maximum size, and the in-memory HTTP rate-limit map does not prune expired keys. Neither explains current latency, but both can grow for the lifetime of a production process. This belongs in hardening after the critical path is fixed.
@@ -330,8 +330,8 @@ The work can be delivered as six small, reviewable slices. Estimated effort is *
 
 ### R1-P0 — Capture the signed-in baseline and expose queue time
 
-**Estimate:** 0.5-1 day  
-**Dependency:** none  
+**Estimate:** 0.5-1 day
+**Dependency:** none
 **Release role:** must land first
 
 1. Create a non-production performance account through the normal provisioning process.
@@ -345,7 +345,7 @@ The work can be delivered as six small, reviewable slices. Estimated effort is *
 
 ### R1-P1 — Correct environment topology before application caching
 
-**Estimate:** 0.5-2 days for configuration; longer if region migration is required  
+**Estimate:** 0.5-2 days for configuration; longer if region migration is required
 **Dependency:** R1-P0 baseline
 
 1. For local development, support true local PostgreSQL as the default fast loop. Keep remote Supabase as an explicit integration profile.
@@ -359,7 +359,7 @@ The work can be delivered as six small, reviewable slices. Estimated effort is *
 
 ### R1-P2 — Collapse session/workspace bootstrap and throttle session touches
 
-**Estimate:** 1-2 days  
+**Estimate:** 1-2 days
 **Dependency:** can proceed with R1-P1 after the baseline
 
 1. Replace the parallel `/auth/me` + `/v1/workspace/bootstrap` pair with one authenticated session/workspace bootstrap contract containing the complete actor and shell context.
@@ -372,7 +372,7 @@ The work can be delivered as six small, reviewable slices. Estimated effort is *
 
 ### R1-P3 — Replace the Schedule query chain with one day read model
 
-**Estimate:** 2-3 days  
+**Estimate:** 2-3 days
 **Dependency:** R1-P0; benefits strongly from R1-P1
 
 1. Move `/v1/schedule/day` into one dedicated service instead of composing `appointments.list()` and `providers.listScheduleGrids()` in the controller.
@@ -387,7 +387,7 @@ The work can be delivered as six small, reviewable slices. Estimated effort is *
 
 ### R1-P4 — Fix browser orchestration and prefetch policy
 
-**Estimate:** 1-2 days  
+**Estimate:** 1-2 days
 **Dependency:** R1-P2/P3 contracts
 
 1. Start shell and authorized route data without an avoidable serial mount waterfall. A persistent shell skeleton may render immediately while both requests progress.
@@ -401,7 +401,7 @@ The work can be delivered as six small, reviewable slices. Estimated effort is *
 
 ### R1-P5 — Bound growth paths and add representative-volume gates
 
-**Estimate:** 1-2 days implementation plus test execution  
+**Estimate:** 1-2 days implementation plus test execution
 **Dependency:** R1-P0 instrumentation
 
 1. Replace Finance's nested all-Payments/all-Corrections hydration with aggregates for list rows and demand-load invoice detail/history.
@@ -415,7 +415,7 @@ The work can be delivered as six small, reviewable slices. Estimated effort is *
 
 ### R1-P6 — Login and process hardening
 
-**Estimate:** 1 day; may run parallel after R1-P1  
+**Estimate:** 1 day; may run parallel after R1-P1
 **Dependency:** baseline
 
 1. Replace synchronous password verification/hashing with an asynchronous or worker-thread path while retaining password-policy and cost requirements.

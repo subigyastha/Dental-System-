@@ -1,7 +1,7 @@
 # Application Performance Remediation
 
-**Date:** 2026-09-06  
-**Status:** Code remediation and restored-database verification complete; authenticated browser timing awaits a normal test login  
+**Date:** 2026-09-06
+**Status:** Code remediation and restored-database verification complete; authenticated browser timing awaits a normal test login
 **Related baseline:** [25-application-load-performance-audit.md](./25-application-load-performance-audit.md)
 
 ## 1. Outcome

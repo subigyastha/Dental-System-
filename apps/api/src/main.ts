@@ -74,11 +74,13 @@ async function bootstrap() {
     }),
   );
 
-  const port = Number(process.env.API_PORT ?? 4000);
+  // Render and similar hosts inject PORT. Keep API_PORT as the explicit local
+  // override used by the web proxy and development tooling.
+  const port = Number(process.env.PORT ?? process.env.API_PORT ?? 4000);
   // The web rewrite targets this exact configured port. Falling forward to a
   // different port leaves Next proxying to an older API process, which is much
   // harder to diagnose than a clear EADDRINUSE startup failure.
-  await app.listen(port);
+  await app.listen(port, "0.0.0.0");
   logger.log({ event: "api_started", port, allowedOrigins: origins.length });
   console.log(`Nest API listening on http://localhost:${port}/api`);
 }
