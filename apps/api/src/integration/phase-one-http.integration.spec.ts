@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { ValidationPipe } from "@nestjs/common";
+import { NestFactory } from "@nestjs/core";
 
 /**
  * This test intentionally accepts only TEST_DATABASE_URL. It never falls back
@@ -18,14 +20,13 @@ test(
     process.env.DIRECT_URL = testDatabaseUrl;
     process.env.AUTH_SECRET = "phase-one-http-test-secret";
 
-    const [{ NestFactory }, { ValidationPipe }, { AppModule }, { PrismaService }, { AuthService }] =
-      await Promise.all([
-        import("@nestjs/core"),
-        import("@nestjs/common"),
-        import("../app.module.js"),
-        import("../modules/prisma/prisma.service.js"),
-        import("../modules/auth/auth.service.js"),
-      ]);
+    // Nest 12 is ESM. Keep framework imports static so the CommonJS tsx test
+    // runner does not create a second HttpException class identity.
+    const [{ AppModule }, { PrismaService }, { AuthService }] = await Promise.all([
+      import("../app.module.js"),
+      import("../modules/prisma/prisma.service.js"),
+      import("../modules/auth/auth.service.js"),
+    ]);
     const app = await NestFactory.create(AppModule, { logger: false, abortOnError: false });
     app.setGlobalPrefix("api");
     app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }));
