@@ -1,5 +1,5 @@
 import { Module } from "@nestjs/common";
-import { APP_GUARD } from "@nestjs/core";
+import { APP_GUARD, Reflector } from "@nestjs/core";
 
 import { AuthController } from "./auth.controller";
 import { AuthorizationPolicyService } from "./authorization-policy.service";
@@ -12,6 +12,7 @@ import { SessionAuthGuard } from "./session-auth.guard";
 @Module({
   controllers: [AuthController, RoleGovernanceController],
   providers: [
+    Reflector,
     AuthService,
     AuthorizationPolicyService,
     RoleGovernanceService,
