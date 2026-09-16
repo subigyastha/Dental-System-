@@ -42,7 +42,9 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # Match the Node major required by the application and used by
+          # Vercel so CI exercises the production runtime.
+          node-version: 24
           cache: npm
 
       - name: Install locked dependencies

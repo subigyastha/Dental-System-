@@ -26,7 +26,7 @@ test(
         import("../modules/prisma/prisma.service.js"),
         import("../modules/auth/auth.service.js"),
       ]);
-    const app = await NestFactory.create(AppModule, { logger: false });
+    const app = await NestFactory.create(AppModule, { logger: false, abortOnError: false });
     app.setGlobalPrefix("api");
     app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }));
     await app.listen(0, "127.0.0.1");
@@ -58,7 +58,9 @@ test(
         ["/api/communications", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ appointmentId: appointmentB, customerId: clientB, channel: "SMS", direction: "Outbound", summary: "Denied" }) }],
         [`/api/followups/${followupB}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: "{}" }],
       ] as const) {
-        assert.equal((await call(path, init)).status, 401, `anonymous ${path} must be denied`);
+        const response = await call(path, init);
+        const responseBody = await response.text();
+        assert.equal(response.status, 401, `anonymous ${path} must be denied: ${responseBody}`);
       }
 
       assert.equal((await call(`/api/organizations/${organizationB}`, { method: "PATCH", headers, body: JSON.stringify({ name: "Denied" }) })).status, 404);
