@@ -6,14 +6,23 @@ import type { NextConfig } from "next";
 const monorepoRoot = join(__dirname, "../..");
 loadEnvConfig(monorepoRoot);
 
-const nestApiBase =
+const configuredNestApiBase =
   process.env.NEST_API_URL ??
   process.env.NEXT_PUBLIC_API_URL ??
   `http://localhost:${process.env.API_PORT ?? "4000"}/api`;
 
-if (!/^https?:\/\//.test(nestApiBase)) {
+if (!/^https?:\/\//.test(configuredNestApiBase)) {
   throw new Error("NEST_API_URL or NEXT_PUBLIC_API_URL must be an absolute Nest API URL");
 }
+
+const nestApiUrl = new URL(configuredNestApiBase);
+// Render service URLs are commonly configured as an origin only. Nest serves
+// every controller under the global /api prefix, so normalize an origin-only
+// value while leaving explicit paths (including /api) untouched.
+if (nestApiUrl.pathname === "/") {
+  nestApiUrl.pathname = "/api";
+}
+const nestApiBase = nestApiUrl.toString().replace(/\/$/, "");
 
 const nextConfig: NextConfig = {
   // A running dev server and `next build` must never write the same artifact
