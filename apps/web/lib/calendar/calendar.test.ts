@@ -3,6 +3,11 @@ import test from "node:test";
 
 import {
   buildNepalIsoFromDateAndTime,
+  buildCalendarGrid,
+  adDateKeyToBsDateKey,
+  getDualCalendarDay,
+  shiftCalendarPage,
+  shiftAdDateKey,
   bsDateKeyToAdDateKey,
   DEFAULT_CALENDAR_MODE,
   formatTime,
@@ -18,6 +23,32 @@ test("converts BS date to AD and back safely", () => {
   assert.equal(DEFAULT_CALENDAR_MODE, "AD");
   assert.equal(bsDateKeyToAdDateKey("2083-01-12"), "2026-04-25");
   assert.equal(normalizeCalendarInputToAdDateKey("२०८३-०१-१२", "BS"), "2026-04-25");
+});
+
+test("calendar day numbers and AD/BS cells describe the exact civil date", () => {
+  for (const anchor of ["2026-01-01", "2026-04-14", "2026-10-01", "2026-12-31"]) {
+    const dual = getDualCalendarDay(anchor);
+    const [year, month, day] = anchor.split("-").map(Number);
+    assert.deepEqual([dual.adYear, dual.adMonthNumber, dual.adDay], [year, month, day]);
+    assert.equal(bsDateKeyToAdDateKey(dual.bsDateKey), anchor);
+    for (const mode of ["AD", "BS"] as const) {
+      const grid = buildCalendarGrid(anchor, mode);
+      grid.cells.forEach((cell, index) => {
+        assert.equal(cell.bsDateKey, adDateKeyToBsDateKey(cell.adDateKey));
+        assert.equal(bsDateKeyToAdDateKey(cell.bsDateKey), cell.adDateKey);
+        assert.equal(cell.dual.adDay, Number(cell.adDateKey.slice(-2)));
+        assert.equal(new Date(`${cell.adDateKey}T12:00:00Z`).getUTCDay(), index % 7);
+        if (index) assert.equal(cell.adDateKey, shiftAdDateKey(grid.cells[index - 1].adDateKey, 1));
+      });
+    }
+  }
+});
+
+test("AD month navigation does not shift to the previous Nepal date or month", () => {
+  assert.equal(shiftCalendarPage("2026-10-01", "AD", 1), "2026-11-01");
+  assert.equal(shiftCalendarPage("2026-10-01", "AD", -1), "2026-09-01");
+  assert.equal(shiftCalendarPage("2026-01-01", "AD", -1), "2025-12-01");
+  assert.equal(shiftCalendarPage("2026-12-31", "AD", 1), "2027-01-01");
 });
 
 test("builds Nepal appointment ISO from BS-selected date", () => {

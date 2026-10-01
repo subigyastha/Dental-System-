@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui";
+import { InstallAppButton } from "@/components/pwa-provider";
 import { apiFetchJson, rememberCsrfToken } from "@/lib/api-client";
 import type { SessionUser } from "@/lib/domain";
 import { signedInRoute } from "@/lib/session-routing";
@@ -38,7 +39,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[var(--background)] px-4">
+    <main className="flex min-h-dvh items-center justify-center bg-[var(--background)] px-4 py-6">
       <div className="grid w-full max-w-4xl overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--card-shadow)] lg:grid-cols-[minmax(0,1.1fr)_420px]">
         <section className="hidden border-r border-[var(--border)] bg-[var(--surface-muted)] p-10 lg:block">
           <div className="max-w-md">
@@ -108,6 +109,7 @@ export default function LoginPage() {
                 {isSubmitting ? "Signing in..." : "Sign in"}
               </Button>
             </form>
+            <div className="mt-4"><InstallAppButton /></div>
           </div>
         </section>
       </div>

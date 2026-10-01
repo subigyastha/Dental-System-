@@ -29,6 +29,16 @@ const nextConfig: NextConfig = {
   // tree. Otherwise a build can replace chunks while dev is still serving
   // them, producing persistent 500s until the cache is manually removed.
   distDir: process.env.NODE_ENV === "development" ? ".next-dev" : ".next",
+  async headers() {
+    return [{
+      source: "/sw.js",
+      headers: [
+        { key: "Content-Type", value: "application/javascript; charset=utf-8" },
+        { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+        { key: "Service-Worker-Allowed", value: "/" },
+      ],
+    }];
+  },
   async rewrites() {
     return {
       // This runs before the disabled legacy Next route handlers, preserving

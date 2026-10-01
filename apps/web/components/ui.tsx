@@ -26,7 +26,7 @@ export function Button({
   return (
     <button
       className={clsx(
-        "inline-flex h-9 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60",
+        "app-button inline-flex h-9 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60",
         variant === "primary" &&
           "bg-[var(--accent)] text-white hover:bg-[var(--accent-strong)]",
         variant === "secondary" &&

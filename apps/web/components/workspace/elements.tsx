@@ -212,7 +212,7 @@ export function Drawer({
             </h2>
             <button
               aria-label="Close"
-              className="flex size-7 items-center justify-center rounded-md bg-[var(--sidebar)] text-[var(--text-muted)] hover:text-[var(--foreground)] disabled:cursor-wait disabled:opacity-50"
+              className="flex size-[44px] items-center justify-center rounded-md bg-[var(--sidebar)] text-[var(--text-muted)] hover:text-[var(--foreground)] disabled:cursor-wait disabled:opacity-50"
               disabled={closeDisabled}
               onClick={onClose}
               type="button"
@@ -232,7 +232,7 @@ export function Drawer({
           ) : null}
         </header>
         <div
-          className="scrollbar-quiet min-h-0 flex-1 overflow-y-auto p-5"
+          className="drawer-content scrollbar-quiet min-h-0 flex-1 overflow-y-auto overscroll-contain p-5"
           ref={contentRef}
         >
           {children}

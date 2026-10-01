@@ -2,6 +2,7 @@
 
 import { CalendarDays, ChevronRight, MoreHorizontal, Plus, X } from "lucide-react";
 import { useEffect } from "react";
+import { InstallAppButton } from "@/components/pwa-provider";
 
 type MobileWorkspaceBottomNavProps = {
   active: "schedule" | "book" | "more";
@@ -110,7 +111,7 @@ export function MobileWorkspaceMoreSheet({
       <div
         aria-label="More workspace options"
         aria-modal="true"
-        className="absolute inset-x-0 bottom-0 rounded-t-lg border-t border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--popover-shadow)]"
+        className="mobile-more-sheet absolute inset-x-0 bottom-0 max-h-[90dvh] overflow-y-auto overscroll-contain rounded-t-lg border-t border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--popover-shadow)]"
         role="dialog"
         onClick={(event) => event.stopPropagation()}
       >
@@ -145,6 +146,7 @@ export function MobileWorkspaceMoreSheet({
           {hasSettingsAccess ? (
             <MobileMoreSheetAction label="Settings" onClick={() => onNavigate("/settings")} />
           ) : null}
+          <InstallAppButton />
           <button
             className="flex min-h-11 w-full items-center justify-between rounded-md border border-[var(--border)] px-4 py-3 text-left text-[var(--danger)] disabled:cursor-wait disabled:opacity-60"
             disabled={isLogoutBlocked || isLoggingOut}

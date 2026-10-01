@@ -38,7 +38,7 @@ export function CalendarModeToggle({
     <div
       aria-label="Date display"
       className={clsx(
-        "flex h-10 overflow-hidden rounded-md border border-[var(--border)] bg-white p-1",
+        "calendar-mode-toggle flex h-10 overflow-hidden rounded-md border border-[var(--border)] bg-white p-1",
         className,
       )}
       role="group"

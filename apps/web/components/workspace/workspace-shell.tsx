@@ -1,5 +1,7 @@
 "use client";
 
+import { InstallAppButton } from "@/components/pwa-provider";
+
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -392,7 +394,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
             </div>
           </header>
 
-          <main className="flex-1 px-4 py-5 pb-24 lg:px-6 lg:py-6">{children}</main>
+          <main className="workspace-content flex-1 px-4 py-5 pb-24 lg:px-6 lg:py-6">{children}</main>
         </div>
       </div>
 
@@ -479,6 +481,7 @@ function ProfileMenu({
       <div className="text-sm font-medium text-[var(--foreground)]">{sessionUser.name}</div>
       <div className="mt-1 text-xs text-[var(--text-muted)]">{sessionUser.role}</div>
       <div className="mt-3 text-xs text-[var(--text-muted)]">{sessionUser.email}</div>
+      <div className="mt-3"><InstallAppButton /></div>
       <button
         className="mt-4 flex min-h-9 w-full items-center justify-center gap-2 rounded-md border border-[var(--border)] px-3 py-2 text-sm text-[var(--danger)] hover:bg-[var(--danger-soft)]"
         disabled={isLogoutBlocked || isLoggingOut}

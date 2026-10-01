@@ -39,9 +39,8 @@ export function getDualCalendarDay(adDateKey: string): DualCalendarDay {
   const bsDateKey = adDateKeyToBsDateKey(adDateKey);
   const bsDate = new NepaliDate(bsDateKey);
 
-  const adYear = date.getUTCFullYear();
-  const adMonthNumber = date.getUTCMonth() + 1;
-  const adDay = date.getUTCDate();
+  // A civil date is not an instant: Nepal midnight is the previous UTC day.
+  const [adYear, adMonthNumber, adDay] = adDateKey.split("-").map(Number);
   const bsYear = bsDate.getYear();
   const bsMonthNumber = bsDate.getMonth() + 1;
   const bsDay = bsDate.getDate();
