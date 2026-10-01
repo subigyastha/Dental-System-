@@ -1,7 +1,7 @@
 # Booking confirmation after an uncertain response
 
 A confirmation can commit even when its response is lost. Timeout (408), network
-failure, aborted response bodies and server failures now use one shared booking
+failure, aborted or unreadable response bodies and server failures now use one shared booking
 write classifier. Slot holds retain the same classification through an alias.
 
 An uncertain confirmation retains its original payload and idempotency key.

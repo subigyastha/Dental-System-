@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { rememberCsrfToken } from "./api-client";
+import { isUncertainBookingWriteError } from "./booking-error";
 import {
   confirmBooking,
   confirmationPayloadFingerprint,
@@ -33,6 +34,32 @@ test("changed confirmation content produces a different fingerprint", () => {
       priority: "Urgent",
     }),
   );
+});
+
+test("an unreadable success response remains uncertain until same-key confirmation replay", async () => {
+  const originalFetch = globalThis.fetch;
+  const bodies: unknown[] = [];
+  const keys: Array<string | null> = [];
+  rememberCsrfToken("test-csrf");
+  globalThis.fetch = (async (_url, init) => {
+    bodies.push(init?.body);
+    keys.push(new Headers(init?.headers).get("Idempotency-Key"));
+    return bodies.length === 1
+      ? new Response('{"data":', { status: 200 })
+      : Response.json({ data: { confirmationId: "committed-receipt", replayed: true } });
+  }) as typeof fetch;
+  try {
+    await assert.rejects(confirmBooking(payload, "unreadable-receipt"),
+      (error: unknown) => error instanceof SyntaxError && isUncertainBookingWriteError(error));
+    const result = await confirmBooking(payload, "unreadable-receipt");
+    assert.equal(result.confirmationId, "committed-receipt");
+    assert.equal(result.replayed, true);
+    assert.deepEqual(bodies, [JSON.stringify(payload), JSON.stringify(payload)]);
+    assert.deepEqual(keys, ["unreadable-receipt", "unreadable-receipt"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    rememberCsrfToken();
+  }
 });
 
 test("a confirmation retry reuses the exact payload and idempotency key", async () => {

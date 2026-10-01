@@ -2,7 +2,7 @@ import { ApiRequestError } from "@/lib/api-client";
 
 /** A transport failure cannot prove whether an idempotent booking write committed. */
 export function isUncertainBookingWriteError(error: unknown) {
-  return error instanceof TypeError ||
+  return error instanceof TypeError || error instanceof SyntaxError ||
     (error instanceof DOMException && (error.name === "AbortError" || error.name === "TimeoutError")) ||
     (error instanceof ApiRequestError &&
       (error.status === 0 || error.status === 408 || error.status >= 500));
