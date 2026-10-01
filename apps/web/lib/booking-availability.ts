@@ -1,4 +1,5 @@
-import { ApiRequestError, apiFetchJson } from "@/lib/api-client";
+import { apiFetchJson } from "@/lib/api-client";
+import { isUncertainBookingWriteError } from "@/lib/booking-error";
 
 export type RankedSlotReason = "earliest" | "next_available" | "later";
 
@@ -75,11 +76,7 @@ export type CreateBookingSlotHoldRequest = {
 };
 
 /** A lost response does not tell us whether the server committed the hold. */
-export function isUncertainSlotHoldError(error: unknown) {
-  return error instanceof TypeError ||
-    (error instanceof DOMException && (error.name === "AbortError" || error.name === "TimeoutError")) ||
-    (error instanceof ApiRequestError && (error.status === 408 || error.status >= 500));
-}
+export const isUncertainSlotHoldError = isUncertainBookingWriteError;
 
 export async function createBookingSlotHold(params: CreateBookingSlotHoldRequest) {
   const send = async () => {

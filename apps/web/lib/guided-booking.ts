@@ -12,6 +12,7 @@ import type {
   ConfirmBookingResult,
 } from "@/lib/booking-confirmation";
 import type { QuickBookPrefill } from "@/lib/quick-book";
+import { confirmationPayloadFingerprint } from "@/lib/booking-confirmation";
 
 /** Offset and UTC representations of one slot must match across API boundaries. */
 export function isSameBookingTime(left: string, right: string) {
@@ -65,6 +66,18 @@ export type GuidedBookingDraft = {
   priority: "Low" | "Normal" | "High" | "Urgent";
   notes: string;
 };
+
+export function resolveBookingConfirmationAttempt(
+  current: GuidedBookingDraft["confirmationAttempt"],
+  payload: ConfirmBookingRequest,
+  createKey: () => string,
+): NonNullable<GuidedBookingDraft["confirmationAttempt"]> {
+  // Reconcile the original write before allowing any changed booking. The
+  // server replays its receipt even if the original slot hold has since expired.
+  const payloadFingerprint = confirmationPayloadFingerprint(payload);
+  if (current && (current.uncertain || current.payloadFingerprint === payloadFingerprint)) return current;
+  return { idempotencyKey: createKey(), payloadFingerprint, payload, uncertain: false };
+}
 
 export function createGuidedBookingDraft(
   prefill: QuickBookPrefill = {},
