@@ -594,7 +594,7 @@ export function ReservationsPage({
                 isLoading={dayGridLoading}
                 lockedProviderId={bookingProviderLimit}
                 onBookedSlotClick={setSelectedAppointment}
-                onOpenBooking={(providerId, date) => openBooking(providerId, date)}
+                onOpenBooking={openBooking}
                 scheduleGrid={dayScheduleGrid}
               />
             ) : null}
@@ -605,7 +605,7 @@ export function ReservationsPage({
                 isLoading={rangeLoading || summaryLoading}
                 lockedProviderId={bookingProviderLimit}
                 onBookedSlotClick={setSelectedAppointment}
-                onOpenBooking={(providerId, date) => openBooking(providerId, date)}
+                onOpenBooking={openBooking}
                 onOpenDay={(dateKey) => {
                   setSelectedDate(dateKey);
                   setCalendarView("day");
@@ -1005,7 +1005,7 @@ function MobileReservationsView({
           isLoading={dayGridLoading || summaryLoading}
           lockedProviderId={providerScope}
           onBookedSlotClick={onOpenAppointment}
-          onOpenBooking={(providerId, date) => onOpenBooking(providerId, date)}
+          onOpenBooking={onOpenBooking}
           onOpenDay={(dateKey) => {
             onSelectDate(dateKey);
             onChangeView("day");

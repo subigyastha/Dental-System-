@@ -37,3 +37,9 @@ transaction connection even when a stale cache entry exists.
 Manual acceptance should still check slow/mobile networks, double-tap Continue,
 closing during an uncertain hold, expiry, and final confirmation with a clinic
 account. API expiry and overlap checks remain authoritative.
+
+Signed-in production acceptance also identified a Schedule handoff defect:
+the desktop Day callback forwarded Provider/date but dropped the selected
+timestamp. Schedule entry points now pass the booking callback directly so
+the full launch context reaches the shared drawer. This is verified by opening
+an actual Schedule cell; no duplicated launch adapter was introduced.
