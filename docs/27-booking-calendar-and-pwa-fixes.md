@@ -36,4 +36,6 @@ The implementation uses native Next/browser facilities and the existing logo; no
 
 Supabase connectivity was restored on 2026-10-01. A read-only connection check passed and Prisma reports all 26 migrations applied. This release has no schema changes. CI now also runs the existing booking, Client creation, and Finance concurrency/rollback integration tests against its disposable PostgreSQL service; it does not run those fixtures on production.
 
+The release audit detected the newly published Next.js advisory [GHSA-vcvr-r3jv-pc5j](https://github.com/advisories/GHSA-vcvr-r3jv-pc5j). Next.js and its matching ESLint configuration are patched to 16.3.8; the production dependency audit reports zero vulnerabilities.
+
 Signed-in acceptance: verify an early and a later Schedule time with two service durations, unavailable-slot recovery, returning to held details, double-tap Continue, and confirmation. Check AD/BS dates across midnight and month/year changes, then install on Android and iOS and check the virtual keyboard, safe areas, scrolling, and reconnect flow.

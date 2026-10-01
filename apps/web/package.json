@@ -19,7 +19,7 @@
     "date-fns": "^4.1.0",
     "lucide-react": "^0.511.0",
     "nepali-date-library": "^1.1.14",
-    "next": "16.3.5",
+    "next": "16.3.8",
     "react": "19.0.0",
     "react-dom": "19.0.0"
   },
@@ -29,7 +29,7 @@
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
     "eslint": "9.39.4",
-    "eslint-config-next": "16.3.5",
+    "eslint-config-next": "16.3.8",
     "tailwindcss": "^4.1.7",
     "typescript": "^5.8.3"
   }
