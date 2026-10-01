@@ -80,6 +80,67 @@ test("an expired cookie session emits the global sign-in event", async () => {
   }
 });
 
+test("invalid sign-in credentials and API outages do not end existing sessions", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  Object.defineProperty(globalThis, "window", { configurable: true, value: new EventTarget() });
+  const ended: string[] = [];
+  const unsubscribe = subscribeToSessionEnd((reason) => ended.push(reason));
+  try {
+    globalThis.fetch = (async () => Response.json({ message: "Invalid credentials" }, { status: 401 })) as typeof fetch;
+    await assert.rejects(apiFetchJson("/auth/login", { method: "POST" }), (error: unknown) => error instanceof ApiRequestError && error.status === 401);
+    globalThis.fetch = (async () => Response.json({ message: "Unavailable" }, { status: 503 })) as typeof fetch;
+    await assert.rejects(apiFetchJson("/v1/workspace/bootstrap"), (error: unknown) => error instanceof ApiRequestError && error.status === 503);
+    assert.deepEqual(ended, []);
+  } finally {
+    unsubscribe();
+    globalThis.fetch = originalFetch;
+    Object.defineProperty(globalThis, "window", { configurable: true, value: originalWindow });
+  }
+});
+
+test("an idempotent mutation can allow a longer deadline including CSRF setup", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalTimeout = AbortSignal.timeout;
+  const deadlines: number[] = [];
+  const requests: RequestInit[] = [];
+  rememberCsrfToken();
+  AbortSignal.timeout = (milliseconds) => {
+    deadlines.push(milliseconds);
+    return originalTimeout(milliseconds);
+  };
+  globalThis.fetch = (async (_url, init) => {
+    requests.push(init!);
+    return requests.length === 1 ? Response.json({ csrfToken: "proof" }) : Response.json({ ok: true });
+  }) as typeof fetch;
+  try {
+    await apiFetchJson("/v1/booking/holds", { method: "POST", timeoutMs: 30_000 });
+    assert.deepEqual(deadlines, [30_000, 30_000]);
+    assert.ok(requests.every((request) => !("timeoutMs" in request)));
+    assert.equal(new Headers(requests[1].headers).get("x-csrf-token"), "proof");
+    await apiFetchJson("/auth/me");
+    assert.equal(deadlines.at(-1), 8_000);
+  } finally {
+    AbortSignal.timeout = originalTimeout;
+    globalThis.fetch = originalFetch;
+    rememberCsrfToken();
+  }
+});
+
+test("deadline failure stays an uncertain timeout and does not imply session expiry", async () => {
+  const originalFetch = globalThis.fetch;
+  const keepAlive = setTimeout(() => undefined, 100);
+  globalThis.fetch = ((_url, init) => new Promise((_resolve, reject) => {
+    init!.signal!.addEventListener("abort", () => reject(init!.signal!.reason), { once: true });
+  })) as typeof fetch;
+  try {
+    await assert.rejects(apiFetchJson("/v1/booking/holds", { timeoutMs: 5 }), (error: unknown) => error instanceof ApiRequestError && error.status === 408 && error.reason === "REQUEST_TIMEOUT");
+  } finally {
+    clearTimeout(keepAlive);
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("v1 errors preserve a safe domain reason for deterministic recovery", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () =>

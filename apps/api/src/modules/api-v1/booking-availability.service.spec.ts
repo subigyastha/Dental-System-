@@ -32,9 +32,12 @@ function createService(options?: {
   offsetSlots?: boolean;
   activeHolds?: Array<Record<string, unknown>>;
   replay?: Record<string, unknown> | null;
+  persistCreated?: boolean;
 }) {
   const events: string[] = [];
   const activeHolds = options?.activeHolds ?? [];
+  let committedHold: Record<string, unknown> | null = null;
+  let transactionOptions: unknown;
   const holdRow = {
     id: "hold-a",
     draftId,
@@ -62,7 +65,7 @@ function createService(options?: {
     bookingSlotHold: {
       findUnique: async () => {
         events.push("idempotency-recheck");
-        return options?.replay ?? null;
+        return options?.replay ?? committedHold;
       },
       findMany: async () => {
         events.push("hold-conflict-check");
@@ -72,7 +75,12 @@ function createService(options?: {
       findFirst: async () => null,
       create: async ({ data }: { data: Record<string, unknown> }) => {
         events.push("hold-create");
-        return { ...holdRow, ...data };
+        const created = { ...holdRow, ...data };
+        if (options?.persistCreated) {
+          committedHold = created;
+          activeHolds.push(created);
+        }
+        return created;
       },
     },
     organizationSetting: {
@@ -85,15 +93,22 @@ function createService(options?: {
       findFirst: async () => ({ id: "location-a", timezone: "Asia/Kathmandu" }),
     },
     bookingSlotHold: {
-      findUnique: async () => options?.replay ?? null,
+      findUnique: async () => options?.replay ?? committedHold,
       findMany: async () => activeHolds,
     },
     $queryRaw: async () => [{ now: new Date() }],
-    $transaction: async (callback: (transaction: typeof tx) => Promise<unknown>) =>
-      callback(tx),
+    $transaction: async (callback: (transaction: typeof tx) => Promise<unknown>, config: unknown) => {
+      transactionOptions = config;
+      return callback(tx);
+    },
   };
   const scheduling = {
-    listProviderSlots: async () => ({
+    listProviderSlots: async (_params: unknown, client?: unknown) => {
+      if (client) {
+        assert.equal(client, tx);
+        events.push("transaction-slots");
+      }
+      return ({
       providerId: "provider-a",
       dateKey: futureDateKey,
       durationMinutes: 30,
@@ -109,7 +124,8 @@ function createService(options?: {
           timeLabel: "10:15",
         },
       ],
-    }),
+    });
+    },
     getServiceTiming: async () => ({
       durationMinutes: 30,
       serviceBufferMinutes: 10,
@@ -127,6 +143,7 @@ function createService(options?: {
   };
   return {
     events,
+    getTransactionOptions: () => transactionOptions,
     service: new BookingAvailabilityService(
       prisma as never,
       { requireSession: async () => actor } as never,
@@ -188,13 +205,28 @@ test("ranked availability excludes active holds and lets the API own ordering", 
 });
 
 test("hold creation takes the Provider lock before conflict recheck and create", async () => {
-  const { events, service } = createService();
+  const { events, service, getTransactionOptions } = createService();
   const dto = await createHoldDto(service);
   const result = await service.createHold(dto, actor);
 
   assert.equal(result.status, "active");
   assert.ok(events.indexOf("provider-lock") < events.indexOf("hold-conflict-check"));
   assert.ok(events.indexOf("hold-conflict-check") < events.indexOf("hold-create"));
+  assert.ok(events.indexOf("provider-lock") < events.indexOf("transaction-slots"));
+  assert.equal(events.filter((event) => event === "appointment-conflict-check").length, 1);
+  assert.deepEqual(getTransactionOptions(), { isolationLevel: "Serializable", maxWait: 5_000, timeout: 25_000 });
+});
+
+test("a lost successful response can replay even after its own hold hides the slot", async () => {
+  const { events, service } = createService({ persistCreated: true });
+  const dto = await createHoldDto(service);
+  const first = await service.createHold(dto, actor);
+  const refreshed = await service.rankedAvailability({ locationId: dto.locationId, providerId: dto.providerId, serviceId: dto.serviceId, date: futureDateKey }, actor);
+  assert.equal(refreshed.recommended.length, 0);
+  const recovered = await service.createHold(dto, actor);
+  assert.equal(recovered.id, first.id);
+  assert.equal(recovered.status, "active");
+  assert.equal(events.filter((event) => event === "hold-create").length, 1);
 });
 
 test("Nepal-offset Schedule slots can be selected and held with a UTC request", async () => {

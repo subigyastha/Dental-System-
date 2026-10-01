@@ -324,7 +324,10 @@ export class SchedulingService {
     };
   }
 
-  async listProviderSlots(params: ProviderSlotParams): Promise<ProviderSlotsResult> {
+  async listProviderSlots(
+    params: ProviderSlotParams,
+    transactionClient?: Prisma.TransactionClient,
+  ): Promise<ProviderSlotsResult> {
     if (!isValidAdDateKey(params.dateKey)) {
       throw new BadRequestException(
         "Date must be a real Gregorian AD date in YYYY-MM-DD format",
@@ -343,12 +346,17 @@ export class SchedulingService {
 
     const configuration = await this.getScheduleConfiguration(
       params.organizationId,
+      transactionClient,
     );
     const cacheKey = this.buildProviderSlotsCacheKey(
       params,
       configuration.version,
     );
-    const cached = this.cache.get<ProviderSlotsResult>(cacheKey);
+    // Reservation rechecks must use their locked transaction, never a cached
+    // snapshot or another pooled connection while that transaction is open.
+    const cached = transactionClient
+      ? null
+      : this.cache.get<ProviderSlotsResult>(cacheKey);
     if (cached) {
       return cached;
     }
@@ -359,7 +367,7 @@ export class SchedulingService {
           providerId: params.providerId,
           locationId: params.locationId,
           serviceIds: [params.serviceId],
-        })
+        }, transactionClient)
       : null;
 
     const scheduleContext = await this.getProviderScheduleContext({
@@ -368,7 +376,7 @@ export class SchedulingService {
       locationId: params.locationId,
       dateKey: params.dateKey,
       excludeAppointmentId: params.excludeAppointmentId,
-    });
+    }, transactionClient);
 
     if (!scheduleContext.providerIsBookable) {
       return {
@@ -441,7 +449,7 @@ export class SchedulingService {
       slots,
     };
 
-    this.cache.set(cacheKey, response);
+    if (!transactionClient) this.cache.set(cacheKey, response);
     return response;
   }
 
@@ -1140,27 +1148,30 @@ export class SchedulingService {
 
   private async getScheduleConfiguration(
     organizationId: string,
+    transactionClient?: Prisma.TransactionClient,
   ): Promise<ScheduleConfiguration> {
+    const load = async () => {
+      const settings = await (transactionClient ?? this.prisma).organizationSetting.findUnique({
+        where: { organizationId },
+        select: {
+          businessDayStartsAt: true,
+          businessDayEndsAt: true,
+          slotStartIntervalMinutes: true,
+          scheduleConfigurationVersion: true,
+        },
+      });
+      return {
+        businessDayStartsAt: settings?.businessDayStartsAt ?? "08:00",
+        businessDayEndsAt: settings?.businessDayEndsAt ?? "18:00",
+        slotStartIntervalMinutes:
+          settings?.slotStartIntervalMinutes ?? STANDARD_SLOT_MINUTES,
+        version: settings?.scheduleConfigurationVersion ?? 1,
+      };
+    };
+    if (transactionClient) return load();
     return this.cache.getOrLoad(
       `schedule:configuration:${organizationId}`,
-      async () => {
-        const settings = await this.prisma.organizationSetting.findUnique({
-          where: { organizationId },
-          select: {
-            businessDayStartsAt: true,
-            businessDayEndsAt: true,
-            slotStartIntervalMinutes: true,
-            scheduleConfigurationVersion: true,
-          },
-        });
-        return {
-          businessDayStartsAt: settings?.businessDayStartsAt ?? "08:00",
-          businessDayEndsAt: settings?.businessDayEndsAt ?? "18:00",
-          slotStartIntervalMinutes:
-            settings?.slotStartIntervalMinutes ?? STANDARD_SLOT_MINUTES,
-          version: settings?.scheduleConfigurationVersion ?? 1,
-        };
-      },
+      load,
       60_000,
     );
   }

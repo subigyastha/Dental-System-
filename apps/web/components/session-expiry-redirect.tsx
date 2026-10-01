@@ -2,10 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { subscribeToSessionEnd } from "@/lib/session-events";
 
 /**
- * Authentication expiry is application-wide. API requests emit one event on
- * HTTP 401; this boundary ensures every screen returns to sign-in.
+ * Session end is application-wide. Use the same local and cross-tab
+ * subscription as workspace state so every screen returns to sign-in.
  */
 export function SessionExpiryRedirect() {
   const router = useRouter();
@@ -15,8 +16,7 @@ export function SessionExpiryRedirect() {
       router.replace("/login");
     };
 
-    window.addEventListener("clinicflow:session-expired", redirectToLogin);
-    return () => window.removeEventListener("clinicflow:session-expired", redirectToLogin);
+    return subscribeToSessionEnd(redirectToLogin);
   }, [router]);
 
   return null;
