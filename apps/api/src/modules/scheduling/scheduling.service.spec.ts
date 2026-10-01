@@ -9,6 +9,7 @@ import { SchedulingService } from "./scheduling.service";
 function createSchedulingService(
   slotStartIntervalMinutes = 15,
   onConfigurationRead: () => void = () => undefined,
+  onPrisma: (prisma: Record<string, unknown>) => void = () => undefined,
 ) {
   const prisma = {
     organizationSetting: {
@@ -65,11 +66,44 @@ function createSchedulingService(
       Promise.all(operations),
   };
 
+  onPrisma(prisma);
   return new SchedulingService(
     prisma as never,
     new ScheduleCacheService(),
   );
 }
+
+test("locked slot reads bypass cached slots and use only the transaction connection", async () => {
+  let outsideDb: Record<string, unknown> = {};
+  const service = createSchedulingService(15, () => undefined, (db) => { outsideDb = db; });
+  const params = { organizationId: "clinic-a", providerId: "provider-a", locationId: "location-a", dateKey: "2030-01-01", durationMinutes: 15 };
+  const cached = await service.listProviderSlots(params);
+  assert.deepEqual(cached.slots.map((slot) => slot.time), ["09:00", "09:15", "09:45"]);
+  const tx = Object.fromEntries(Object.entries(outsideDb).map(([key, model]) => [key, typeof model === "object" ? { ...model } : model]));
+  const reads: string[] = [];
+  for (const [key, model] of Object.entries(tx)) {
+    if (!model || typeof model !== "object") continue;
+    for (const [method, operation] of Object.entries(model)) {
+      if (typeof operation !== "function") continue;
+      (model as Record<string, unknown>)[method] = async (...args: unknown[]) => {
+        reads.push(key);
+        return operation(...args);
+      };
+      (outsideDb[key] as Record<string, unknown>)[method] = () => { throw new Error("A second pooled connection was used"); };
+    }
+  }
+  tx.appointment = { findMany: async () => {
+    reads.push("appointment");
+    return [{ id: "new-appointment", providerId: "provider-a", resourceId: null, startsAt: new Date("2030-01-01T09:00:00+05:45"), durationMinutes: 15, bufferMinutes: 0 }];
+  } };
+  const fresh = await service.listProviderSlots(params, tx as never);
+  assert.deepEqual(fresh.slots.map((slot) => slot.time), ["09:15", "09:30", "09:45"]);
+  assert.ok(reads.includes("organizationSetting"));
+  assert.ok(reads.includes("provider"));
+  assert.ok(reads.includes("appointment"));
+  // Transaction-local uncommitted state must not replace the shared read cache.
+  assert.deepEqual((await service.listProviderSlots(params)).slots, cached.slots);
+});
 
 test("provider slot service rejects an impossible AD date before querying", async () => {
   const service = createSchedulingService();

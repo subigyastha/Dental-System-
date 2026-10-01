@@ -15,6 +15,7 @@ import { useQuickBook } from "@/components/workspace/quick-book-provider";
 import {
   createBookingSlotHold,
   formatHoldCountdown,
+  isUncertainSlotHoldError,
   loadRankedAvailability,
   releaseBookingSlotHold,
   remainingHoldSeconds,
@@ -89,6 +90,7 @@ export function GuidedQuickBookFlow({
   const submitLockRef = useRef(false);
   const holdLockRef = useRef(false);
   const holdRef = useRef(draft.hold);
+  const pendingHoldRef = useRef(draft.pendingHold);
   const confirmationAttemptRef = useRef(draft.confirmationAttempt);
   const preserveHoldRef = useRef(false);
   const announcedHoldBandRef = useRef<string | null>(null);
@@ -97,6 +99,7 @@ export function GuidedQuickBookFlow({
   );
   draftRef.current = draft;
   holdRef.current = draft.hold;
+  pendingHoldRef.current = draft.pendingHold;
   confirmationAttemptRef.current = draft.confirmationAttempt;
   fetchProviderSlotsForBookingRef.current = app.fetchProviderSlotsForBooking;
   const selectedLocationId = quickBook.selectedLocationId;
@@ -218,13 +221,13 @@ export function GuidedQuickBookFlow({
             setQuickBookDraft((current) => ({
               ...current,
               availabilityVersion: response.availabilityVersion,
-              ...(currentSelection && !current.hold
+              ...(currentSelection && !current.hold && !current.pendingHold
                 ? matchingSelectedSlot
                   ? { selectedSlot: matchingSelectedSlot, selectedSlotIso: matchingSelectedSlot.startsAtIso }
                   : { selectedSlot: null }
                 : {}),
             }));
-            if (currentSelection && !matchingSelectedSlot) {
+            if (currentSelection && !matchingSelectedSlot && !draftRef.current.hold && !draftRef.current.pendingHold) {
               setSlotError(
                 "The selected schedule time does not fit this service. Choose another available time.",
               );
@@ -332,6 +335,13 @@ export function GuidedQuickBookFlow({
     () => () => {
       const hold = holdRef.current;
       const confirmationAttempt = confirmationAttemptRef.current;
+      const pending = pendingHoldRef.current;
+      if (pending && !preserveHoldRef.current) {
+        // Closing after a lost response still releases any committed hold.
+        void createBookingSlotHold(pending.request)
+          .then((recovered) => recovered.status === "active" ? releaseBookingSlotHold(recovered.id) : undefined)
+          .catch(() => undefined);
+      }
       if (
         hold?.status === "active" &&
         !preserveHoldRef.current &&
@@ -605,10 +615,7 @@ export function GuidedQuickBookFlow({
     }
   }
 
-  async function chooseRankedSlot(
-    slot: RankedBookingSlot,
-    retryKey?: string,
-  ) {
+  async function chooseRankedSlot(slot: RankedBookingSlot) {
     // Lock synchronously: a second tap can arrive before React disables the button.
     if (holdLockRef.current) return;
     if (
@@ -624,13 +631,22 @@ export function GuidedQuickBookFlow({
     quickBook.setBusy(true);
     setSlotError(null);
     const idempotencyKey =
-      retryKey ??
+      draft.pendingHold?.idempotencyKey ??
       (typeof crypto !== "undefined" && "randomUUID" in crypto
         ? crypto.randomUUID()
         : `hold-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-    updateDraft({
-      pendingHold: { idempotencyKey, slot },
-    });
+    const request = draft.pendingHold?.request ?? {
+      draftId: draft.draftId,
+      locationId: quickBook.selectedLocationId,
+      providerId: draft.providerId,
+      serviceId: draft.serviceId,
+      startsAtIso: slot.startsAtIso,
+      slotId: slot.slotId,
+      availabilityVersion: draft.availabilityVersion,
+      idempotencyKey,
+    };
+    const requestedSlot = draft.pendingHold?.slot ?? slot;
+    updateDraft({ pendingHold: { idempotencyKey, slot: requestedSlot, request } });
     try {
       if (draft.hold?.status === "active") {
         await releaseBookingSlotHold(draft.hold.id);
@@ -651,48 +667,44 @@ export function GuidedQuickBookFlow({
         return;
       }
       const requestSnapshot = {
-        locationId: quickBook.selectedLocationId,
-        providerId: draft.providerId,
-        serviceId: draft.serviceId,
-        availabilityVersion: draft.availabilityVersion,
+        locationId: request.locationId,
+        providerId: request.providerId,
+        serviceId: request.serviceId,
       };
-      const hold = await createBookingSlotHold({
-        draftId: draft.draftId,
-        locationId: quickBook.selectedLocationId,
-        providerId: draft.providerId,
-        serviceId: draft.serviceId,
-        startsAtIso: slot.startsAtIso,
-        slotId: slot.slotId,
-        availabilityVersion: draft.availabilityVersion,
-        idempotencyKey,
-      });
+      const hold = await createBookingSlotHold(request);
       const current = draftRef.current;
       if (
         quickBook.selectedLocationId !== requestSnapshot.locationId ||
         current.providerId !== requestSnapshot.providerId ||
-        current.serviceId !== requestSnapshot.serviceId ||
-        current.availabilityVersion !==
-          requestSnapshot.availabilityVersion
+        current.serviceId !== requestSnapshot.serviceId
       ) {
-        await releaseBookingSlotHold(hold.id).catch(() => undefined);
+        if (hold.status === "active") await releaseBookingSlotHold(hold.id);
+        updateDraft({ pendingHold: null });
         setSlotError(
           "Booking details changed while the time was being held. Choose a time again.",
         );
         setAvailabilityRefreshKey((value) => value + 1);
         return;
       }
+      if (hold.status !== "active" || remainingHoldSeconds(hold.expiresAtIso) === 0) {
+        updateDraft({ pendingHold: null, hold: null, selectedSlot: null });
+        setSlotError("That time hold expired. Choose a refreshed available time.");
+        setAvailabilityRefreshKey((value) => value + 1);
+        return;
+      }
       updateDraft({
-        selectedSlot: slot,
-        selectedSlotIso: slot.startsAtIso,
+        selectedSlot: requestedSlot,
+        selectedSlotIso: requestedSlot.startsAtIso,
         hold,
         pendingHold: null,
       });
       quickBook.setBusy(false);
       quickBook.setStep("client");
     } catch (error) {
-      updateDraft({ pendingHold: null });
+      const uncertain = isUncertainSlotHoldError(error);
+      if (!uncertain) updateDraft({ pendingHold: null });
       setSlotError(
-        error instanceof Error
+        uncertain ? "The connection interrupted the hold response. Check the selected time to continue; it may already be reserved for you." : error instanceof Error
           ? error.message
           : "That time could not be held. Choose another slot.",
       );
@@ -743,6 +755,10 @@ export function GuidedQuickBookFlow({
   }
 
   async function updateScheduleSelection(patch: Partial<typeof draft>) {
+    if (draft.pendingHold) {
+      setSlotError("Check the selected time before changing booking details.");
+      return;
+    }
     if (Object.entries(patch).every(([key, value]) => draft[key as keyof typeof draft] === value)) return;
     const hold = draft.hold;
     const preserveRequestedTime = Boolean(
@@ -870,7 +886,7 @@ export function GuidedQuickBookFlow({
                 <button
                   aria-pressed={draft.providerId === item.id}
                   className={`${choiceClass} ${draft.providerId === item.id ? selectedChoiceClass : ""}`}
-                  disabled={isCreatingHold}
+                  disabled={isCreatingHold || Boolean(draft.pendingHold)}
                   key={item.id}
                   onClick={() =>
                     void updateScheduleSelection({
@@ -889,7 +905,7 @@ export function GuidedQuickBookFlow({
           <Field label="Service" required>
             <select
               className={inputClass}
-              disabled={isCreatingHold}
+              disabled={isCreatingHold || Boolean(draft.pendingHold)}
               onChange={(event) =>
                 void updateScheduleSelection({
                   serviceId: event.target.value,
@@ -912,7 +928,7 @@ export function GuidedQuickBookFlow({
             </select>
           </Field>
           <DualCalendarDatePicker
-            disabled={isCreatingHold}
+            disabled={isCreatingHold || Boolean(draft.pendingHold)}
             mode={app.calendarMode}
             onChange={(date) =>
               void updateScheduleSelection({ date })
@@ -960,7 +976,7 @@ export function GuidedQuickBookFlow({
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   {[...rankedAvailability.recommended, ...rankedAvailability.later].map((slot) => (
                     <RankedSlotButton
-                      disabled={isCreatingHold}
+                      disabled={isCreatingHold || Boolean(draft.pendingHold)}
                       key={slot.slotId}
                       onClick={() => updateDraft({ selectedSlot: slot, selectedSlotIso: slot.startsAtIso })}
                       selected={isSameBookingTime(draft.selectedSlotIso, slot.startsAtIso)}
@@ -984,7 +1000,7 @@ export function GuidedQuickBookFlow({
               </div>
             ) : draft.serviceId && !isLoadingSlots ? (
               <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
-                No times are available on this date. Try another day.
+                {draft.pendingHold ? "Your selected time may already be held. Check selected time to continue." : "No times are available on this date. Try another day."}
               </p>
             ) : null}
           </section>
@@ -1018,14 +1034,14 @@ export function GuidedQuickBookFlow({
             ) : draft.hold?.status === "active" ? (
               <Button onClick={continueFromDetails}>Continue</Button>
             ) : (
-              draft.selectedSlot ? (
+              draft.selectedSlot || draft.pendingHold ? (
                 <Button
                   disabled={isCreatingHold || isLoadingSlots}
                   loading={isCreatingHold}
                   loadingLabel="Holding selected time"
-                  onClick={() => void chooseRankedSlot(draft.selectedSlot!)}
+                  onClick={() => void chooseRankedSlot(draft.pendingHold?.slot ?? draft.selectedSlot!)}
                 >
-                  Continue
+                  {draft.pendingHold ? "Check selected time" : "Continue"}
                 </Button>
               ) : (
                 <span className="self-center text-xs text-[var(--text-muted)]">

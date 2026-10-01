@@ -1,4 +1,4 @@
-import { apiFetchJson } from "@/lib/api-client";
+import { ApiRequestError, apiFetchJson } from "@/lib/api-client";
 
 export type RankedSlotReason = "earliest" | "next_available" | "later";
 
@@ -63,7 +63,7 @@ export async function loadRankedAvailability(
   return response.data;
 }
 
-export async function createBookingSlotHold(params: {
+export type CreateBookingSlotHoldRequest = {
   draftId: string;
   locationId: string;
   providerId: string;
@@ -72,19 +72,39 @@ export async function createBookingSlotHold(params: {
   slotId: string;
   availabilityVersion: string;
   idempotencyKey: string;
-}) {
-  const response = await apiFetchJson<V1Envelope<BookingSlotHold>>(
-    "/v1/booking/holds",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Idempotency-Key": params.idempotencyKey,
+};
+
+/** A lost response does not tell us whether the server committed the hold. */
+export function isUncertainSlotHoldError(error: unknown) {
+  return error instanceof TypeError ||
+    (error instanceof DOMException && (error.name === "AbortError" || error.name === "TimeoutError")) ||
+    (error instanceof ApiRequestError && (error.status === 408 || error.status >= 500));
+}
+
+export async function createBookingSlotHold(params: CreateBookingSlotHoldRequest) {
+  const send = async () => {
+    const response = await apiFetchJson<V1Envelope<BookingSlotHold>>(
+      "/v1/booking/holds",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": params.idempotencyKey,
+        },
+        body: JSON.stringify(params),
+        timeoutMs: 45_000,
       },
-      body: JSON.stringify(params),
-    },
-  );
-  return response.data;
+    );
+    return response.data;
+  };
+  try {
+    return await send();
+  } catch (error) {
+    if (!isUncertainSlotHoldError(error)) throw error;
+    // Replaying the identical key and payload recovers a committed hold without
+    // reserving it again. Keep retries bounded; the UI retains this attempt.
+    return send();
+  }
 }
 
 export async function loadBookingSlotHold(id: string) {

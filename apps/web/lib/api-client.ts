@@ -10,6 +10,8 @@ const DEFAULT_API_TIMEOUT_MS = 8_000;
 
 let csrfToken: string | null = null;
 
+export type ApiRequestInit = RequestInit & { timeoutMs?: number };
+
 export class ApiRequestError extends Error {
   constructor(
     message: string,
@@ -38,13 +40,14 @@ function emitSessionExpired() {
   publishSessionEnd("expired");
 }
 
-async function fetchWithDeadline(url: string, init?: RequestInit) {
-  const timeoutSignal = AbortSignal.timeout(DEFAULT_API_TIMEOUT_MS);
+async function fetchWithDeadline(url: string, init?: ApiRequestInit) {
+  const { timeoutMs = DEFAULT_API_TIMEOUT_MS, ...requestInit } = init ?? {};
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
   const signal = init?.signal
     ? AbortSignal.any([init.signal, timeoutSignal])
     : timeoutSignal;
   try {
-    return await fetch(url, { ...init, signal });
+    return await fetch(url, { ...requestInit, signal });
   } catch (error) {
     if (timeoutSignal.aborted && !init?.signal?.aborted) {
       throw new ApiRequestError(
@@ -57,7 +60,7 @@ async function fetchWithDeadline(url: string, init?: RequestInit) {
   }
 }
 
-async function ensureCsrfToken() {
+async function ensureCsrfToken(timeoutMs?: number) {
   if (csrfToken) {
     return csrfToken;
   }
@@ -65,6 +68,7 @@ async function ensureCsrfToken() {
   const response = await fetchWithDeadline(apiUrl("/auth/csrf"), {
     credentials: "include",
     cache: "no-store",
+    timeoutMs,
   });
   if (!response.ok) {
     if (response.status === 401) {
@@ -96,10 +100,10 @@ export function withSessionRequest(_session: unknown, init?: RequestInit) {
   return init ?? {};
 }
 
-export async function apiFetch(path: string, init?: RequestInit) {
+export async function apiFetch(path: string, init?: ApiRequestInit) {
   const headers = new Headers(init?.headers);
   if (isUnsafeRequest(path, init?.method)) {
-    headers.set("x-csrf-token", await ensureCsrfToken());
+    headers.set("x-csrf-token", await ensureCsrfToken(init?.timeoutMs));
   }
 
   const response = await fetchWithDeadline(apiUrl(path), {
@@ -108,7 +112,7 @@ export async function apiFetch(path: string, init?: RequestInit) {
     credentials: "include",
   });
 
-  if (response.status === 401) {
+  if (response.status === 401 && path !== "/auth/login") {
     csrfToken = null;
     emitSessionExpired();
   }
@@ -116,7 +120,7 @@ export async function apiFetch(path: string, init?: RequestInit) {
   return response;
 }
 
-export async function apiFetchJson<T>(path: string, init?: RequestInit) {
+export async function apiFetchJson<T>(path: string, init?: ApiRequestInit) {
   const response = await apiFetch(path, init);
 
   if (!response.ok) {

@@ -187,14 +187,6 @@ export class BookingAvailabilityService {
         "That time is no longer an available booking slot",
       );
     }
-    await this.scheduling.getEffectiveSlotTiming({
-      organizationId: actor.organizationId,
-      providerId: dto.providerId,
-      locationId: dto.locationId,
-      serviceId: dto.serviceId,
-      startsAtIso: dto.startsAtIso,
-    });
-
     let hold;
     try {
       hold = await this.prisma.$transaction(
@@ -225,7 +217,7 @@ export class BookingAvailabilityService {
             locationId: dto.locationId,
             serviceId: dto.serviceId,
             dateKey: getNepalAdDateKeyFromIso(dto.startsAtIso),
-          });
+          }, tx);
         const transactionTiming =
           await this.scheduling.getEffectiveSlotTiming(
             {
@@ -411,7 +403,13 @@ export class BookingAvailabilityService {
         });
         return created;
         },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          // Remote database rechecks can exceed Prisma's five-second default.
+          // The browser allows 45 seconds and retries only this idempotent write.
+          maxWait: 5_000,
+          timeout: 25_000,
+        },
       );
     } catch (error) {
       if (

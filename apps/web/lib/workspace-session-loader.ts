@@ -29,14 +29,16 @@ export function createWorkspaceSessionLoader(
     load() {
       if (cached) return Promise.resolve(cached);
       if (pending) return pending;
-      pending = load()
+      const request = load()
         .then((value) => {
-          cached = value;
+          // A response from before sign-out must not restore the old identity.
+          if (pending === request) cached = value;
           return value;
         })
         .finally(() => {
-          pending = null;
+          if (pending === request) pending = null;
         });
+      pending = request;
       return pending;
     },
   };

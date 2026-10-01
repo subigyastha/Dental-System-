@@ -5,6 +5,7 @@ import type {
 import type {
   BookingSlotHold,
   RankedBookingSlot,
+  CreateBookingSlotHoldRequest,
 } from "@/lib/booking-availability";
 import type {
   ConfirmBookingRequest,
@@ -52,6 +53,7 @@ export type GuidedBookingDraft = {
   pendingHold: {
     idempotencyKey: string;
     slot: RankedBookingSlot;
+    request: CreateBookingSlotHoldRequest;
   } | null;
   confirmationAttempt: {
     idempotencyKey: string;

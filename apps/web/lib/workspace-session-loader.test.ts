@@ -47,3 +47,30 @@ test("a failed workspace session request stays retryable", async () => {
   assert.equal(await loader.load(), session);
   assert.equal(calls, 2);
 });
+
+test("clearing an in-flight session cannot cache the old identity or detach a new request", async () => {
+  let finishOld!: (value: typeof session) => void;
+  let finishNew!: (value: typeof session) => void;
+  let calls = 0;
+  const newSession = {
+    user: { id: "user-b" },
+    bootstrap: { context: { organization: { id: "clinic-b" } } },
+  } as never;
+  const loader = createWorkspaceSessionLoader(() => {
+    calls += 1;
+    return new Promise((resolve) => {
+      if (calls === 1) finishOld = resolve;
+      else finishNew = resolve;
+    });
+  });
+  const oldRequest = loader.load();
+  loader.clear();
+  const newRequest = loader.load();
+  finishOld(session);
+  await oldRequest;
+  assert.equal(loader.load(), newRequest);
+  assert.equal(calls, 2);
+  finishNew(newSession);
+  assert.equal(await newRequest, newSession);
+  assert.equal(await loader.load(), newSession);
+});
