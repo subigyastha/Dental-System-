@@ -24,6 +24,13 @@ import {
 } from "@/lib/booking-availability";
 import { ApiRequestError } from "@/lib/api-client";
 import {
+  bookingContactNameForPhone,
+  isBookingContactPickerSupported,
+  pickBookingContact,
+  type BookingContact,
+} from "@/lib/booking-contacts";
+import { canonicalPhoneDigits } from "@/lib/client-intake";
+import {
   confirmBooking,
   confirmationPayloadFingerprint,
   type ConfirmBookingRequest,
@@ -70,6 +77,11 @@ export function GuidedQuickBookFlow({
   const [isSearching, setIsSearching] = useState(false);
   const [recentError, setRecentError] = useState<string | null>(null);
   const [matchError, setMatchError] = useState<string | null>(null);
+  const [contactPickerSupported, setContactPickerSupported] = useState(false);
+  const [isPickingContact, setIsPickingContact] = useState(false);
+  const [contactMessage, setContactMessage] = useState<string | null>(null);
+  const [contactPhoneChoices, setContactPhoneChoices] = useState<BookingContact | null>(null);
+  const [importedContact, setImportedContact] = useState<{ name: string; phone: string } | null>(null);
   const [slots, setSlots] = useState<ProviderSlotResponse | null>(null);
   const [rankedAvailability, setRankedAvailability] =
     useState<RankedAvailability | null>(null);
@@ -91,6 +103,8 @@ export function GuidedQuickBookFlow({
   const holdLockRef = useRef(false);
   const holdRef = useRef(draft.hold);
   const pendingHoldRef = useRef(draft.pendingHold);
+  const contactPickerRequestRef = useRef<object | null>(null);
+  const stepRef = useRef(step);
   const confirmationAttemptRef = useRef(draft.confirmationAttempt);
   const preserveHoldRef = useRef(false);
   const announcedHoldBandRef = useRef<string | null>(null);
@@ -98,6 +112,7 @@ export function GuidedQuickBookFlow({
     app.fetchProviderSlotsForBooking,
   );
   draftRef.current = draft;
+  stepRef.current = step;
   holdRef.current = draft.hold;
   pendingHoldRef.current = draft.pendingHold;
   confirmationAttemptRef.current = draft.confirmationAttempt;
@@ -114,6 +129,18 @@ export function GuidedQuickBookFlow({
   const selectedService = bootstrap.services.find(
     (item) => item.id === draft.serviceId,
   );
+
+  useEffect(() => {
+    setContactPickerSupported(isBookingContactPickerSupported());
+  }, []);
+
+  useEffect(() => {
+    setImportedContact(null);
+    setContactPhoneChoices(null);
+    setContactMessage(null);
+    setIsPickingContact(false);
+    return () => { contactPickerRequestRef.current = null; };
+  }, [draft.draftId]);
 
   useEffect(() => {
     const providerIsValid = bootstrap.providers.some(
@@ -367,6 +394,62 @@ export function GuidedQuickBookFlow({
     quickBook.setDraft((current) => ({ ...current, ...patch }));
     quickBook.setDirty(true);
     setFormError(null);
+  }
+
+  function changeClientPhone(phone: string, contactName?: string) {
+    setImportedContact(contactName ? { name: contactName, phone } : null);
+    setContactPhoneChoices(null);
+    setContactMessage(null);
+    // Reuse an identical phone lookup: changing only the imported name does
+    // not rerun the phone-dependent effect.
+    if (phone !== draft.phone) {
+      setSearchResult(null);
+      setMatchError(null);
+      setIsSearching(isSearchablePhone(phone));
+    }
+    updateDraft({
+      phone,
+      selectedClient: null,
+      newClient: draft.newClient &&
+        canonicalPhoneDigits(draft.newClient.phone) === canonicalPhoneDigits(phone)
+        ? draft.newClient : null,
+      numberMatchResult: null,
+      skippedPossibleMatchClientIds: [],
+    });
+  }
+
+  async function choosePhoneContact() {
+    if (contactPickerRequestRef.current) return;
+    const request = {};
+    const snapshot = { draftId: draft.draftId, phone: draft.phone };
+    const isCurrentRequest = () => contactPickerRequestRef.current === request &&
+      draftRef.current.draftId === snapshot.draftId &&
+      draftRef.current.phone === snapshot.phone && stepRef.current === "client";
+    contactPickerRequestRef.current = request;
+    setIsPickingContact(true);
+    setContactMessage(null);
+    setContactPhoneChoices(null);
+    try {
+      const contact = await pickBookingContact();
+      if (!isCurrentRequest()) return;
+      if (!contact) return;
+      if (!contact.phones.length) {
+        setContactMessage("This contact has no shared phone number. Enter or paste the number below.");
+      } else if (contact.phones.length === 1) {
+        changeClientPhone(contact.phones[0], contact.name);
+      } else {
+        setContactPhoneChoices(contact);
+      }
+    } catch {
+      if (isCurrentRequest()) {
+        setContactMessage("Contacts could not be opened. Enter or paste the phone number below.");
+      }
+    } finally {
+      if (contactPickerRequestRef.current === request) {
+        contactPickerRequestRef.current = null;
+        setIsPickingContact(false);
+      }
+    }
   }
 
   function chooseClient(client: BookingClientIdentity) {
@@ -1323,12 +1406,34 @@ export function GuidedQuickBookFlow({
               className={`${inputClass} pl-10`}
               data-drawer-autofocus
               inputMode="tel"
-              onChange={(event) => updateDraft({ phone: event.target.value })}
+              onChange={(event) => changeClientPhone(event.target.value)}
               placeholder="Enter at least 7 digits"
               value={draft.phone}
             />
           </div>
         </Field>
+        <div className="space-y-2 text-xs text-[var(--text-muted)]">
+          {contactPickerSupported ? (
+            <Button loading={isPickingContact} loadingLabel="Choosing contact" onClick={() => void choosePhoneContact()} variant="secondary">
+              Choose phone contact
+            </Button>
+          ) : (
+            <p>Phone contacts are unavailable in this browser. Enter or paste a number.</p>
+          )}
+          <p>For a recent call, copy the number from your phone’s Recents and paste it here.</p>
+          {contactMessage ? <p role="status">{contactMessage}</p> : null}
+          {contactPhoneChoices ? (
+            <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">
+              <legend className="px-1 text-sm font-semibold">Choose a phone number{contactPhoneChoices.name ? ` for ${contactPhoneChoices.name}` : ""}</legend>
+              {contactPhoneChoices.phones.map((phone) => (
+                <button className={`${choiceClass} block w-full`} key={canonicalPhoneDigits(phone)} onClick={() => changeClientPhone(phone, contactPhoneChoices.name)} type="button">
+                  {phone}
+                </button>
+              ))}
+              <Button onClick={() => setContactPhoneChoices(null)} variant="ghost">Cancel</Button>
+            </fieldset>
+          ) : null}
+        </div>
         <div aria-live="polite">
           <div className="mb-2 flex items-center justify-between">
             <h3 className="text-sm font-semibold">
@@ -1362,9 +1467,9 @@ export function GuidedQuickBookFlow({
                     <span className="ml-2 text-xs text-[var(--text-muted)]">{maskPhone(primaryPhone(client))}</span>
                   </button>
                 ))}
-            {!isSearching &&
+            {!isSearching && !matchError &&
             (isSearchablePhone(draft.phone)
-              ? (searchResult?.matches.length ?? 0) === 0
+              ? searchResult !== null && searchResult.matches.length === 0
               : recentClients.length === 0) ? (
               <p className="rounded-lg bg-[var(--surface-muted)] p-3 text-sm text-[var(--text-muted)]">
                 {isSearchablePhone(draft.phone) ? "No existing Client matches this number." : "No recent Clients to show."}
@@ -1383,7 +1488,13 @@ export function GuidedQuickBookFlow({
               className="h-11"
               onClick={() => {
                 updateDraft({
-                  newClient: { name: "", phone: draft.phone, address: "", priorVisitedClinic: false },
+                  newClient: {
+                    name: draft.newClient?.name || (!isSearching && !matchError && searchResult?.matches.length === 0
+                      ? bookingContactNameForPhone(importedContact, draft.phone) : ""),
+                    phone: draft.phone,
+                    address: draft.newClient?.address ?? "",
+                    priorVisitedClinic: draft.newClient?.priorVisitedClinic ?? false,
+                  },
                   selectedClient: null,
                 });
                 quickBook.setStep("new-client");
