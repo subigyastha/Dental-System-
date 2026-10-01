@@ -32,9 +32,9 @@ import {
 import { canonicalPhoneDigits } from "@/lib/client-intake";
 import {
   confirmBooking,
-  confirmationPayloadFingerprint,
   type ConfirmBookingRequest,
 } from "@/lib/booking-confirmation";
+import { isUncertainBookingWriteError } from "@/lib/booking-error";
 import {
   loadNumberMatches,
   loadRecentBookingClients,
@@ -49,6 +49,7 @@ import {
   isSameClientIntakeIdentity,
   maskPhone,
   needsMatchReview,
+  resolveBookingConfirmationAttempt,
   type GuidedBookingDraft,
   type GuidedBookingStep,
 } from "@/lib/guided-booking";
@@ -516,13 +517,14 @@ export function GuidedQuickBookFlow({
     if (submitLockRef.current) return;
     submitLockRef.current = true;
     quickBook.setBusy(true);
-    if (!draft.providerId || !draft.serviceId || !draft.selectedSlotIso || !selectedService) {
+    const retryingUncertain = Boolean(draft.confirmationAttempt?.uncertain);
+    if (!retryingUncertain && (!draft.providerId || !draft.serviceId || !draft.selectedSlotIso || !selectedService)) {
       setFormError("Choose a provider, service, date, and available time.");
       submitLockRef.current = false;
       quickBook.setBusy(false);
       return;
     }
-    if (!draft.selectedClient && !draft.newClient) {
+    if (!retryingUncertain && !draft.selectedClient && !draft.newClient) {
       setFormError("Choose or add a Client before booking.");
       submitLockRef.current = false;
       quickBook.setBusy(false);
@@ -533,20 +535,22 @@ export function GuidedQuickBookFlow({
     let backgroundTimer: number | undefined;
     let activeAttempt = draft.confirmationAttempt;
     try {
-      if (!quickBook.selectedLocationId) {
+      if (!retryingUncertain && !quickBook.selectedLocationId) {
         throw new Error("Choose a clinic location before booking.");
       }
       if (
-        !draft.selectedClient &&
+        !retryingUncertain && !draft.selectedClient &&
         !draft.numberMatchResult?.candidateSetVersion
       ) {
         throw new Error(
           "Review possible Client matches again before booking.",
         );
       }
-      const payload: ConfirmBookingRequest = {
+      const payload: ConfirmBookingRequest = retryingUncertain
+        ? draft.confirmationAttempt!.payload
+        : {
         draftId: draft.draftId,
-        locationId: quickBook.selectedLocationId,
+        locationId: quickBook.selectedLocationId!,
         providerId: draft.providerId,
         serviceId: draft.serviceId,
         startsAtIso: draft.selectedSlotIso,
@@ -579,22 +583,13 @@ export function GuidedQuickBookFlow({
                 draft.numberMatchResult!.candidateSetVersion,
             },
       };
-      const payloadFingerprint =
-        confirmationPayloadFingerprint(payload);
-      const attempt =
-        draft.confirmationAttempt?.payloadFingerprint ===
-        payloadFingerprint
-          ? draft.confirmationAttempt
-          : {
-              idempotencyKey:
-                typeof crypto !== "undefined" &&
-                "randomUUID" in crypto
-                  ? crypto.randomUUID()
-                  : `confirm-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-              payloadFingerprint,
-              payload,
-              uncertain: false,
-            };
+      const attempt = resolveBookingConfirmationAttempt(
+        draft.confirmationAttempt,
+        payload,
+        () => typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `confirm-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      );
       activeAttempt = attempt;
       updateDraft({ confirmationAttempt: attempt });
       preserveHoldRef.current = true;
@@ -657,10 +652,7 @@ export function GuidedQuickBookFlow({
         preserveHoldRef.current = false;
         updateDraft({ confirmationAttempt: null });
         quickBook.setStep("client");
-      } else if (
-        error instanceof ApiRequestError &&
-        (error.status >= 500 || error.status === 0)
-      ) {
+      } else if (isUncertainBookingWriteError(error)) {
         preserveHoldRef.current = true;
         updateDraft({
           confirmationAttempt: activeAttempt
@@ -672,6 +664,7 @@ export function GuidedQuickBookFlow({
         });
       } else {
         preserveHoldRef.current = false;
+        updateDraft({ confirmationAttempt: activeAttempt ? { ...activeAttempt, uncertain: false } : null });
       }
       setFormError(
         error instanceof Error ? error.message : "The appointment could not be booked.",
@@ -685,6 +678,10 @@ export function GuidedQuickBookFlow({
   }
 
   function continueFromDetails() {
+    if (draft.path === "client-first" && isLoadingSlots) {
+      setFormError("Wait for the available times to finish updating.");
+      return;
+    }
     if (!draft.providerId || !draft.serviceId || !draft.selectedSlotIso) {
       setFormError("Choose a provider, service, date, and available time.");
       return;
@@ -803,6 +800,10 @@ export function GuidedQuickBookFlow({
   }
 
   async function changeHeldTime() {
+    if (submitLockRef.current || draft.confirmationAttempt?.uncertain) {
+      setFormError("Check the previous booking with Retry safely before choosing another time.");
+      return;
+    }
     const hold = draft.hold;
     setRankedAvailability(null);
     setSlots(null);
@@ -838,6 +839,10 @@ export function GuidedQuickBookFlow({
   }
 
   async function updateScheduleSelection(patch: Partial<typeof draft>) {
+    if (submitLockRef.current || draft.confirmationAttempt?.uncertain) {
+      setFormError("Check the previous booking with Retry safely before changing its details.");
+      return;
+    }
     if (draft.pendingHold) {
       setSlotError("Check the selected time before changing booking details.");
       return;
@@ -886,7 +891,13 @@ export function GuidedQuickBookFlow({
   const commonDrawer = {
     closeDisabled: isSaving || isCreatingHold,
     hidden: quickBook.isMinimized,
-    onClose: quickBook.requestClose,
+    onClose: () => {
+      if (confirmationAttemptRef.current?.uncertain) {
+        quickBook.minimize();
+        return false;
+      }
+      return quickBook.requestClose();
+    },
     title: "Book appointment",
   };
 
@@ -1107,7 +1118,7 @@ export function GuidedQuickBookFlow({
           <Footer>
             <Button disabled={isSaving || isCreatingHold} onClick={quickBook.back} variant="ghost">Back</Button>
             {draft.path === "client-first" ? (
-              <Button loading={isSaving} loadingLabel="Booking appointment" onClick={continueFromDetails}>
+              <Button disabled={isLoadingSlots} loading={isSaving} loadingLabel="Booking appointment" onClick={continueFromDetails}>
               {!draft.selectedClient && !draft.newClient
                 ? "Choose Client"
                 : needsMatchReview(draft)
@@ -1148,7 +1159,7 @@ export function GuidedQuickBookFlow({
         stepLabel="Step 4 · Possible matches"
       >
         <div className="space-y-4">
-          <BackButton disabled={isSaving} onClick={quickBook.back} />
+          <BackButton disabled={isSaving || Boolean(draft.confirmationAttempt?.uncertain)} onClick={quickBook.back} />
           <HoldStatus
             announcement={holdAnnouncement}
             draft={draft}
@@ -1271,7 +1282,7 @@ export function GuidedQuickBookFlow({
         stepLabel="Confirm appointment"
       >
         <div className="space-y-5">
-          <BackButton disabled={isSaving} onClick={quickBook.back} />
+          <BackButton disabled={isSaving || Boolean(draft.confirmationAttempt?.uncertain)} onClick={quickBook.back} />
           <HoldStatus
             announcement={holdAnnouncement}
             draft={draft}
@@ -1358,7 +1369,7 @@ export function GuidedQuickBookFlow({
           ) : (
             <Footer>
               <Button
-                disabled={isSaving}
+                disabled={isSaving || Boolean(draft.confirmationAttempt?.uncertain)}
                 onClick={quickBook.back}
                 variant="ghost"
               >
@@ -1602,6 +1613,12 @@ function HoldStatus({
   }, [expired, hold]);
 
   if (draft.path !== "slot-first" || !hold) return null;
+
+  if (draft.confirmationAttempt?.uncertain) {
+    return <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900" role="status">
+      The booking response is pending. Retry safely before choosing another time, even if this hold has expired.
+    </p>;
+  }
 
   return (
     <section

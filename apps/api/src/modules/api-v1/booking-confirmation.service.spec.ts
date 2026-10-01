@@ -202,6 +202,70 @@ test("completed confirmation replay returns the stored result without a transact
   assert.deepEqual(events, []);
 });
 
+test("same-key confirmation replay returns its receipt after the consumed hold expires", async () => {
+  const retryDto = { ...dto, holdId: "hold-a" };
+  const requestHash = createHash("sha256")
+    .update(
+      JSON.stringify({
+        draftId: retryDto.draftId,
+        locationId: retryDto.locationId,
+        providerId: retryDto.providerId,
+        serviceId: retryDto.serviceId,
+        startsAtIso: new Date(retryDto.startsAtIso).toISOString(),
+        priority: retryDto.priority,
+        notes: retryDto.notes,
+        holdId: retryDto.holdId,
+        client: {
+          mode: "existing",
+          clientId: retryDto.client.clientId,
+          phone: undefined,
+        },
+      }),
+    )
+    .digest("hex");
+  const { events, service } = fixture({
+    replay: {
+      requestHash,
+      response: {
+        confirmationId: "confirmation-after-timeout",
+        appointment: { id: "appointment-after-timeout" },
+        client: { id: "client-a" },
+        hold: { id: "hold-a", status: "consumed" },
+        replayed: false,
+      },
+    },
+    // The original hold has expired since the confirmation committed. Replay
+    // must return the receipt before attempting to validate this current row.
+    hold: {
+      id: "hold-a",
+      draftId: retryDto.draftId,
+      organizationId: actor.organizationId,
+      createdByUserId: actor.id,
+      locationId: retryDto.locationId,
+      providerId: retryDto.providerId,
+      serviceId: retryDto.serviceId,
+      startsAt: new Date(retryDto.startsAtIso),
+      endsAt: new Date(Date.parse(retryDto.startsAtIso) + 30 * 60_000),
+      bufferMinutes: 10,
+      expiresAt: new Date("2029-11-30T23:59:59.000Z"),
+      releasedAt: null,
+      consumedAt: new Date("2029-11-30T23:58:00.000Z"),
+    },
+  });
+
+  const result = await service.confirm(
+    retryDto,
+    "1234567890abcdef",
+    actor,
+  );
+
+  assert.equal(result.replayed, true);
+  assert.equal(result.confirmationId, "confirmation-after-timeout");
+  assert.equal(result.appointment.id, "appointment-after-timeout");
+  assert.equal(result.hold?.status, "consumed");
+  assert.deepEqual(events, []);
+});
+
 test("reusing a confirmation key for changed content is rejected", async () => {
   const { service } = fixture({
     replay: {
@@ -253,6 +317,41 @@ test("slot-first confirmation locks and consumes its exact hold", async () => {
     events.indexOf("hold-consume") <
       events.indexOf("receipt-create"),
   );
+});
+
+test("slot-first confirmation rejects an expired hold before creating an appointment", async () => {
+  const startsAt = new Date(startsAtIso);
+  const { events, service } = fixture({
+    hold: {
+      id: "hold-expired",
+      draftId: dto.draftId,
+      organizationId: actor.organizationId,
+      createdByUserId: actor.id,
+      locationId: dto.locationId,
+      providerId: dto.providerId,
+      serviceId: dto.serviceId,
+      startsAt,
+      endsAt: new Date(startsAt.getTime() + 30 * 60_000),
+      bufferMinutes: 10,
+      expiresAt: new Date("2029-11-30T23:59:59.000Z"),
+      releasedAt: null,
+      consumedAt: null,
+    },
+  });
+
+  await assert.rejects(
+    service.confirm(
+      { ...dto, holdId: "hold-expired" },
+      "1234567890abcdef",
+      actor,
+    ),
+    (error: unknown) =>
+      error instanceof ConflictException &&
+      (error.getResponse() as { code?: string }).code === "HOLD_EXPIRED",
+  );
+  assert.equal(events.includes("appointment-create"), false);
+  assert.equal(events.includes("receipt-create"), false);
+  assert.equal(events.includes("hold-consume"), false);
 });
 
 test("Provider actors cannot confirm another Provider's booking", async () => {

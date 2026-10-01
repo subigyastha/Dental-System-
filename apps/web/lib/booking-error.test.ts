@@ -2,7 +2,21 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { ApiRequestError } from "./api-client";
-import { isProviderTimeConflict } from "./booking-error";
+import { isProviderTimeConflict, isUncertainBookingWriteError } from "./booking-error";
+
+test("booking writes retain uncertainty after network loss, timeouts, and server failures", () => {
+  for (const error of [
+    new TypeError("Network response lost after commit"),
+    new DOMException("Body read aborted", "AbortError"),
+    new DOMException("Timed out", "TimeoutError"),
+    new ApiRequestError("No response", 0),
+    new ApiRequestError("Client deadline expired", 408),
+    new ApiRequestError("Gateway failed", 502),
+  ]) assert.equal(isUncertainBookingWriteError(error), true);
+  for (const status of [400, 401, 403, 409, 422, 429]) {
+    assert.equal(isUncertainBookingWriteError(new ApiRequestError("Rejected", status)), false);
+  }
+});
 
 test("only provider time conflicts switch booking to availability", () => {
   assert.equal(

@@ -873,9 +873,9 @@ function MobileReservationsView({
   );
 
   return (
-    <div className="space-y-4">
+    <div className="mobile-schedule space-y-4">
       <div className="sticky top-[57px] z-10 -mx-4 border-b border-[var(--border)] bg-[var(--surface)]/95 px-4 pb-3 pt-3 backdrop-blur">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="text-lg font-semibold text-[var(--foreground)]">{title}</div>
             <div className="mt-1">{selectedDateLabel}</div>

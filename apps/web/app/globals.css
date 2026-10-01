@@ -99,9 +99,13 @@ html {
     min-height: 44px;
   }
 
-  .app-button, .drawer-content button, .mobile-more-sheet button,
+  .app-button, .drawer-content button, .mobile-more-sheet button, .mobile-schedule button,
   nav[aria-label="Mobile workspace navigation"] button {
     min-height: 44px;
+  }
+
+  .mobile-schedule button {
+    min-width: 44px;
   }
 
   .calendar-mode-toggle {

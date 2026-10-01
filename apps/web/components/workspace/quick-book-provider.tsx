@@ -103,6 +103,8 @@ export function QuickBookProvider({ children }: { children: ReactNode }) {
   const isOpenRef = useRef(false);
   const isDirtyRef = useRef(false);
   const isBusyRef = useRef(false);
+  const confirmationUncertainRef = useRef(false);
+  confirmationUncertainRef.current = Boolean(draft.confirmationAttempt?.uncertain);
   const lastOpenHrefRef = useRef<string | null>(null);
   const lastMarkerRef = useRef<QuickBookHistoryMarker | null>(null);
   const pendingDirectCloseRef = useRef(false);
@@ -123,6 +125,7 @@ export function QuickBookProvider({ children }: { children: ReactNode }) {
     isOpenRef.current = false;
     isDirtyRef.current = false;
     isBusyRef.current = false;
+    confirmationUncertainRef.current = false;
     lastOpenHrefRef.current = null;
     lastMarkerRef.current = null;
     closeTriggerRef.current = null;
@@ -162,7 +165,7 @@ export function QuickBookProvider({ children }: { children: ReactNode }) {
     if (
       shouldRestoreBusyQuickBookEntry({
         currentHref,
-        isBusy: isBusyRef.current,
+        isBusy: isBusyRef.current || confirmationUncertainRef.current,
         isOpen: isOpenRef.current,
         lastOpenHref: lastOpenHrefRef.current,
       })
@@ -365,6 +368,13 @@ export function QuickBookProvider({ children }: { children: ReactNode }) {
     if (typeof window === "undefined") {
       return;
     }
+    // A lost confirmation response may hide a committed appointment. Keep the
+    // original request available for reconciliation instead of discarding it.
+    if (confirmationUncertainRef.current) {
+      setIsCloseConfirmationOpen(false);
+      setIsMinimized(true);
+      return;
+    }
     isDirtyRef.current = false;
     setIsDirtyState(false);
     setIsCloseConfirmationOpen(false);
@@ -387,6 +397,11 @@ export function QuickBookProvider({ children }: { children: ReactNode }) {
 
   const requestClose = useCallback(() => {
     if (isBusyRef.current) {
+      return false;
+    }
+    if (confirmationUncertainRef.current) {
+      setIsCloseConfirmationOpen(false);
+      setIsMinimized(true);
       return false;
     }
     if (isDirtyRef.current) {
@@ -477,7 +492,7 @@ export function QuickBookProvider({ children }: { children: ReactNode }) {
     if (typeof window === "undefined" || !isOpenRef.current) {
       return;
     }
-    if (isBusyRef.current) {
+    if (isBusyRef.current || confirmationUncertainRef.current) {
       return;
     }
     const marker = readQuickBookHistoryMarker(window.history.state);
@@ -490,6 +505,7 @@ export function QuickBookProvider({ children }: { children: ReactNode }) {
 
   const setSelectedLocationId = useCallback(
     (locationId: string) => {
+      if (confirmationUncertainRef.current) return;
       const location = resolveQuickBookLocation(
         workspaceBootstrap,
         locationId,
