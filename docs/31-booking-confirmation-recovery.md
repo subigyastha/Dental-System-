@@ -20,7 +20,8 @@ Client-first booking also waits for service availability to finish updating
 before it can advance with a previously selected time.
 
 The mobile Schedule header wraps its view toggle when there is insufficient
-width, keeping the date and controls inside a 320-pixel viewport.
+width, keeping the date and controls inside a 320-pixel viewport. Schedule
+buttons have a minimum 44-pixel touch target in each direction.
 
 ## Verification
 
