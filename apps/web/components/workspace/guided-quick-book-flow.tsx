@@ -35,6 +35,8 @@ import {
   type NumberMatchResult,
 } from "@/lib/client-identity";
 import {
+  findSelectedBookingSlot,
+  isSameBookingTime,
   isSearchablePhone,
   isSameClientIntakeIdentity,
   maskPhone,
@@ -70,7 +72,6 @@ export function GuidedQuickBookFlow({
   const [slots, setSlots] = useState<ProviderSlotResponse | null>(null);
   const [rankedAvailability, setRankedAvailability] =
     useState<RankedAvailability | null>(null);
-  const [showLaterSlots, setShowLaterSlots] = useState(false);
   const [availabilityRefreshKey, setAvailabilityRefreshKey] = useState(0);
   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
   const [isCreatingHold, setIsCreatingHold] = useState(false);
@@ -86,6 +87,7 @@ export function GuidedQuickBookFlow({
   } | null>(null);
   const intakeMatchSequenceRef = useRef(0);
   const submitLockRef = useRef(false);
+  const holdLockRef = useRef(false);
   const holdRef = useRef(draft.hold);
   const confirmationAttemptRef = useRef(draft.confirmationAttempt);
   const preserveHoldRef = useRef(false);
@@ -210,18 +212,16 @@ export function GuidedQuickBookFlow({
             setRankedAvailability(response);
             setSlots(null);
             const currentSelection = draftRef.current.selectedSlotIso;
-            const matchingSelectedSlot = currentSelection
-              ? [...response.recommended, ...response.later].find(
-                  (slot) => slot.startsAtIso === currentSelection,
-                )
-              : undefined;
+            const matchingSelectedSlot = findSelectedBookingSlot(
+              [...response.recommended, ...response.later], currentSelection,
+            );
             setQuickBookDraft((current) => ({
               ...current,
               availabilityVersion: response.availabilityVersion,
               ...(currentSelection && !current.hold
                 ? matchingSelectedSlot
-                  ? { selectedSlot: matchingSelectedSlot }
-                  : { selectedSlot: null, selectedSlotIso: "" }
+                  ? { selectedSlot: matchingSelectedSlot, selectedSlotIso: matchingSelectedSlot.startsAtIso }
+                  : { selectedSlot: null }
                 : {}),
             }));
             if (currentSelection && !matchingSelectedSlot) {
@@ -236,7 +236,7 @@ export function GuidedQuickBookFlow({
             if (
               currentSelection &&
               !response.slots.some(
-                (slot) => slot.startsAtIso === currentSelection,
+                (slot) => isSameBookingTime(slot.startsAtIso, currentSelection),
               )
             ) {
               setQuickBookDraft((current) => ({
@@ -609,6 +609,8 @@ export function GuidedQuickBookFlow({
     slot: RankedBookingSlot,
     retryKey?: string,
   ) {
+    // Lock synchronously: a second tap can arrive before React disables the button.
+    if (holdLockRef.current) return;
     if (
       !quickBook.selectedLocationId ||
       !draft.providerId ||
@@ -617,6 +619,7 @@ export function GuidedQuickBookFlow({
       setSlotError("Choose a clinic, provider, and service first.");
       return;
     }
+    holdLockRef.current = true;
     setIsCreatingHold(true);
     quickBook.setBusy(true);
     setSlotError(null);
@@ -698,6 +701,7 @@ export function GuidedQuickBookFlow({
         setAvailabilityRefreshKey((current) => current + 1);
       }
     } finally {
+      holdLockRef.current = false;
       quickBook.setBusy(false);
       setIsCreatingHold(false);
     }
@@ -739,6 +743,7 @@ export function GuidedQuickBookFlow({
   }
 
   async function updateScheduleSelection(patch: Partial<typeof draft>) {
+    if (Object.entries(patch).every(([key, value]) => draft[key as keyof typeof draft] === value)) return;
     const hold = draft.hold;
     const preserveRequestedTime = Boolean(
       !hold &&
@@ -836,7 +841,7 @@ export function GuidedQuickBookFlow({
       <Drawer
         {...commonDrawer}
         key={step}
-        context="Choose a provider first, then select a service and an available time."
+        context={draft.selectedSlotIso ? "Choose a service, then continue with your selected time." : "Choose a provider, service, and time, then continue."}
         stepLabel={draft.path === "slot-first" ? "Step 1 · Appointment" : "Step 3 · Appointment"}
         width={draft.path === "slot-first" ? "default" : "wide"}
       >
@@ -920,7 +925,7 @@ export function GuidedQuickBookFlow({
           ) : null}
           {draft.path === "slot-first" && draft.selectedSlotIso && !draft.hold ? (
             <div className="rounded-lg border border-[var(--accent)] bg-[var(--accent-soft)] p-3 text-sm">
-              <p className="font-semibold text-[var(--foreground)]">Selected from schedule</p>
+              <p className="font-semibold text-[var(--foreground)]">Selected time</p>
               <p className="mt-1 text-[var(--text-muted)]">
                 {new Date(draft.selectedSlotIso).toLocaleString("en-NP", {
                   dateStyle: "medium",
@@ -930,9 +935,13 @@ export function GuidedQuickBookFlow({
                 {provider ? ` · ${provider.name}` : ""}
               </p>
               <p className="mt-1 text-xs text-[var(--text-muted)]">
-                {draft.serviceId
-                  ? "This time is available for the selected service. Continue to hold it."
-                  : "Choose a service to verify that its duration fits this time."}
+                {!draft.serviceId
+                  ? "Choose a service to check this time."
+                  : isLoadingSlots
+                    ? "Checking this time…"
+                    : draft.selectedSlot
+                      ? "Ready. Continue to choose the Client."
+                      : "Choose another available time below."}
               </p>
             </div>
           ) : null}
@@ -947,49 +956,24 @@ export function GuidedQuickBookFlow({
                 Choose a service to see live availability.
               </p>
             ) : draft.path === "slot-first" &&
-              rankedAvailability?.recommended.length ? (
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  {rankedAvailability.recommended.map((slot) => (
+              rankedAvailability && (rankedAvailability.recommended.length + rankedAvailability.later.length > 0) ? (
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {[...rankedAvailability.recommended, ...rankedAvailability.later].map((slot) => (
                     <RankedSlotButton
                       disabled={isCreatingHold}
                       key={slot.slotId}
-                      onClick={() => void chooseRankedSlot(slot)}
-                      selected={draft.selectedSlotIso === slot.startsAtIso}
+                      onClick={() => updateDraft({ selectedSlot: slot, selectedSlotIso: slot.startsAtIso })}
+                      selected={isSameBookingTime(draft.selectedSlotIso, slot.startsAtIso)}
                       slot={slot}
                     />
                   ))}
-                </div>
-                {rankedAvailability.later.length ? (
-                  <>
-                    <Button
-                      onClick={() => setShowLaterSlots((shown) => !shown)}
-                      variant="ghost"
-                    >
-                      {showLaterSlots ? "Hide later times" : "More times"}
-                    </Button>
-                    {showLaterSlots ? (
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                        {rankedAvailability.later.map((slot) => (
-                          <RankedSlotButton
-                            disabled={isCreatingHold}
-                            key={slot.slotId}
-                            onClick={() => void chooseRankedSlot(slot)}
-                            selected={draft.selectedSlotIso === slot.startsAtIso}
-                            slot={slot}
-                          />
-                        ))}
-                      </div>
-                    ) : null}
-                  </>
-                ) : null}
               </div>
             ) : slots?.slots.length ? (
               <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
                 {slots.slots.map((slot) => (
                   <button
-                    aria-pressed={draft.selectedSlotIso === slot.startsAtIso}
-                    className={`${choiceClass} min-h-11 text-center ${draft.selectedSlotIso === slot.startsAtIso ? selectedChoiceClass : ""}`}
+                    aria-pressed={isSameBookingTime(draft.selectedSlotIso, slot.startsAtIso)}
+                    className={`${choiceClass} min-h-11 text-center ${isSameBookingTime(draft.selectedSlotIso, slot.startsAtIso) ? selectedChoiceClass : ""}`}
                     key={slot.startsAtIso}
                     onClick={() => updateDraft({ selectedSlotIso: slot.startsAtIso })}
                     type="button"
@@ -1031,15 +1015,17 @@ export function GuidedQuickBookFlow({
                   ? "Review matches"
                   : "Review booking"}
               </Button>
+            ) : draft.hold?.status === "active" ? (
+              <Button onClick={continueFromDetails}>Continue</Button>
             ) : (
-              draft.selectedSlot && draft.hold?.status !== "active" ? (
+              draft.selectedSlot ? (
                 <Button
-                  disabled={isCreatingHold}
+                  disabled={isCreatingHold || isLoadingSlots}
                   loading={isCreatingHold}
                   loadingLabel="Holding selected time"
                   onClick={() => void chooseRankedSlot(draft.selectedSlot!)}
                 >
-                  Continue with selected time
+                  Continue
                 </Button>
               ) : (
                 <span className="self-center text-xs text-[var(--text-muted)]">
@@ -1605,7 +1591,7 @@ function InlineError({ message }: { message: string | null }) {
 
 function Footer({ children }: { children: ReactNode }) {
   return (
-    <div className="sticky -bottom-5 -mx-5 flex justify-end gap-2 border-t border-[var(--border)] bg-white px-5 py-4">
+    <div className="booking-footer sticky -bottom-5 -mx-5 flex justify-end gap-2 border-t border-[var(--border)] bg-white px-5 py-4">
       {children}
     </div>
   );

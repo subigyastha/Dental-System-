@@ -180,7 +180,7 @@ export class BookingAvailabilityService {
     });
     if (
       !generated.slots.some(
-        (slot) => slot.startsAtIso === startsAt.toISOString(),
+        (slot) => new Date(slot.startsAtIso).getTime() === startsAt.getTime(),
       )
     ) {
       throw new ConflictException(
@@ -523,6 +523,7 @@ export class BookingAvailabilityService {
     return {
       slotId: this.slotId(availabilityVersion, slot.startsAtIso),
       ...slot,
+      startsAtIso: new Date(slot.startsAtIso).toISOString(),
       rank: index + 1,
       rankReason:
         index === 0
@@ -617,8 +618,9 @@ export class BookingAvailabilityService {
   }
 
   private slotId(availabilityVersion: string, startsAtIso: string) {
+    // Schedule uses Nepal offsets; receipts use UTC. Hash the instant, not its spelling.
     return createHash("sha256")
-      .update(`${availabilityVersion}:${startsAtIso}`)
+      .update(`${availabilityVersion}:${new Date(startsAtIso).toISOString()}`)
       .digest("hex")
       .slice(0, 20);
   }
@@ -649,7 +651,7 @@ export class BookingAvailabilityService {
           timezone: input.timezone,
           durationMinutes: input.durationMinutes,
           bufferMinutes: input.bufferMinutes,
-          availableStarts: [...input.availableStarts].sort(),
+          availableStarts: input.availableStarts.map((value) => new Date(value).toISOString()).sort(),
           holds: [...input.holds]
             .sort((left, right) => left.id.localeCompare(right.id))
             .map((hold) => [

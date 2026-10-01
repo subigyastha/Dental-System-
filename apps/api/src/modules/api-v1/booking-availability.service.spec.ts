@@ -29,6 +29,7 @@ const slot = {
 const draftId = "00000000-0000-4000-8000-000000000001";
 
 function createService(options?: {
+  offsetSlots?: boolean;
   activeHolds?: Array<Record<string, unknown>>;
   replay?: Record<string, unknown> | null;
 }) {
@@ -98,7 +99,7 @@ function createService(options?: {
       durationMinutes: 30,
       bufferMinutes: 10,
       slots: [
-        slot,
+        options?.offsetSlots ? { ...slot, startsAtIso: `${futureDateKey}T10:00:00+05:45` } : slot,
         {
           ...slot,
           startsAtIso: new Date(
@@ -194,6 +195,15 @@ test("hold creation takes the Provider lock before conflict recheck and create",
   assert.equal(result.status, "active");
   assert.ok(events.indexOf("provider-lock") < events.indexOf("hold-conflict-check"));
   assert.ok(events.indexOf("hold-conflict-check") < events.indexOf("hold-create"));
+});
+
+test("Nepal-offset Schedule slots can be selected and held with a UTC request", async () => {
+  const { service } = createService({ offsetSlots: true });
+  const dto = await createHoldDto(service);
+  assert.equal(dto.startsAtIso, futureSlotStart.toISOString());
+  const hold = await service.createHold(dto, actor);
+  assert.equal(hold.status, "active");
+  assert.equal(hold.startsAtIso, futureSlotStart.toISOString());
 });
 
 test("overlapping active holds fail without creating another hold", async () => {

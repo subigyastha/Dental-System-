@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   createGuidedBookingDraft,
+  findSelectedBookingSlot,
+  isSameBookingTime,
   isSearchablePhone,
   isSameClientIntakeIdentity,
   maskPhone,
@@ -25,6 +27,15 @@ test("guided booking draft preserves safe launch references", () => {
   assert.equal(draft.date, "2026-07-25");
   assert.equal(draft.selectedSlotIso, "2026-07-25T04:15:00.000Z");
   assert.equal(draft.path, "slot-first");
+});
+
+test("Schedule offset times match UTC availability, including a later selected slot", () => {
+  const startsAtIso = "2026-10-01T09:15:00.000Z";
+  const slot = { startsAtIso, slotId: "later-slot", time: "15:00", timeLabel: "15:00", dateKey: "2026-10-01", rank: 12, rankReason: "later" as const, recommended: false };
+  assert.equal(isSameBookingTime("2026-10-01T15:00:00+05:45", startsAtIso), true);
+  assert.equal(findSelectedBookingSlot([slot], "2026-10-01T15:00:00+05:45"), slot);
+  assert.equal(findSelectedBookingSlot([slot], "2026-10-01T15:15:00+05:45"), undefined);
+  assert.equal(isSameBookingTime("invalid", "invalid"), false);
 });
 
 test("phone search waits for seven digits", () => {

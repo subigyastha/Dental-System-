@@ -70,7 +70,59 @@ body {
 
 body {
   min-height: 100vh;
+  min-height: 100dvh;
   line-height: 20px;
+  padding-top: env(safe-area-inset-top);
+}
+
+html {
+  /* Fast taps without accidental double-tap zoom; intentional pinch zoom remains. */
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+.network-status {
+  position: sticky;
+  top: 0;
+  z-index: 90;
+  padding: 10px 16px;
+  background: #fff1c7;
+  color: #825900;
+  text-align: center;
+}
+
+@media (max-width: 1023px) {
+  /* iOS zooms focused controls below 16px, even in an installed app. */
+  input:not([type="checkbox"]):not([type="radio"]), select, textarea {
+    font-size: 16px;
+    min-height: 44px;
+  }
+
+  .app-button, .drawer-content button, .mobile-more-sheet button,
+  nav[aria-label="Mobile workspace navigation"] button {
+    min-height: 44px;
+  }
+
+  .calendar-mode-toggle {
+    height: 52px;
+  }
+
+  .calendar-mode-toggle button {
+    min-height: 44px;
+  }
+
+  .workspace-content {
+    padding-bottom: calc(6rem + env(safe-area-inset-bottom));
+  }
+
+  .mobile-more-sheet, .booking-footer {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+
+  .drawer-content {
+    padding-bottom: calc(1.25rem + env(safe-area-inset-bottom));
+  }
 }
 
 h1,

@@ -78,8 +78,9 @@ export function shiftAdDateKey(adDateKey: string, days: number) {
 }
 
 export function shiftAdMonth(adDateKey: string, months: number) {
-  const date = new Date(`${normalizeAdDateKey(adDateKey)}T00:00:00${NEPAL_UTC_OFFSET}`);
-  date.setUTCMonth(date.getUTCMonth() + months, 1);
+  const [year, month] = normalizeAdDateKey(adDateKey).split("-").map(Number);
+  // Month navigation operates on civil dates, without applying Nepal's offset.
+  const date = new Date(Date.UTC(year, month - 1 + months, 1));
   return date.toISOString().slice(0, 10);
 }
 

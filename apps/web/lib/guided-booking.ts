@@ -12,6 +12,15 @@ import type {
 } from "@/lib/booking-confirmation";
 import type { QuickBookPrefill } from "@/lib/quick-book";
 
+/** Offset and UTC representations of one slot must match across API boundaries. */
+export function isSameBookingTime(left: string, right: string) {
+  return Boolean(left && right && new Date(left).getTime() === new Date(right).getTime());
+}
+
+export function findSelectedBookingSlot(slots: RankedBookingSlot[], selectedIso: string) {
+  return slots.find((slot) => isSameBookingTime(slot.startsAtIso, selectedIso));
+}
+
 export type GuidedBookingStep =
   | "client"
   | "new-client"
