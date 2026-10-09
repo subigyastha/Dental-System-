@@ -1,6 +1,6 @@
 # Current progress
 
-Updated: 2026-10-09. Branch: `codex/weekly-clinic-workflow`. Weekly feedback is implemented locally; not deployed.
+Updated: 2026-10-09. Branch: `codex/weekly-clinic-workflow`. Weekly feedback and eye-test preparation are committed locally; not deployed.
 
 ## Completed locally
 - Verified lean context setup: 149-word instructions, bounded handoff, optional integrations disabled. [Maintenance details](34-usage-and-context-budget.md).
@@ -17,9 +17,12 @@ Updated: 2026-10-09. Branch: `codex/weekly-clinic-workflow`. Weekly feedback is 
 - Runtime dependency audit: 0 vulnerabilities (exit 0).
 - Edge synthetic Schedule fixture at 390px and 1280px: sticky drift 0px after scrolling 300px; page overflow 0px; cancellation reason and booking hint visible. Layout evidence, not authenticated end-to-end acceptance.
 - Local logs: `.codex-temp/feedback-*.log`; recall checks: `.codex-temp/recall-*.log`.
+- Found existing WSL PostgreSQL; created an isolated `workflow_eye_test_20261009` database. All 27 migrations and all 4 PostgreSQL/HTTP integration tests passed (0 skipped).
+- [Eye test](35-clinic-eye-test.md): API/web running on localhost:4000/3000. October 10, 08:00–18:00: 33 synthetic appointments for Pratik/Mira plus 3 recall cases. Live reception login, custom-procedure Complete action, self-overlapping 10:15 reschedule choice and 390px layout (0 overflow) verified; cases left unchanged.
 
 ## Remaining and release gates
-- Draft PR/CI: rehearse all 27 migrations and run PostgreSQL booking/client/finance and HTTP containment tests. No local disposable PostgreSQL is installed/configured.
+- Push/draft PR await explicit approval: automatic review rejected uploading private code to `subigyastha/Dental-System-`, branch `codex/weekly-clinic-workflow`. Approval requested in this chat; do not retry until granted.
+- CI remains pending; local migration and PostgreSQL gates now pass. The fixture is ready for the owner's eye test before PR approval.
 - Apply migration `20261008_000027_custom_booking_procedures` before dependent API/web rollout; verify deployment and signed-in mobile/keyboard booking/recall behavior.
 - Reconcile existing-client recalls through the staff review action; clients without completed visits need a clinic rule.
 - Clarify “procedure review.” WhatsApp/SMS, broadcasts and Google reviews are planned later. Phone contacts remain deferred.

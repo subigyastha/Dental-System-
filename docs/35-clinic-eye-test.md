@@ -1,0 +1,46 @@
+# Clinic workflow eye test
+
+Prepared locally on October 9, 2026, using the current branch. Open [the local app](http://localhost:3000/reservations). The separate WSL PostgreSQL database is `workflow_eye_test_20261009`; Supabase is unchanged.
+
+Sign in as `reception@eyetest.local` with `ClinicEyeTest-2026!`. These credentials belong only to the synthetic local clinic. The owner account is `owner@eyetest.local`; doctor accounts are `pratik@eyetest.local` and `mira@eyetest.local`, using the same eye-test password.
+
+Select **October 10, 2026 (Saturday)** in Schedule. Both doctors have availability from 08:00 to 18:00, with lunch blocked from 12:00 to 13:00. There are **33 appointment records**: 17 for Dr. Pratik Shrestha and 16 for Dr. Mira KC. All clients are labelled TEST and use synthetic numbers. Open gaps are intentional so booking and rescheduling can be exercised.
+
+| Time | Dr. Pratik Shrestha | Dr. Mira KC |
+| --- | --- | --- |
+| 08:00 | Completed custom check, 30 min | Completed scaling, 45 min |
+| 08:30 / 08:45 | Completed consultation at 08:30, 30 min | Completed check-up at 08:45, 15 min |
+| 09:00 | Checked in, scaling, 45 min | Confirmed consultation, 30 min |
+| 09:30 / 09:45 | Confirmed check-up at 09:45, 15 min | Checked in, custom retainer adjustment at 09:30, 45 min |
+| 10:00 / 10:15 | Confirmed filling at 10:00, 30 min | Unconfirmed check-up at 10:15, 15 min |
+| 10:30 | Cancelled consultation; available | Cancelled consultation; available |
+| 11:00 | Unconfirmed root canal, 60 min | Confirmed filling, 45 min |
+| 11:45 | Continuation of 11:00 visit | Unconfirmed check-up, 15 min |
+| 12:00–13:00 | Lunch block | Lunch block |
+| 13:00 | Confirmed scaling, 45 min | Confirmed root canal, 60 min |
+| 13:45 | Unconfirmed check-up, 15 min | Continuation of 13:00 visit |
+| 14:00 | Cancelled consultation; available | Unconfirmed consultation, 30 min |
+| 14:30 | Confirmed custom bite adjustment, 45 min | Confirmed custom retainer review, 30 min |
+| 15:00 / 15:15 | Unconfirmed check-up at 15:15, 15 min | Cancelled consultation at 15:00; available |
+| 15:30 | Cancelled history plus confirmed replacement, 30 min | Unconfirmed scaling, 45 min |
+| 16:00 / 16:15 | Unconfirmed filling at 16:00, 45 min | Confirmed check-up at 16:15, 15 min |
+| 16:30 / 16:45 | Confirmed check-up at 16:45, 15 min | No-show consultation at 16:30, 30 min |
+| 17:00 | Confirmed root canal, 60 min | Confirmed custom complex restoration, 60 min |
+
+## Suggested walkthrough
+
+1. Check yellow unconfirmed visits, provider-colored confirmed/checked-in visits and red cancellation notes. Occupied continuation cells must not offer booking. Completed and no-show records remain in history; they do not reserve new capacity under the existing lifecycle rules.
+2. Open Mira's 09:30 visit. It should show **Retainer adjustment**, a client-profile link and **Complete**, without a required Start step. Completing it should plan the routine recall.
+3. Reschedule Pratik's 10:00, 30-minute visit to **10:15**, or Mira's 14:30, 30-minute visit to **14:45**. The appointment may overlap its own old time; another active visit must still cause a conflict. Changing a queued case is expected during this eye test.
+4. Book Pratik's cancelled **14:00** interval. Choose a custom procedure and 30 minutes. Its cancellation notice should disappear after the replacement; the original reason should remain in history. At Pratik's 15:30, a replacement is already present to compare this behavior.
+5. Choose a custom procedure and inspect the duration choices: 15, 30, 45, 60… minutes. Verify the selected time survives the booking steps.
+6. Switch Day, Week and Month, then AD/BS. Check weekdays/date alignment and Week headings while scrolling. Try a narrow mobile window too.
+7. Open **Clients → due follow-ups**. Three extra TEST clients cover an overdue six-month recall, a staff-adjusted recall and a historical completed visit requiring explicit recall review. Change the next date or record a call outcome; check the next routine recall and retained history. No calls or messages are sent.
+
+## Reproduction and checks
+
+The guarded day fixture is [seed-clinic-eye-test.mjs](../scripts/seed-clinic-eye-test.mjs). It requires a fresh localhost `workflow_eye_test_*` database, all migrations, a running local API and `EYE_TEST_PASSWORD`. It refuses an existing day instead of overwriting eye-test edits. Booking and lifecycle transitions use the actual API; supporting accounts, availability and synthetic clients are fixture data. Three historical recall cases are prepared separately in the local fixture.
+
+The current local API and web processes remain running on ports 4000 and 3000. Local restart helpers/configuration are in `.codex-temp/eye-test-command.cjs` and `eye-test-env.json`; use Node 24. Keep the private configuration out of Git. Start each server in a separate terminal with `node .codex-temp/eye-test-command.cjs api` and `node .codex-temp/eye-test-command.cjs web`.
+
+All 27 migrations applied successfully to the isolated database. PostgreSQL booking, client creation, finance concurrency and HTTP containment tests: 4 passed, 0 skipped. Evidence: `.codex-temp/eye-test-migrations.log`, `eye-test-postgres-tests.log`, `eye-test-seed.log`. This preparation does not push a branch or deploy production.
