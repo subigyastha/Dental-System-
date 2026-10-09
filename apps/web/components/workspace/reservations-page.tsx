@@ -4,7 +4,7 @@ import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getPrimaryAppointmentAction } from "@/lib/appointment-workflow";
-import { groupScheduleSlots } from "@/lib/schedule-display";
+import { buildDayTimeline, replacementCancellationNote, groupScheduleSlots, type ScheduleDisplayGroup } from "@/lib/schedule-display";
 import {
   CalendarPlus2,
   Check,
@@ -56,7 +56,6 @@ import type {
 
 type CalendarView = "day" | "week" | "month";
 type AppointmentView = ReturnType<typeof buildAppointmentView>;
-type ScheduleSlot = ProviderDayScheduleGrid["providers"][number]["slots"][number];
 
 export function ScheduleDateLabel({
   adDateKey,
@@ -88,8 +87,8 @@ export function ScheduleDateLabel({
   );
 }
 
-function scheduleSlotAction(slot: ScheduleSlot | undefined, appointment: AppointmentView | undefined, canBook: boolean) {
-  if (slot?.state === "BOOKED") return appointment ? "details" : null;
+function scheduleSlotAction(slot: ScheduleDisplayGroup["slot"] | undefined, appointment: AppointmentView | undefined, canBook: boolean) {
+  if (slot?.state === "BOOKED" || slot?.state === "HISTORY") return appointment ? "details" : null;
   return slot?.state === "AVAILABLE" && canBook ? "book" : null;
 }
 export function scheduleAppointmentColor(status: Appointment["status"], communicationState: string | undefined, providerColor: string) {
@@ -97,20 +96,10 @@ export function scheduleAppointmentColor(status: Appointment["status"], communic
   if (status === "Scheduled" && communicationState !== "Confirmed by phone") return "#ca8a04";
   return providerColor;
 }
-export function cancelledAppointmentWasReplaced(appointment: Appointment, appointments: Appointment[]) {
-  if (appointment.status !== "Cancelled") return false;
-  const start = new Date(appointment.startsAtIso).getTime();
-  const end = start + appointment.durationMinutes * 60_000;
-  return appointments.some((active) => active.providerId === appointment.providerId &&
-    ["Scheduled", "Confirmed", "CheckedIn", "InProgress"].includes(active.status) &&
-    new Date(active.startsAtIso).getTime() < end &&
-    new Date(active.startsAtIso).getTime() + active.durationMinutes * 60_000 > start);
-}
-
-function cancelledSlotNote(slot: ScheduleSlot) {
+function cancelledSlotNote(slot: ScheduleDisplayGroup["slot"]) {
   return slot.cancelledSummary ? `Cancelled: ${slot.cancelledSummary.customerName} - ${slot.cancelledSummary.reason}. Available to book.` : null;
 }
-function occupiedSlotLabel(slot: ScheduleSlot, appointment?: AppointmentView) {
+function occupiedSlotLabel(slot: ScheduleDisplayGroup["slot"], appointment?: AppointmentView) {
   const continuation = appointment && new Date(slot.startTime).getTime() > new Date(appointment.startsAtIso).getTime();
   return `${continuation ? "Continues" : "Occupied"} until ${formatClockLabel(slot.endTime)}`;
 }
@@ -158,6 +147,7 @@ export function ReservationsPage({
     fetchAppointmentsRange,
     fetchScheduleDay,
     fetchWeekOperationalSummaries,
+    invalidatePlanningCaches,
     planningRevision,
     selectedDate,
     sessionUser,
@@ -233,7 +223,6 @@ export function ReservationsPage({
   const appointmentViews = useMemo(
     () =>
       rangeAppointments
-        .filter((appointment) => !cancelledAppointmentWasReplaced(appointment, rangeAppointments))
         .map((appointment) =>
           buildAppointmentView(appointment, data.customers, data.providers, data.services),
         )
@@ -502,6 +491,9 @@ export function ReservationsPage({
     const controller = new AbortController();
     setPlanningError(null);
     const providerIds = visibleProviders.map((provider) => provider.id);
+    // A failed navigation must not relabel the previous day's actionable slots.
+    setDayScheduleGrid(null);
+    setRangeAppointments([]);
     const locationId = data.locations[0]?.id;
     void fetchScheduleDay({
       providerIds,
@@ -511,6 +503,9 @@ export function ReservationsPage({
     })
       .then((snapshot) => {
         if (!cancelled) {
+          if (snapshot.grid.date !== selectedDate || snapshot.grid.providers.some(provider => !providerIds.includes(provider.providerId))) {
+            throw new Error("Schedule response does not match the selected day/provider scope");
+          }
           setDayScheduleGrid(snapshot.grid);
           setRangeAppointments(snapshot.appointments);
         }
@@ -567,10 +562,11 @@ export function ReservationsPage({
     <div className="space-y-5 md:space-y-5">
       {planningError ? (
         <div
-          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800"
           role="alert"
         >
-          {planningError}
+          <span>{planningError}</span>
+          <Button onClick={() => invalidatePlanningCaches()} variant="ghost">Retry schedule</Button>
         </div>
       ) : null}
       <div className="hidden md:block">
@@ -736,6 +732,7 @@ export function ReservationsPage({
                 calendarMode={calendarMode}
                 dateKey={selectedDate}
                 isLoading={dayGridLoading}
+                loadError={Boolean(planningError)}
                 onAppointmentClick={setSelectedAppointment}
               />
             )}
@@ -1543,8 +1540,8 @@ function DayGridPanel({
       ) : !scheduleGrid?.providers.length ? (
         <div className="p-4">
           <EmptyState
-            body="No active provider is available in this view."
-            title="Nothing to schedule"
+            body={scheduleGrid ? "No active provider is available in this view." : "Retry loading the schedule or choose a provider."}
+            title={scheduleGrid ? "Nothing to schedule" : "Schedule unavailable"}
           />
         </div>
       ) : (
@@ -1812,12 +1809,14 @@ function DayListPanel({
   calendarMode,
   dateKey,
   isLoading,
+  loadError,
   onAppointmentClick,
 }: {
   appointments: ReturnType<typeof buildAppointmentView>[];
   calendarMode: "BS" | "AD";
   dateKey: string;
   isLoading: boolean;
+  loadError?: boolean;
   onAppointmentClick: (appointment: Appointment) => void;
 }) {
   return (
@@ -1826,7 +1825,7 @@ function DayListPanel({
         <div className="mb-1 text-sm font-semibold">{formatShortWeekday(dateKey)}</div><DualDateDisplay adDateKey={dateKey} mode={calendarMode} />
       </div>
       <div className="divide-y divide-[var(--border)]">
-        {isLoading ? (
+        {loadError ? <div className="p-4 text-sm text-[var(--text-muted)]">Appointment records are unavailable until the schedule reloads.</div> : isLoading ? (
           <KoiSectionLoader className="min-h-[260px]" label="Loading daily appointments" />
         ) : appointments.length ? (
           appointments.map((appointment) => (
@@ -1891,27 +1890,21 @@ export const ScheduleGridTable = memo(function ScheduleGridTable({
       ).sort((a, b) => Date.parse(a) - Date.parse(b)),
     [scheduleGrid.providers],
   );
-  const providerGroups = useMemo(
-    () =>
-      scheduleGrid.providers.map((provider) => {
-        const slots = new Map(
-          provider.slots.map((slot) => [slot.startTime, slot]),
-        );
-        // Missing provider rows stay unavailable; they must not disappear into a visit.
-        return groupScheduleSlots(
-          slotStarts.map(
-            (startTime) =>
-              slots.get(startTime) ?? {
-                startTime,
-                endTime: startTime,
-                state: "UNAVAILABLE" as const,
-              },
-          ),
-          slotStarts,
-        );
-      }),
-    [scheduleGrid.providers, slotStarts],
-  );
+  const layouts = useMemo(() => {
+    return scheduleGrid.providers.map((provider) => {
+      const timeline = buildDayTimeline(
+        provider.slots,
+        appointmentById.values(),
+        provider.providerId,
+        scheduleGrid.date,
+        slotStarts,
+      );
+      return { provider, ...timeline };
+    }).map((layout, index, layouts) => ({
+      ...layout,
+      column: 2 + layouts.slice(0, index).reduce((count, previous) => count + previous.laneCount + 1, 0),
+    }));
+  }, [scheduleGrid.providers, scheduleGrid.date, appointmentById, slotStarts]);
   return (
     <div
       className="max-h-[70vh] overflow-auto bg-white [scrollbar-gutter:stable]"
@@ -1920,9 +1913,9 @@ export const ScheduleGridTable = memo(function ScheduleGridTable({
       <div
         className="grid min-w-[600px]"
         style={{
-          gridTemplateColumns: `80px repeat(${scheduleGrid.providers.length}, minmax(220px, 1fr))`,
+          gridTemplateColumns: `80px ${layouts.map((layout) => `repeat(${layout.laneCount}, minmax(220px, 1fr)) 44px`).join(" ")}`,
           gridTemplateRows: slotStarts.length
-            ? `auto repeat(${slotStarts.length}, 64px)`
+            ? `auto repeat(${slotStarts.length}, 80px)`
             : "auto",
         }}
       >
@@ -1932,23 +1925,26 @@ export const ScheduleGridTable = memo(function ScheduleGridTable({
         >
           Time
         </div>
-        {scheduleGrid.providers.map((provider, column) => (
+        {layouts.map((layout) => (
           <div
             className="sticky top-0 z-20 border-b border-r border-[var(--border)] bg-[var(--surface-muted)] px-4 py-3"
-            key={provider.providerId}
-            style={{ gridColumn: column + 2, gridRow: 1 }}
+            key={layout.provider.providerId}
+            style={{
+              gridColumn: `${layout.column} / span ${layout.laneCount + 1}`,
+              gridRow: 1,
+            }}
           >
             <div className="flex items-center gap-2">
               <span
                 className="size-2.5 rounded-full"
-                style={{ backgroundColor: provider.providerColor }}
+                style={{ backgroundColor: layout.provider.providerColor }}
               />
-              <div className="font-medium text-[var(--foreground)]">
-                {provider.providerName}
-              </div>
+              <span className="font-medium">
+                {layout.provider.providerName}
+              </span>
             </div>
             <div className="mt-1 text-xs text-[var(--text-muted)]">
-              {provider.specialty}
+              {layout.provider.specialty} · + books available time
             </div>
           </div>
         ))}
@@ -1961,22 +1957,93 @@ export const ScheduleGridTable = memo(function ScheduleGridTable({
             {formatClockLabel(startTime)}
           </div>
         ))}
-        {/* Keep keyboard navigation in time order across provider columns. */}
-        {scheduleGrid.providers
-          .flatMap((provider, column) =>
-            providerGroups[column].map((group) => ({ provider, column, group })),
+        {layouts.flatMap((layout) => {
+          const slots = new Map(
+            layout.provider.slots.map((slot) => [slot.startTime, slot]),
+          );
+          return slotStarts.map((startTime, row) => {
+            // Missing provider rows fail closed. History never changes this capacity state.
+            const slot = slots.get(startTime);
+            const hasRecord = layout.records.some(record => record.group.startRow <= row && record.group.startRow + record.group.rowSpan > row);
+            const canBook =
+              slot?.state === "AVAILABLE" &&
+              (!lockedProviderId ||
+                lockedProviderId === layout.provider.providerId);
+            const label =
+              slot?.state === "BOOKED"
+                ? "Occupied"
+                : slot?.state === "AVAILABLE"
+                  ? canBook
+                    ? "Open slot"
+                    : "View only"
+                  : slot?.state === "BLOCKED"
+                    ? "Blocked"
+                    : "Unavailable";
+            const book = () =>
+              onOpenBooking(
+                layout.provider.providerId,
+                scheduleGrid.date,
+                undefined,
+                startTime,
+              );
+            return (
+              <React.Fragment
+                key={`${layout.provider.providerId}-${startTime}`}
+              >
+                <button
+                  aria-label={`${label}, ${layout.provider.providerName}, ${formatClockLabel(startTime)}`}
+                  className="min-w-0 border-b border-r border-[var(--border)] bg-[var(--surface-muted)] px-3 text-left text-xs text-[var(--text-muted)] enabled:hover:bg-white"
+                  disabled={!canBook}
+                  onClick={book}
+                  style={{
+                    gridColumn: `${layout.column} / span ${layout.laneCount}`,
+                    gridRow: row + 2,
+                  }}
+                  type="button"
+                >
+                  {slot?.state === "BOOKED" || hasRecord ? "" : label}
+                </button>
+                <button
+                  aria-label={`Book ${layout.provider.providerName} at ${formatClockLabel(startTime)} on ${scheduleGrid.date}`}
+                  className="border-b border-r border-[var(--border)] text-lg text-[var(--accent)] enabled:bg-white enabled:hover:bg-[var(--surface-muted)] disabled:text-slate-300"
+                  disabled={!canBook}
+                  onClick={book}
+                  style={{
+                    gridColumn: layout.column + layout.laneCount,
+                    gridRow: row + 2,
+                  }}
+                  title={canBook ? "Book this available time" : label}
+                  type="button"
+                >
+                  {canBook ? "+" : "·"}
+                </button>
+              </React.Fragment>
+            );
+          });
+        })}
+        {/* Record lanes retain overlaps without hiding earlier visits or free booking controls. */}
+        {layouts
+          .flatMap((layout) =>
+            layout.records.map((record) => ({
+              ...record,
+              provider: layout.provider,
+              column: layout.column + record.lane,
+            })),
           )
-          .sort((a, b) => a.group.startRow - b.group.startRow || a.column - b.column)
-          .map(({ provider, column, group }) => (
+          .sort(
+            (a, b) =>
+              a.group.startRow - b.group.startRow || a.column - b.column,
+          )
+          .map((record) => (
             <ScheduleGridCell
               appointmentById={appointmentById}
-              column={column}
-              group={group}
-              key={`${provider.providerId}-${group.slot.startTime}`}
+              column={record.column}
+              group={record.group}
+              key={`${record.provider.providerId}-${record.group.slot.appointmentId}-${record.group.startRow}`}
               lockedProviderId={lockedProviderId}
               onBookedSlotClick={onBookedSlotClick}
               onOpenBooking={onOpenBooking}
-              provider={provider}
+              provider={record.provider}
               scheduleGrid={scheduleGrid}
             />
           ))}
@@ -1996,7 +2063,7 @@ const ScheduleGridCell = memo(function ScheduleGridCell({
   scheduleGrid,
 }: DayScheduleProps & {
   column: number;
-  group: ReturnType<typeof groupScheduleSlots>[number];
+  group: ScheduleDisplayGroup;
   provider: ProviderDayScheduleGrid["providers"][number];
 }) {
   const { slot, rowSpan, startRow } = group;
@@ -2005,9 +2072,13 @@ const ScheduleGridCell = memo(function ScheduleGridCell({
     : undefined;
   const canBook = !lockedProviderId || lockedProviderId === provider.providerId;
   const action = scheduleSlotAction(slot, appointment, canBook);
-  const booked = slot.state === "BOOKED";
+  const history = slot.state === "HISTORY";
+  const booked = slot.state === "BOOKED" || history;
+  const cancellationNote = appointment
+    ? replacementCancellationNote(appointment, appointmentById.values())
+    : undefined;
   const status =
-    slot.appointmentSummary?.status ?? appointment?.status ?? "Scheduled";
+    appointment?.status ?? slot.appointmentSummary?.status ?? "Scheduled";
   const color = slot.cancelledSummary
     ? "#dc2626"
     : scheduleAppointmentColor(
@@ -2026,7 +2097,7 @@ const ScheduleGridCell = memo(function ScheduleGridCell({
   const range = `${formatClockLabel(slot.startTime)}–${formatClockLabel(slot.endTime)}`;
   const urgent = appointment?.priority === "Urgent";
   const label = booked
-    ? `${name}, ${procedure}, ${range}, ${status}${urgent ? ", Urgent" : ""}`
+    ? `${name}, ${procedure}, ${range}, ${status}${history ? ", history record" : ""}${urgent ? ", Urgent" : ""}${appointment?.cancellationReason ? `, ${appointment.cancellationReason}` : ""}${cancellationNote ? `, ${cancellationNote}` : ""}`
     : (cancelledSlotNote(slot) ??
       (slot.state === "AVAILABLE"
         ? "Open slot"
@@ -2036,8 +2107,9 @@ const ScheduleGridCell = memo(function ScheduleGridCell({
   return (
     <button
       aria-label={label}
-      className={`min-h-0 min-w-0 overflow-hidden px-3 py-2 text-left transition ${booked ? "m-1 flex flex-col justify-start rounded-lg border border-[var(--border)] hover:brightness-95" : "border-b border-r border-[var(--border)] hover:bg-[var(--surface-muted)]"}`}
+      className={`relative z-[1] min-h-0 min-w-0 overflow-hidden px-3 ${rowSpan === 1 ? "py-1" : "py-2"} text-left transition ${booked ? "m-1 flex flex-col justify-start rounded-lg border border-[var(--border)] hover:brightness-95" : "border-b border-r border-[var(--border)] hover:bg-[var(--surface-muted)]"}`}
       data-appointment-id={booked ? slot.appointmentId : undefined}
+      data-history={history || undefined}
       disabled={!action}
       onClick={() =>
         action === "details" && appointment
@@ -2052,15 +2124,16 @@ const ScheduleGridCell = memo(function ScheduleGridCell({
             : undefined
       }
       style={{
-        gridColumn: column + 2,
+        gridColumn: column,
         gridRow: `${startRow + 2} / span ${rowSpan}`,
         backgroundColor: booked
-          ? `${color}16`
+          ? "white"
           : slot.cancelledSummary
             ? "#fef2f2"
             : slot.state === "AVAILABLE"
               ? "#fcfffe"
               : "var(--surface-muted)",
+        backgroundImage: booked ? `linear-gradient(${color}16, ${color}16)` : undefined,
         boxShadow: booked ? `inset 4px 0 0 ${color}` : undefined,
       }}
       title={label}
@@ -2094,6 +2167,19 @@ const ScheduleGridCell = memo(function ScheduleGridCell({
                   Urgent
                 </span>
               ) : null}
+            </span>
+          ) : null}
+          {appointment?.status === "Cancelled" ? (
+            <span className="mt-0.5 line-clamp-2 text-[11px] text-red-700">
+              {appointment.cancellationReason || "Reason not recorded"}
+            </span>
+          ) : null}
+          {cancellationNote ? (
+            <span
+              className="mt-0.5 line-clamp-2 text-[11px] text-red-700"
+              title={cancellationNote}
+            >
+              {cancellationNote}
             </span>
           ) : null}
         </>
@@ -2138,19 +2224,33 @@ export function MobileDayScheduleList({
   const timeline = useMemo(
     () =>
       scheduleGrid.providers
-        .flatMap((provider) =>
-          groupScheduleSlots(provider.slots)
-            .filter(({ slot }) => slot.state === "BOOKED" || slot.state === "AVAILABLE")
-            .map(({ slot }) => ({ provider, slot })),
-        )
+        .flatMap((provider) => {
+          const capacity = groupScheduleSlots(provider.slots).filter(
+            ({ slot }) => slot.state === "AVAILABLE",
+          );
+          const records = buildDayTimeline(
+            provider.slots,
+            appointmentById.values(),
+            provider.providerId,
+            scheduleGrid.date,
+          ).records.map((record) => record.group);
+          return [...records, ...capacity].map(({ slot }) => ({
+            provider,
+            slot,
+          }));
+        })
         .sort((left, right) => {
           const timeDifference =
             new Date(left.slot.startTime).getTime() -
             new Date(right.slot.startTime).getTime();
-          return timeDifference ||
-            left.provider.providerName.localeCompare(right.provider.providerName);
+          return (
+            timeDifference ||
+            left.provider.providerName.localeCompare(
+              right.provider.providerName,
+            )
+          );
         }),
-    [scheduleGrid.providers],
+    [scheduleGrid.providers, scheduleGrid.date, appointmentById],
   );
 
   return (
@@ -2161,7 +2261,10 @@ export function MobileDayScheduleList({
             className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-white px-2.5 py-1 text-xs text-[var(--text-muted)]"
             key={provider.providerId}
           >
-            <span className="size-2 rounded-full" style={{ backgroundColor: provider.providerColor }} />
+            <span
+              className="size-2 rounded-full"
+              style={{ backgroundColor: provider.providerColor }}
+            />
             {provider.providerName}
           </span>
         ))}
@@ -2171,13 +2274,36 @@ export function MobileDayScheduleList({
           const appointmentView = slot.appointmentId
             ? appointmentById.get(slot.appointmentId)
             : undefined;
-          const isBooked = slot.state === "BOOKED";
-          const action = scheduleSlotAction(slot, appointmentView, !lockedProviderId || lockedProviderId === provider.providerId);
-          const slotColor = slot.cancelledSummary ? "#dc2626" : scheduleAppointmentColor(slot.appointmentSummary?.status ?? "Scheduled", slot.appointmentSummary?.communicationState, provider.providerColor);
+          const history = slot.state === "HISTORY";
+          const isBooked = slot.state === "BOOKED" || history;
+          const cancellationNote = appointmentView
+            ? replacementCancellationNote(
+                appointmentView,
+                appointmentById.values(),
+              )
+            : undefined;
+          const action = scheduleSlotAction(
+            slot,
+            appointmentView,
+            !lockedProviderId || lockedProviderId === provider.providerId,
+          );
+          const slotColor = slot.cancelledSummary
+            ? "#dc2626"
+            : scheduleAppointmentColor(
+                appointmentView?.status ??
+                  slot.appointmentSummary?.status ??
+                  "Scheduled",
+                slot.appointmentSummary?.communicationState ??
+                  appointmentView?.communicationState,
+                provider.providerColor,
+              );
           const canBookThisProvider =
             !lockedProviderId || lockedProviderId === provider.providerId;
           return (
-            <div className="relative grid grid-cols-[3.35rem_minmax(0,1fr)] gap-3" key={`${provider.providerId}-${slot.startTime}`}>
+            <div
+              className="relative grid grid-cols-[3.35rem_minmax(0,1fr)] gap-3"
+              key={`${provider.providerId}-${slot.state}-${slot.appointmentId ?? "capacity"}-${slot.startTime}`}
+            >
               <time className="pt-3 text-xs font-semibold tabular-nums text-[var(--text-muted)]">
                 {formatClockLabel(slot.startTime)}
               </time>
@@ -2187,10 +2313,15 @@ export function MobileDayScheduleList({
                 style={{ backgroundColor: provider.providerColor }}
               />
               <button
+                data-appointment-id={isBooked ? slot.appointmentId : undefined}
+                data-history={history || undefined}
                 className="min-w-0 rounded-xl border border-[var(--border)] px-3 py-3 text-left disabled:opacity-60"
                 disabled={!action}
                 style={{
-                  backgroundColor: isBooked || slot.cancelledSummary ? `${slotColor}18` : "white",
+                  backgroundColor:
+                    isBooked || slot.cancelledSummary
+                      ? `${slotColor}18`
+                      : "white",
                   boxShadow: `inset 3px 0 0 ${isBooked || slot.cancelledSummary ? slotColor : provider.providerColor}`,
                 }}
                 onClick={() =>
@@ -2211,20 +2342,55 @@ export function MobileDayScheduleList({
                   <span className="min-w-0">
                     <strong className="block truncate text-sm text-[var(--foreground)]">
                       {isBooked
-                        ? slot.appointmentSummary?.customerName ?? "Booked appointment"
+                        ? (slot.appointmentSummary?.customerName ??
+                          appointmentView?.customer?.name ??
+                          "Booked appointment")
                         : "Available"}
                     </strong>
                     <span className="mt-0.5 block truncate text-xs text-[var(--text-muted)]">
                       {provider.providerName}
-                      {isBooked && slot.appointmentSummary?.serviceName
-                        ? ` · ${slot.appointmentSummary.serviceName}`
-                        : !isBooked ? canBookThisProvider ? " · Tap to book" : " · View only" : ""}
+                      {isBooked &&
+                      (slot.appointmentSummary?.serviceName ||
+                        appointmentView?.procedureLabel)
+                        ? ` · ${slot.appointmentSummary?.serviceName || appointmentView?.procedureLabel}`
+                        : !isBooked
+                          ? canBookThisProvider
+                            ? " · Tap to book"
+                            : " · View only"
+                          : ""}
                     </span>
-                    {isBooked ? <span className="mt-1 block text-xs font-medium">{occupiedSlotLabel(slot, appointmentView)}</span> : null}
-                    {slot.cancelledSummary ? <span className="mt-1 block text-xs font-medium text-red-700">{cancelledSlotNote(slot)}</span> : null}
+                    {isBooked ? (
+                      <span className="mt-1 block text-xs font-medium">
+                        {history
+                          ? `${formatClockLabel(slot.startTime)}–${formatClockLabel(slot.endTime)} · History record`
+                          : occupiedSlotLabel(slot, appointmentView)}
+                      </span>
+                    ) : null}
+                    {appointmentView?.status === "Cancelled" ? (
+                      <span className="mt-1 block text-xs text-red-700">
+                        {appointmentView.cancellationReason ||
+                          "Reason not recorded"}
+                      </span>
+                    ) : null}
+                    {cancellationNote ? (
+                      <span className="mt-1 block text-xs text-red-700">
+                        {cancellationNote}
+                      </span>
+                    ) : null}
+                    {slot.cancelledSummary ? (
+                      <span className="mt-1 block text-xs font-medium text-red-700">
+                        {cancelledSlotNote(slot)}
+                      </span>
+                    ) : null}
                   </span>
                   {isBooked ? (
-                    <StatusPill status={slot.appointmentSummary?.status ?? "Scheduled"} />
+                    <StatusPill
+                      status={
+                        appointmentView?.status ??
+                        slot.appointmentSummary?.status ??
+                        "Scheduled"
+                      }
+                    />
                   ) : null}
                 </span>
               </button>

@@ -84,7 +84,8 @@ test("desktop and mobile occupied cells never become booking actions when detail
         appointmentById: new Map(), scheduleGrid,
         onBookedSlotClick: () => undefined, onOpenBooking: () => undefined,
       }));
-      assert.equal((html.match(/disabled=""/g) ?? []).length, 1, "one disabled appointment spans both occupied cells");
+      assert.equal((html.match(/data-appointment-id="appointment-a"/g) ?? []).length, 1, "one appointment spans both occupied cells");
+      assert.match(html, /data-appointment-id="appointment-a"[^>]*disabled=""/, "missing details cannot open or book an occupied record");
       if (Component === ScheduleGridTable) assert.match(html, /grid-row:2 \/ span 2/);
       else assert.equal((html.match(/Occupied until/g) ?? []).length, 1);
       assert.doesNotMatch(html, /Tap to book/);
@@ -133,6 +134,38 @@ test("Day renders separate visits in time order across providers", async () => {
     assert.deepEqual([...html.matchAll(/data-appointment-id="([^"]+)"/g)].map(match => match[1]), ["visit-a", "visit-b", "visit-c"]);
     assert.match(html, /grid-row:2 \/ span 2/);
     assert.match(html, /Unavailable/, "missing provider rows keep their unavailable state");
+  } finally {
+    (globalThis as { React?: typeof import("react") }).React = previousReact;
+  }
+});
+
+test("desktop and mobile retain completed/cancelled records alongside their replacement", async () => {
+  const previousReact = (globalThis as { React?: typeof import("react") }).React;
+  (globalThis as { React?: typeof import("react") }).React = await import("react");
+  try {
+    const { ScheduleGridTable, MobileDayScheduleList } = await import("./reservations-page");
+    const { buildAppointmentView } = await import("./workspace-utils");
+    const appointment = (id: string, status: import("../../lib/domain").AppointmentStatus) => ({
+      id, status, organizationId: "clinic-a", providerId: "provider-a", customerId: "client-a", serviceIds: [], startsAtIso: "2030-01-01T08:00:00+05:45", durationMinutes: 30, bufferMinutes: 0, priority: "Normal" as const, chair: "", notes: "", communicationState: "Unconfirmed" as const, cancellationReason: status === "Cancelled" ? "Changed plans" : undefined,
+      clientSummary: {id:"client-a",name:`Client ${id}`},
+    });
+    const appointments = [appointment("completed","Completed"),appointment("cancelled","Cancelled"),appointment("replacement","Confirmed")];
+    const appointmentById = new Map(appointments.map(record=>[record.id,buildAppointmentView(record,[],[],[])]));
+    const slots = ["08:00","08:15"].map(time=>({startTime:`2030-01-01T${time}:00+05:45`,endTime:"2030-01-01T08:30:00+05:45",state:"BOOKED" as const,appointmentId:"replacement"}));
+    const scheduleGrid: import("../../lib/domain").ProviderDayScheduleGrid = {date:"2030-01-01",timezone:"Asia/Kathmandu",providers:[{providerId:"provider-a",providerName:"Doctor A",providerColor:"#0f766e",specialty:"Dentist",slots}]};
+    for (const Component of [ScheduleGridTable, MobileDayScheduleList]) {
+      const html = renderToStaticMarkup(createElement(Component,{appointmentById,scheduleGrid,onBookedSlotClick:()=>undefined,onOpenBooking:()=>undefined}));
+      for (const id of ["completed","cancelled","replacement"]) assert.equal((html.match(new RegExp(`data-appointment-id="${id}"`,"g"))??[]).length,1);
+      assert.match(html,/Completed/);
+      assert.match(html,/Rebooked time.*prior cancellation/);
+      assert.match(html,/Changed plans/);
+      assert.equal((html.match(/data-history="true"/g)??[]).length,2);
+    }
+    scheduleGrid.providers[0].slots = slots.map(slot=>({...slot,state:"AVAILABLE",appointmentId:undefined}));
+    appointmentById.delete("replacement");
+    const html = renderToStaticMarkup(createElement(ScheduleGridTable,{appointmentById,scheduleGrid,onBookedSlotClick:()=>undefined,onOpenBooking:()=>undefined}));
+    assert.match(html,/Book Doctor A at 08:15/);
+    assert.doesNotMatch(html,/<button[^>]*aria-label="Book Doctor A at 08:15[^>]*disabled=/,"completed history does not disable free capacity");
   } finally {
     (globalThis as { React?: typeof import("react") }).React = previousReact;
   }

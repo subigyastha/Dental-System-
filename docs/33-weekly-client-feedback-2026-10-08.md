@@ -22,6 +22,10 @@ Reception handles the appointment journey in the same system. Everyday actions m
 | BK-02 | Duration choices must use fixed blocks | Only 15, 30, 45, 60 … minutes are valid. Remove arbitrary-minute entry. Validate positive multiples of 15 on the server as well as the form. Existing historical appointments keep their stored duration until explicitly changed. |
 | BK-03 | Preserve the earlier urgent Schedule fixes | A 30-minute appointment covers both 15-minute cells. Its exact end becomes available only after any buffer. Rescheduling by 15 minutes may overlap the appointment's own previous interval, while other bookings/holds still conflict. |
 
+## October 9 follow-up clarification
+
+The owner's later request supersedes SC-02's replacement visibility rule: completed/no-show visits remain on the Day timeline, including past dates. Cancelled records remain visible after replacement, with their reason; the replacement carries a cancellation marker. Capacity remains available according to existing lifecycle rules. [Implementation and defensive review](36-defensive-schedule-review.md).
+
 ## Planned after the core workflow is stable
 
 1. **Messaging foundation:** capture channel preference/permission, use templates, link communication history to the client/appointment, track queued/sent/delivered/failed state, handle retries without duplicate delivery, and provide a clinic-wide stop control. Start with appointment reminders and recalls. Keep sensitive procedure details out of reminder text by default.

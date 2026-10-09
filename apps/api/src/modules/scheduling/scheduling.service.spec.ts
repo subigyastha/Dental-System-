@@ -463,3 +463,29 @@ test("cancelled grid history never occupies continuation cells and disappears wh
     assert.equal(at("09:00").appointmentId, undefined);
   }
 });
+
+test("location-scoped grid hides other location details while retaining provider occupancy", async () => {
+  const service = createSchedulingService(15, () => undefined, db => {
+    db.appointment = { findMany: async () => [
+      { id: "elsewhere", providerId: "provider-a", locationId: "location-b", startsAt: new Date("2030-01-01T09:00:00+05:45"), endsAt: new Date("2030-01-01T09:30:00+05:45"), durationMinutes: 30, bufferMinutes: 0, status: "Confirmed", customer: { fullName: "Hidden Client" }, services: [] },
+      { id: "cancelled-elsewhere", providerId: "provider-a", locationId: "location-b", startsAt: new Date("2030-01-01T09:30:00+05:45"), endsAt: new Date("2030-01-01T09:45:00+05:45"), durationMinutes: 15, bufferMinutes: 0, status: "Cancelled", cancellationReason: "Hidden reason", customer: { fullName: "Hidden Client" }, services: [] },
+    ] };
+  });
+  const grid = await service.listScheduleGridForDay({ organizationId: "clinic-a", providerIds: ["provider-a"], locationId: "location-a", dateKey: "2030-01-01" });
+  const occupied = grid.providers[0].slots.filter(slot => slot.state === "BOOKED");
+  assert.equal(occupied.length,2);
+  assert.ok(occupied.every(slot => !slot.appointmentId && !slot.appointmentSummary));
+  assert.doesNotMatch(JSON.stringify(grid),/Hidden|elsewhere/);
+});
+
+test("off-grid terminal records never add available start candidates", async () => {
+  const service = createSchedulingService(15, () => undefined, db => {
+    db.appointment = { findMany: async () => ["Completed", "NoShow", "Cancelled"].map((status,index) => ({
+      id: `history-${index}`, providerId: "provider-a", startsAt: new Date("2030-01-01T09:07:00+05:45"), endsAt: new Date("2030-01-01T09:37:00+05:45"), durationMinutes: 30, bufferMinutes: 0, status, customer: { fullName: "Client" }, services: [],
+    })) };
+  });
+  const grid = await service.listScheduleGridForDay({ organizationId: "clinic-a", providerIds: ["provider-a"], dateKey: "2030-01-01" });
+  assert.deepEqual(grid.providers[0].slots.filter(slot => slot.state === "AVAILABLE").map(slot => new Date(slot.startTime).getTime()),["09:00","09:15","09:30","09:45"].map(time=>new Date(`2030-01-01T${time}:00+05:45`).getTime()));
+  assert.ok(grid.providers[0].slots.every(slot => slot.state !== "BOOKED"));
+  assert.equal(grid.providers[0].slots.length,40,"history does not add an extra 09:07 row");
+});

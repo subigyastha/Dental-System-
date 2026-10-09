@@ -829,6 +829,7 @@ export class SchedulingService {
         select: {
           id: true,
           providerId: true,
+          locationId: true,
           startsAt: true,
           endsAt: true,
           durationMinutes: true,
@@ -895,6 +896,8 @@ export class SchedulingService {
           candidateMinutes.add(minutes);
         }
         for (const appointment of providerAppointments) {
+          // History belongs to the record layer, never to bookable start candidates.
+          if (!blockingStatuses.includes(appointment.status)) continue;
           candidateMinutes.add(
             getNepalMinutesFromIso(appointment.startsAt.toISOString()),
           );
@@ -913,27 +916,34 @@ export class SchedulingService {
           );
 
           if (appointment) {
+            const canShowDetails =
+              !params.locationId || appointment.locationId === params.locationId;
             daySlots.push({
               startTime,
               endTime: new Date(
                 appointment.endsAt.getTime() + appointment.bufferMinutes * 60_000,
               ).toISOString(),
               state: "BOOKED",
-              appointmentId: appointment.id,
-              appointmentSummary: {
-                customerName: appointment.customer.fullName,
-                serviceName:
-                  appointment.customProcedureName || appointment.services.map((entry) => entry.service.name).join(", ") ||
-                  "Service",
-                status: appointment.status,
-                communicationState: appointment.communicationState,
-              },
+              ...(canShowDetails
+                ? {
+                    appointmentId: appointment.id,
+                    appointmentSummary: {
+                      customerName: appointment.customer.fullName,
+                      serviceName:
+                        appointment.customProcedureName ||
+                        appointment.services.map((entry) => entry.service.name).join(", ") ||
+                        "Service",
+                      status: appointment.status,
+                      communicationState: appointment.communicationState,
+                    },
+                  }
+                : {}),
             });
             continue;
           }
 
           const cancelled = providerAppointments.find((item) =>
-            item.status === "Cancelled" && item.startsAt.getTime() === slotStart &&
+            item.status === "Cancelled" && (!params.locationId || item.locationId === params.locationId) && item.startsAt.getTime() === slotStart &&
             !providerAppointments.some((active) => blockingStatuses.includes(active.status) &&
               active.startsAt.getTime() < item.endsAt.getTime() && active.endsAt.getTime() > item.startsAt.getTime()),
           );

@@ -4,7 +4,7 @@ Prepared locally on October 9, 2026, using the current branch. Open [the local a
 
 Sign in as `reception@eyetest.local` with `ClinicEyeTest-2026!`. These credentials belong only to the synthetic local clinic. The owner account is `owner@eyetest.local`; doctor accounts are `pratik@eyetest.local` and `mira@eyetest.local`, using the same eye-test password.
 
-Select **October 10, 2026 (Saturday)** in Schedule. Both doctors have availability from 08:00 to 18:00, with lunch blocked from 12:00 to 13:00. There are **33 appointment records**: 17 for Dr. Pratik Shrestha and 16 for Dr. Mira KC. All clients are labelled TEST and use synthetic numbers. Open gaps are intentional so booking and rescheduling can be exercised.
+Select **October 10, 2026 (Saturday)** in Schedule. Both doctors have availability from 08:00 to 18:00, with lunch blocked from 12:00 to 13:00. The original fixture contains **33 appointment records**: 17 for Dr. Pratik Shrestha and 16 for Dr. Mira KC. Subsequent eye-test edits change the live counts and statuses. All clients are labelled TEST and use synthetic numbers. Open gaps are intentional so booking and rescheduling can be exercised.
 
 | Time | Dr. Pratik Shrestha | Dr. Mira KC |
 | --- | --- | --- |
@@ -29,13 +29,15 @@ Select **October 10, 2026 (Saturday)** in Schedule. Both doctors have availabili
 
 ## Suggested walkthrough
 
-1. Check yellow unconfirmed visits, provider-colored confirmed/checked-in visits and red cancellation notes. Occupied continuation cells must not offer booking. Completed and no-show records remain in history; they do not reserve new capacity under the existing lifecycle rules.
+1. Check yellow unconfirmed visits, provider-colored confirmed/checked-in visits and red cancellation notes. Occupied continuation cells must not offer booking. Completed and no-show records remain on the Day timeline, including past dates; they do not reserve new capacity under the existing lifecycle rules. Desktop **+** controls allow booking available time beside history.
 2. Open Mira's 09:30 visit. It should show **Retainer adjustment**, a client-profile link and **Complete**, without a required Start step. Completing it should plan the routine recall.
 3. Reschedule Pratik's 10:00, 30-minute visit to **10:15**, or Mira's 14:30, 30-minute visit to **14:45**. The appointment may overlap its own old time; another active visit must still cause a conflict. Changing a queued case is expected during this eye test.
-4. Book Pratik's cancelled **14:00** interval. Choose a custom procedure and 30 minutes. Its cancellation notice should disappear after the replacement; the original reason should remain in history. At Pratik's 15:30, a replacement is already present to compare this behavior.
+4. Book Pratik's cancelled **14:00** interval. Choose a custom procedure and 30 minutes. The cancelled record and reason should remain visible after replacement. The new visit should show **Rebooked time**, with the cancellation reason. At Pratik's 15:30, a replacement is already present to compare this behavior.
 5. Choose a custom procedure and inspect the duration choices: 15, 30, 45, 60… minutes. Verify the selected time survives the booking steps.
 6. Switch Day, Week and Month, then AD/BS. Day's main date label includes the weekday. A longer appointment should occupy one continuous card on desktop and one entry on mobile; separate visits keep a gap. Week uses 280px desktop columns and one panel-width column per day on phones, with horizontal scrolling and sticky date headings. Month has a seven-day heading row, prominent primary dates, small companion dates, provider dots, a today marker and a selected-day outline. Select a date and use **Open selected day**. Check 320px and 390px mobile widths as well as desktop.
 7. Open **Clients → due follow-ups**. Three extra TEST clients cover an overdue six-month recall, a staff-adjusted recall and a historical completed visit requiring explicit recall review. Change the next date or record a call outcome; check the next routine recall and retained history. No calls or messages are sent.
+
+8. Select **October 17, Dr. Pratik, 10:00**. Three synthetic **Defensive workflow check** records cover Completed, Cancelled and a Confirmed replacement at the same time. Each should appear once on desktop/mobile, with the cancellation reason visible. Open the Completed record to verify its details. A failed Day load should show unavailable records and no stale slot controls; **Retry schedule** should restore the selected day. See [DD-2026-10-09](36-defensive-schedule-review.md) for checks and limits.
 
 ## Reproduction and checks
 
