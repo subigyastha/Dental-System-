@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import { Archive, GitMerge, Plus, Search } from "lucide-react";
 
 import { KoiSectionLoader } from "@/components/koi-loader";
@@ -11,6 +12,8 @@ import { useWorkspaceApp } from "@/components/workspace/app-state";
 import { NewClientDrawer } from "@/components/workspace/new-client-drawer";
 import { apiFetchJson } from "@/lib/api-client";
 import { isAbortedRequest, requestErrorMessage } from "@/lib/request-error";
+import { toDateKey } from "@/lib/calendar/conversion";
+import { buildFollowupUpdate } from "@/lib/followup-update";
 
 type Client = {
   id: string;
@@ -22,11 +25,14 @@ type Client = {
   lastVisitIso: string;
 };
 type Envelope<T> = { data: T };
-type Directory = { items: Client[] };
+type Directory = { items: Client[]; page?: { hasMore: boolean; nextCursor: string | null } };
+type FollowUp = { id: string; dueAtIso: string; status: string; type: string; summary: string; nextAction: string; canManage: boolean };
 type Profile = {
   client: Client & { allergies: string | null; medicalNotes: string | null; dateOfBirthIso: string | null };
   mergeHistory: Array<{ id: string; atIso: string; reason: string; secondaryClient: Client }>;
   timeline: Array<{ id: string; atIso: string; title: string; detail: string }>;
+  followUps?: FollowUp[];
+  recallReview?: { needsReview: boolean; canCreate: boolean; lastCompletedVisitIso: string | null };
 };
 async function request<T>(path: string, init?: RequestInit) {
   return (await apiFetchJson<Envelope<T>>(path, init)).data;
@@ -39,6 +45,10 @@ function date(value: string) {
 export function ClientDirectoryPage() {
   const { workspaceBootstrap } = useWorkspaceApp();
   const [query, setQuery] = useState("");
+  const [dueOnly, setDueOnly] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const moreRequest = useRef<AbortController | null>(null);
   const [items, setItems] = useState<Client[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -46,17 +56,21 @@ export function ClientDirectoryPage() {
   const [loadRevision, setLoadRevision] = useState(0);
   const canCreateClient =
     workspaceBootstrap.context.capabilities.canCreateClient;
+  useEffect(() => { setDueOnly(new URLSearchParams(window.location.search).get("followUp") === "due"); }, []);
+  const directoryPath = "/v1/clients?limit=25&query=" + encodeURIComponent(query) + (dueOnly ? "&followUp=due" : "");
 
   useEffect(() => {
     const controller = new AbortController();
+    moreRequest.current?.abort();
+    setLoadingMore(false);
+    setLoading(true);
     const timer = window.setTimeout(() => {
-      setLoading(true);
       setError(null);
       void request<Directory>(
-        "/v1/clients?limit=25&query=" + encodeURIComponent(query),
+        directoryPath,
         { signal: controller.signal },
       )
-        .then((result) => setItems(result.items))
+        .then((result) => { if (!controller.signal.aborted) { setItems(result.items); setNextCursor(result.page?.nextCursor ?? null); } })
         .catch((cause: unknown) => {
           if (!isAbortedRequest(cause)) {
             setError(requestErrorMessage(cause, "Unable to load Clients."));
@@ -71,8 +85,9 @@ export function ClientDirectoryPage() {
     return () => {
       window.clearTimeout(timer);
       controller.abort();
+      moreRequest.current?.abort();
     };
-  }, [loadRevision, query]);
+  }, [loadRevision, directoryPath]);
 
   useEffect(() => {
     const handleBookingCompleted = () => {
@@ -99,6 +114,10 @@ export function ClientDirectoryPage() {
       />
       <Panel title="Client directory">
         <div className="border-b border-[var(--border)] p-4">
+          <label className="mb-3 flex min-h-11 items-center gap-2 text-sm">
+            <input checked={dueOnly} onChange={(event) => setDueOnly(event.target.checked)} type="checkbox" />
+            Follow-ups due — call list
+          </label>
           <div className="flex h-10 items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3">
             <Search aria-hidden="true" className="text-[var(--text-muted)]" size={16} />
             <input
@@ -142,6 +161,16 @@ export function ClientDirectoryPage() {
             />
           </div>
         ) : null}
+        {!loading && !error && nextCursor ? <div className="p-4"><Button loading={loadingMore} onClick={() => {
+          moreRequest.current?.abort();
+          const controller = new AbortController();
+          moreRequest.current = controller;
+          setLoadingMore(true);
+          void request<Directory>(directoryPath + "&cursor=" + encodeURIComponent(nextCursor), { signal: controller.signal })
+            .then((result) => { if (!controller.signal.aborted) { setItems((current) => [...current, ...result.items]); setNextCursor(result.page?.nextCursor ?? null); } })
+            .catch((cause: unknown) => { if (!isAbortedRequest(cause)) setError(requestErrorMessage(cause, "Unable to load more Clients.")); })
+            .finally(() => { if (!controller.signal.aborted) setLoadingMore(false); });
+        }} variant="secondary">Load more Clients</Button></div> : null}
       </Panel>
       {creating ? (
         <NewClientDrawer
@@ -153,7 +182,38 @@ export function ClientDirectoryPage() {
   );
 }
 
+export function FollowUpCard({ task, onSaved }: { task: FollowUp; onSaved: () => void }) {
+  const [dueDate, setDueDate] = useState(() => toDateKey(task.dueAtIso));
+  const [nextRecallDate, setNextRecallDate] = useState("");
+  const [outcome, setOutcome] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const save = async (status: "Done" | "Open") => {
+    setSaving(true); setError(null);
+    try {
+      await apiFetchJson("/followups/" + task.id, {
+        method: "PATCH", headers: { "content-type": "application/json" },
+        body: JSON.stringify(buildFollowupUpdate(status, outcome, status === "Open" ? dueDate : nextRecallDate)),
+      });
+      onSaved();
+    } catch (cause) { setError(requestErrorMessage(cause, "Unable to update this follow-up.")); }
+    finally { setSaving(false); }
+  };
+  return <div className="space-y-3 rounded-lg border border-[var(--border)] p-3">
+    <div className="font-medium">{task.summary} · {task.status}</div>
+    <div className="text-sm text-[var(--text-muted)]">Due {date(task.dueAtIso)} · {task.nextAction}</div>
+    {task.status !== "Done" && task.canManage ? <>
+      <Field label="Next follow-up date"><input className={inputClassName} disabled={saving} onChange={(event) => setDueDate(event.target.value)} type="date" value={dueDate} /></Field>
+      <Field label="Call outcome / next action"><textarea className={textareaClassName} disabled={saving} maxLength={2000} onChange={(event) => setOutcome(event.target.value)} placeholder="For example: client asked to call next week" value={outcome} /></Field>
+      {task.type === "Recall" ? <Field label="Next routine recall after done (optional)"><input className={inputClassName} disabled={saving} onChange={(event) => setNextRecallDate(event.target.value)} type="date" value={nextRecallDate} /><p className="mt-1 text-xs text-[var(--text-muted)]">Leave blank for six calendar months from today.</p></Field> : null}
+      <div className="flex flex-wrap gap-2"><Button disabled={saving} onClick={() => void save("Open")} variant="secondary">Save next date</Button><Button disabled={saving} onClick={() => void save("Done")}>Mark done</Button></div>
+    </> : null}
+    {error ? <p className="text-sm text-[var(--danger)]" role="alert">{error}</p> : null}
+  </div>;
+}
+
 export function ClientProfilePage({ clientId }: { clientId: string }) {
+  const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -161,6 +221,8 @@ export function ClientProfilePage({ clientId }: { clientId: string }) {
   const [archiveReason, setArchiveReason] = useState("");
   const [archiving, setArchiving] = useState(false);
   const [loadRevision, setLoadRevision] = useState(0);
+  const [creatingRecall, setCreatingRecall] = useState(false);
+  const [recallError, setRecallError] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -230,7 +292,7 @@ export function ClientProfilePage({ clientId }: { clientId: string }) {
                 setArchiving(true);
                 void request("/v1/clients/" + client.id + "/archive", {
                   method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason: archiveReason }),
-                }).then(() => window.location.assign("/clients"))
+                }).then(() => router.push("/clients"))
                   .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Unable to archive Client."))
                   .finally(() => setArchiving(false));
               }}
@@ -240,6 +302,23 @@ export function ClientProfilePage({ clientId }: { clientId: string }) {
           </div>
         </Panel>
       </div>
+      <Panel title="Follow-ups and recalls">
+        <div className="space-y-4 p-4">
+          <p className="text-sm text-[var(--text-muted)]">Completed visits create a recall six calendar months after the visit. Change the date for a specific care plan and record every call outcome.</p>
+          {profile.recallReview?.needsReview ? <div className="space-y-2 rounded-lg border border-[var(--border)] p-3">
+            <p className="text-sm">Recall review needed{profile.recallReview.lastCompletedVisitIso ? " for the completed visit on " + date(profile.recallReview.lastCompletedVisitIso) : ""}. Create the routine recall, then adjust its date for the care plan.</p>
+            {profile.recallReview.canCreate ? <Button loading={creatingRecall} onClick={() => {
+              setCreatingRecall(true); setRecallError(null);
+              void apiFetchJson("/followups/clients/" + encodeURIComponent(client.id) + "/recall", { method: "POST" })
+                .then(() => setLoadRevision((current) => current + 1))
+                .catch((cause: unknown) => setRecallError(requestErrorMessage(cause, "Unable to create the recall.")))
+                .finally(() => setCreatingRecall(false));
+            }} variant="secondary">Create recall from last completed visit</Button> : <p className="text-sm text-[var(--text-muted)]">Ask staff authorized for that visit to review the recall.</p>}
+            {recallError ? <p className="text-sm text-[var(--danger)]" role="alert">{recallError}</p> : null}
+          </div> : null}
+          {profile.followUps?.length ? profile.followUps.map((task) => <FollowUpCard key={task.id + task.dueAtIso + task.status} task={task} onSaved={() => setLoadRevision((current) => current + 1)} />) : <p className="text-sm text-[var(--text-muted)]">No follow-up tasks recorded.</p>}
+        </div>
+      </Panel>
       <Panel title="Timeline">
         {profile.timeline.length ? <div className="divide-y divide-[var(--border)]">
           {profile.timeline.map((item) => <div className="flex gap-4 px-4 py-3" key={item.id}>

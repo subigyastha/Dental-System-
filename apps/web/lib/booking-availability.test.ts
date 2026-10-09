@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   formatHoldCountdown,
   createBookingSlotHold,
+  loadRankedAvailability,
   isUncertainSlotHoldError,
   remainingHoldSeconds,
 } from "./booking-availability";
@@ -11,8 +12,26 @@ import { ApiRequestError, rememberCsrfToken } from "./api-client";
 
 const holdRequest = {
   draftId: "draft-a", locationId: "location-a", providerId: "provider-a", serviceId: "service-a",
-  startsAtIso: "2030-01-01T04:15:00.000Z", slotId: "slot-a", availabilityVersion: "version-a", idempotencyKey: "same-key-after-timeout",
+  startsAtIso: "2030-01-01T04:15:00.000Z", slotId: "slot-a", availabilityVersion: "version-a", idempotencyKey: "same-key-after-timeout", durationMinutes: 45,
 };
+
+test("ranked availability sends custom duration and omits the override for service defaults", async () => {
+  const originalFetch = globalThis.fetch;
+  const urls: string[] = [];
+  globalThis.fetch = (async (url) => {
+    urls.push(String(url));
+    return Response.json({ data: { recommended: [], later: [] } });
+  }) as typeof fetch;
+  try {
+    const params = { locationId: "clinic", providerId: "provider", serviceId: "service", date: "2030-01-01" };
+    await loadRankedAvailability({ ...params, durationMinutes: 75 });
+    await loadRankedAvailability(params);
+    assert.equal(new URL(urls[0], "https://clinic.test").searchParams.get("durationMinutes"), "75");
+    assert.equal(new URL(urls[1], "https://clinic.test").searchParams.has("durationMinutes"), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("a lost hold response retries the same payload and idempotency key", async () => {
   const originalFetch = globalThis.fetch;

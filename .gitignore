@@ -13,6 +13,7 @@ node_modules/
 .env.development.local
 .env.test.local
 .env.production.local
+.codex-temp/eye-test-env.json
 apps/*/.env
 apps/*/.env.local
 apps/*/.env.development.local
@@ -79,6 +80,8 @@ tmp/
 temp/
 *.tmp
 *.bak
+.playwright-cli/
+output/playwright/
 
 # -----------------------------------------------------------------------------
 # Future mobile / Expo support

@@ -52,7 +52,9 @@ type EffectiveSlotTimingParams = {
   organizationId: string;
   providerId: string;
   locationId?: string;
-  serviceId: string;
+  serviceId?: string;
+  customProcedureName?: string;
+  durationMinutes?: number;
   startsAtIso: string;
   excludeAppointmentId?: string;
 };
@@ -63,6 +65,7 @@ type ProviderSlotParams = {
   dateKey: string;
   locationId?: string;
   serviceId?: string;
+  customProcedureName?: string;
   durationMinutes?: number;
   excludeAppointmentId?: string;
 };
@@ -123,7 +126,9 @@ type ScheduleGridResult = {
         customerName: string;
         serviceName: string;
         status: AppointmentStatus;
+        communicationState?: string;
       };
+      cancelledSummary?: { customerName: string; reason: string };
     }>;
   }>;
 };
@@ -276,7 +281,11 @@ export class SchedulingService {
     params: EffectiveSlotTimingParams,
     transactionClient?: Prisma.TransactionClient,
   ) {
-    const timing = await this.getServiceTiming(
+    this.assertDurationMinutes(params.durationMinutes);
+    if (!params.serviceId && (!params.customProcedureName?.trim() || params.durationMinutes === undefined)) {
+      throw new BadRequestException("A custom procedure and duration are required");
+    }
+    const timing = params.serviceId ? await this.getServiceTiming(
       {
         organizationId: params.organizationId,
         providerId: params.providerId,
@@ -284,7 +293,9 @@ export class SchedulingService {
         serviceIds: [params.serviceId],
       },
       transactionClient,
-    );
+    ) : { durationMinutes: params.durationMinutes!, serviceBufferMinutes: 0 };
+    // Staff may override the service preset; its eligibility and buffer still apply.
+    const durationMinutes = params.durationMinutes ?? Math.ceil(timing.durationMinutes / 15) * 15;
     const scheduleContext = await this.getProviderScheduleContext(
       {
         organizationId: params.organizationId,
@@ -306,7 +317,7 @@ export class SchedulingService {
       .filter((bufferMinutes, index) =>
         this.isWindowOpen(
           params.startsAtIso,
-          timing.durationMinutes,
+          durationMinutes,
           bufferMinutes,
           [scheduleContext.availability[index]],
           scheduleContext.recurringBlocks,
@@ -319,7 +330,7 @@ export class SchedulingService {
     }
 
     return {
-      durationMinutes: timing.durationMinutes,
+      durationMinutes,
       bufferMinutes: Math.min(...availableBuffers),
     };
   }
@@ -333,16 +344,7 @@ export class SchedulingService {
         "Date must be a real Gregorian AD date in YYYY-MM-DD format",
       );
     }
-    if (
-      params.durationMinutes !== undefined &&
-      (!Number.isInteger(params.durationMinutes) ||
-        params.durationMinutes < 1 ||
-        params.durationMinutes > 1440)
-    ) {
-      throw new BadRequestException(
-        "Duration must be a whole number between 1 and 1440 minutes",
-      );
-    }
+    this.assertDurationMinutes(params.durationMinutes);
 
     const configuration = await this.getScheduleConfiguration(
       params.organizationId,
@@ -383,7 +385,7 @@ export class SchedulingService {
         providerId: params.providerId,
         dateKey: params.dateKey,
         durationMinutes:
-          timing?.durationMinutes ?? params.durationMinutes ?? STANDARD_SLOT_MINUTES,
+          params.durationMinutes ?? (timing ? Math.ceil(timing.durationMinutes / 15) * 15 : STANDARD_SLOT_MINUTES),
         bufferMinutes: timing?.serviceBufferMinutes ?? 0,
         slots: [] as Array<{
           startsAtIso: string;
@@ -401,7 +403,7 @@ export class SchedulingService {
       dateKey: string;
     }> = [];
     const requestedDurationMinutes =
-      timing?.durationMinutes ?? params.durationMinutes ?? STANDARD_SLOT_MINUTES;
+      params.durationMinutes ?? (timing ? Math.ceil(timing.durationMinutes / 15) * 15 : STANDARD_SLOT_MINUTES);
 
     for (const window of scheduleContext.availability) {
       const slotStepMinutes = configuration.slotStartIntervalMinutes;
@@ -818,7 +820,7 @@ export class SchedulingService {
         where: {
           organizationId: params.organizationId,
           providerId: { in: providerIds },
-          status: { in: blockingStatuses },
+          status: { in: [...blockingStatuses, "Cancelled"] },
           startsAt: {
             gte: dayRange.startsAt,
             lte: dayRange.endsAt,
@@ -827,11 +829,15 @@ export class SchedulingService {
         select: {
           id: true,
           providerId: true,
+          locationId: true,
           startsAt: true,
           endsAt: true,
           durationMinutes: true,
           bufferMinutes: true,
           status: true,
+          communicationState: true,
+          customProcedureName: true,
+          cancellationReason: true,
           customer: { select: { fullName: true } },
           services: {
             select: {
@@ -872,7 +878,9 @@ export class SchedulingService {
             customerName: string;
             serviceName: string;
             status: AppointmentStatus;
+            communicationState?: string;
           };
+          cancelledSummary?: { customerName: string; reason: string };
         }> = [];
 
         const providerAppointments = appointmentsByProvider.get(providerId) ?? [];
@@ -888,6 +896,8 @@ export class SchedulingService {
           candidateMinutes.add(minutes);
         }
         for (const appointment of providerAppointments) {
+          // History belongs to the record layer, never to bookable start candidates.
+          if (!blockingStatuses.includes(appointment.status)) continue;
           candidateMinutes.add(
             getNepalMinutesFromIso(appointment.startsAt.toISOString()),
           );
@@ -896,27 +906,47 @@ export class SchedulingService {
         for (const minutes of [...candidateMinutes].sort((left, right) => left - right)) {
           const time = minutesToTimeLabel(minutes);
           const startTime = buildNepalIsoFromDateAndTime(params.dateKey, time);
-          const appointment = providerAppointments.find(
-            (item) => getNepalMinutesFromIso(item.startsAt.toISOString()) === minutes,
+          const slotStart = new Date(startTime).getTime();
+          // Half-open intervals cover every overlapping cell (including off-grid
+          // bookings), while an exact end boundary stays available.
+          const appointment = providerAppointments.find((item) =>
+            blockingStatuses.includes(item.status) &&
+            slotStart + slotStepMinutes * 60_000 > item.startsAt.getTime() &&
+            slotStart < item.endsAt.getTime() + item.bufferMinutes * 60_000,
           );
 
           if (appointment) {
+            const canShowDetails =
+              !params.locationId || appointment.locationId === params.locationId;
             daySlots.push({
               startTime,
-              endTime: appointment.endsAt.toISOString(),
+              endTime: new Date(
+                appointment.endsAt.getTime() + appointment.bufferMinutes * 60_000,
+              ).toISOString(),
               state: "BOOKED",
-              appointmentId: appointment.id,
-              appointmentSummary: {
-                customerName: appointment.customer.fullName,
-                serviceName:
-                  appointment.services.map((entry) => entry.service.name).join(", ") ||
-                  "Service",
-                status: appointment.status,
-              },
+              ...(canShowDetails
+                ? {
+                    appointmentId: appointment.id,
+                    appointmentSummary: {
+                      customerName: appointment.customer.fullName,
+                      serviceName:
+                        appointment.customProcedureName ||
+                        appointment.services.map((entry) => entry.service.name).join(", ") ||
+                        "Service",
+                      status: appointment.status,
+                      communicationState: appointment.communicationState,
+                    },
+                  }
+                : {}),
             });
             continue;
           }
 
+          const cancelled = providerAppointments.find((item) =>
+            item.status === "Cancelled" && (!params.locationId || item.locationId === params.locationId) && item.startsAt.getTime() === slotStart &&
+            !providerAppointments.some((active) => blockingStatuses.includes(active.status) &&
+              active.startsAt.getTime() < item.endsAt.getTime() && active.endsAt.getTime() > item.startsAt.getTime()),
+          );
           const startMinutes = minutes;
           const insideAvailability = scheduleContext.availability.some(
             (window) =>
@@ -948,6 +978,12 @@ export class SchedulingService {
             startTime,
             endTime: new Date(new Date(startTime).getTime() + slotStepMinutes * 60_000).toISOString(),
             state: recurringBlocked || oneOffBlocked ? "BLOCKED" : "AVAILABLE",
+            ...(!recurringBlocked && !oneOffBlocked && cancelled ? {
+              cancelledSummary: {
+                customerName: cancelled.customer.fullName,
+                reason: cancelled.cancellationReason ?? "Reason not recorded",
+              },
+            } : {}),
           });
         }
 
@@ -1101,12 +1137,25 @@ export class SchedulingService {
     }
   }
 
+  private assertDurationMinutes(durationMinutes?: number) {
+    if (
+      durationMinutes !== undefined &&
+      (!Number.isInteger(durationMinutes) ||
+        durationMinutes < 1 ||
+        durationMinutes > 1440)
+    ) {
+      throw new BadRequestException(
+        "Duration must be a whole number between 1 and 1440 minutes",
+      );
+    }
+  }
+
   private buildProviderSlotsCacheKey(
     params: ProviderSlotParams,
     configurationVersion: number,
   ) {
     const serviceOrDuration = params.serviceId
-      ? `service=${params.serviceId}`
+      ? `service=${params.serviceId},duration=${params.durationMinutes ?? "default"}`
       : `duration=${params.durationMinutes ?? STANDARD_SLOT_MINUTES}`;
     const location = params.locationId
       ? `location=${params.locationId}`

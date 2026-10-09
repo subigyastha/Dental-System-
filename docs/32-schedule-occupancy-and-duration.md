@@ -1,0 +1,13 @@
+# Schedule occupancy, duration and rescheduling
+
+Schedule reserves the full appointment interval, including any required buffer. An 08:00 appointment lasting 30 minutes occupies the 08:00 and 08:15 grid cells; 08:30 can be offered only when there is no remaining buffer or competing reservation. Cancelled/rescheduled appointments do not block new bookings. Booked cells remain unavailable even if the browser has not loaded the appointment detail record.
+
+Day history is separate from capacity: completed/no-show/cancelled records remain visible without adding availability candidates. Replacement visits show overlapping cancellation history and its reason; overlapping records use separate desktop lanes and mobile entries. Failed Day loads clear previous records and slot controls; Retry uses the existing cache invalidation path. [Defensive review and limits](36-defensive-schedule-review.md).
+
+The [weekly feedback](33-weekly-client-feedback-2026-10-08.md) supersedes the earlier arbitrary-minute duration baseline. Guided booking retains service presets and accepts durations of 15–1440 minutes in 15-minute increments. A visit may use a catalogue procedure or a custom procedure name and selected duration. Custom procedures do not create catalogue services. The duration is sent through availability, hold and confirmation requests; changing it refreshes availability and releases any active hold before a new one is created. Required provider eligibility and buffers still apply. Historical appointment durations remain unchanged until explicitly edited.
+
+An unresolved hold or confirmation retains its original duration, payload and idempotency key. A retry reconciles that attempt rather than creating a different booking. Cache keys distinguish service defaults from duration overrides.
+
+Rescheduling excludes only the appointment being moved when checking its replacement time. A 30-minute appointment can therefore move by 15 minutes into its own old interval, while other appointments, availability rules and active holds still apply. The old appointment is marked Rescheduled and its successor is created in one transaction. A conditional status update prevents two simultaneous requests from rescheduling the same original twice.
+
+Regression coverage includes occupied continuation cells, the exact end boundary, cancelled appointments, custom-duration validation/cache separation/replay and self-overlapping reschedules versus real conflicts. Physical-device and production acceptance are separate from local tests. Custom procedure snapshots require migration `20261008_000027_custom_booking_procedures`; apply it before rolling out the dependent API and web changes. Current validation and deployment status are in [progress](progress.md).

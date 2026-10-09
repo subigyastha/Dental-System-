@@ -1,3 +1,4 @@
+import { assertBookingProcedure } from "./dto/booking-procedure.dto";
 import { createHash } from "node:crypto";
 
 import {
@@ -43,6 +44,7 @@ export class BookingAvailabilityService {
     query: RankedAvailabilityQueryDto,
     authorization?: AuthSessionReference,
   ) {
+    assertBookingProcedure(query);
     const actor = await this.auth.requireSession(authorization);
     assertBookingActor(actor, query.locationId, query.providerId);
     const location = await this.assertLocation(
@@ -55,6 +57,8 @@ export class BookingAvailabilityService {
       providerId: query.providerId,
       locationId: query.locationId,
       serviceId: query.serviceId,
+      customProcedureName: query.customProcedureName?.trim(),
+      durationMinutes: query.durationMinutes,
       dateKey: query.date,
     });
     const now = await this.databaseNow(this.prisma);
@@ -112,6 +116,7 @@ export class BookingAvailabilityService {
     return {
       providerId: query.providerId,
       serviceId: query.serviceId,
+      customProcedureName: query.customProcedureName?.trim(),
       locationId: query.locationId,
       dateKey: query.date,
       timezone: location.timezone,
@@ -137,6 +142,7 @@ export class BookingAvailabilityService {
     dto: CreateBookingSlotHoldDto,
     authorization?: AuthSessionReference,
   ) {
+    assertBookingProcedure(dto);
     const actor = await this.auth.requireSession(authorization);
     assertBookingActor(actor, dto.locationId, dto.providerId);
     const location = await this.assertLocation(
@@ -176,6 +182,8 @@ export class BookingAvailabilityService {
       providerId: dto.providerId,
       locationId: dto.locationId,
       serviceId: dto.serviceId,
+          customProcedureName: dto.customProcedureName?.trim(),
+      durationMinutes: dto.durationMinutes,
       dateKey: getNepalAdDateKeyFromIso(dto.startsAtIso),
     });
     if (
@@ -216,6 +224,8 @@ export class BookingAvailabilityService {
             providerId: dto.providerId,
             locationId: dto.locationId,
             serviceId: dto.serviceId,
+          customProcedureName: dto.customProcedureName?.trim(),
+            durationMinutes: dto.durationMinutes,
             dateKey: getNepalAdDateKeyFromIso(dto.startsAtIso),
           }, tx);
         const transactionTiming =
@@ -225,6 +235,8 @@ export class BookingAvailabilityService {
               providerId: dto.providerId,
               locationId: dto.locationId,
               serviceId: dto.serviceId,
+          customProcedureName: dto.customProcedureName?.trim(),
+              durationMinutes: dto.durationMinutes,
               startsAtIso: dto.startsAtIso,
             },
             tx,
@@ -336,6 +348,7 @@ export class BookingAvailabilityService {
           locationId: dto.locationId,
           providerId: dto.providerId,
           serviceId: dto.serviceId,
+          customProcedureName: dto.customProcedureName?.trim(),
           date: getNepalAdDateKeyFromIso(dto.startsAtIso),
           timezone: location.timezone,
           durationMinutes: currentGenerated.durationMinutes,
@@ -375,6 +388,7 @@ export class BookingAvailabilityService {
             locationId: dto.locationId,
             providerId: dto.providerId,
             serviceId: dto.serviceId,
+          customProcedureName: dto.customProcedureName?.trim(),
             startsAt,
             endsAt: transactionEndsAt,
             bufferMinutes: transactionTiming.bufferMinutes,
@@ -395,6 +409,8 @@ export class BookingAvailabilityService {
               providerId: dto.providerId,
               locationId: dto.locationId,
               serviceId: dto.serviceId,
+          customProcedureName: dto.customProcedureName?.trim(),
+              durationMinutes: dto.durationMinutes,
               startsAtIso: startsAt.toISOString(),
               expiresAtIso: created.expiresAt.toISOString(),
             },
@@ -540,7 +556,8 @@ export class BookingAvailabilityService {
     organizationId: string;
     locationId: string;
     providerId: string;
-    serviceId: string;
+    serviceId?: string | null;
+    customProcedureName?: string | null;
     startsAt: Date;
     endsAt: Date;
     bufferMinutes: number;
@@ -564,6 +581,7 @@ export class BookingAvailabilityService {
       locationId: hold.locationId,
       providerId: hold.providerId,
       serviceId: hold.serviceId,
+      customProcedureName: hold.customProcedureName,
       startsAtIso: hold.startsAt.toISOString(),
       endsAtIso: hold.endsAt.toISOString(),
       bufferMinutes: hold.bufferMinutes,
@@ -626,7 +644,8 @@ export class BookingAvailabilityService {
   private availabilityVersion(input: {
     locationId: string;
     providerId: string;
-    serviceId: string;
+    serviceId?: string | null;
+    customProcedureName?: string | null;
     date: string;
     timezone: string;
     durationMinutes: number;
@@ -645,6 +664,7 @@ export class BookingAvailabilityService {
           locationId: input.locationId,
           providerId: input.providerId,
           serviceId: input.serviceId,
+          customProcedureName: input.customProcedureName?.trim(),
           date: input.date,
           timezone: input.timezone,
           durationMinutes: input.durationMinutes,
@@ -675,6 +695,8 @@ export class BookingAvailabilityService {
           locationId: dto.locationId,
           providerId: dto.providerId,
           serviceId: dto.serviceId,
+          customProcedureName: dto.customProcedureName?.trim(),
+          durationMinutes: dto.durationMinutes,
           startsAtIso: startsAt.toISOString(),
           slotId: dto.slotId,
           availabilityVersion: dto.availabilityVersion,

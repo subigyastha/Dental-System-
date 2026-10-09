@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   createGuidedBookingDraft,
   findSelectedBookingSlot,
+  isValidBookingDuration,
   isSameBookingTime,
   isSearchablePhone,
   isSameClientIntakeIdentity,
@@ -17,6 +18,22 @@ const confirmationPayload = {
   startsAtIso: "2030-01-01T04:15:00.000Z", holdId: "original-expired-hold", priority: "Normal" as const,
   client: { mode: "existing" as const, clientId: "client-a" },
 };
+
+test("booking duration accepts service defaults and 15-minute blocks only", () => {
+  for (const duration of [undefined, 15, 30, 75, 1440]) assert.equal(isValidBookingDuration(duration), true);
+  for (const duration of [0, 1, -1, 20, 30.5, 1441, NaN, Infinity]) assert.equal(isValidBookingDuration(duration), false);
+});
+
+test("duration edits get a new settled confirmation key but never replace an uncertain write", () => {
+  const original = resolveBookingConfirmationAttempt(null, { ...confirmationPayload, durationMinutes: 30 }, () => "original");
+  const changed = { ...confirmationPayload, durationMinutes: 45 };
+  const next = resolveBookingConfirmationAttempt(original, changed, () => "changed");
+  assert.equal(next.idempotencyKey, "changed");
+  const pending = { ...original, uncertain: true };
+  const retry = resolveBookingConfirmationAttempt(pending, changed, () => "wrong");
+  assert.equal(retry.payload.durationMinutes, 30);
+  assert.equal(retry.idempotencyKey, "original");
+});
 
 test("an uncertain confirmation replays its original key and payload despite changed form content", () => {
   let keysCreated = 0;

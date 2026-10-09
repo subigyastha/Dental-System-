@@ -16,7 +16,8 @@ export type RankedBookingSlot = {
 
 export type RankedAvailability = {
   providerId: string;
-  serviceId: string;
+  serviceId?: string;
+  customProcedureName?: string;
   locationId: string;
   dateKey: string;
   timezone: string;
@@ -35,7 +36,8 @@ export type BookingSlotHold = {
   organizationId: string;
   locationId: string;
   providerId: string;
-  serviceId: string;
+  serviceId?: string;
+  customProcedureName?: string;
   startsAtIso: string;
   endsAtIso: string;
   bufferMinutes: number;
@@ -51,12 +53,18 @@ export async function loadRankedAvailability(
   params: {
     locationId: string;
     providerId: string;
-    serviceId: string;
+    serviceId?: string;
+  customProcedureName?: string;
+    durationMinutes?: number;
     date: string;
   },
   signal?: AbortSignal,
 ) {
-  const query = new URLSearchParams(params);
+  const { durationMinutes, serviceId, customProcedureName, ...filters } = params;
+  const query = new URLSearchParams(filters);
+  if (serviceId) query.set("serviceId", serviceId);
+  if (customProcedureName) query.set("customProcedureName", customProcedureName);
+  if (durationMinutes !== undefined) query.set("durationMinutes", String(durationMinutes));
   const response = await apiFetchJson<V1Envelope<RankedAvailability>>(
     `/v1/booking/availability?${query.toString()}`,
     { cache: "no-store", signal },
@@ -68,7 +76,9 @@ export type CreateBookingSlotHoldRequest = {
   draftId: string;
   locationId: string;
   providerId: string;
-  serviceId: string;
+  serviceId?: string;
+  customProcedureName?: string;
+  durationMinutes?: number;
   startsAtIso: string;
   slotId: string;
   availabilityVersion: string;

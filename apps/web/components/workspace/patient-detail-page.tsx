@@ -198,7 +198,7 @@ export function PatientDetailPage({ customerId }: { customerId: string }) {
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <div className="font-medium text-[var(--foreground)]">
-                        {appointment.services.map((service) => service.name).join(", ") || "Visit"}
+                        {appointment.procedureLabel}
                       </div>
                       <div className="mt-1 text-sm text-[var(--text-muted)]">
                         {formatDualDate(appointment.startsAtIso, calendarMode)} ·{" "}
@@ -419,7 +419,7 @@ function VisitReportModal({
           >
             {appointments.map((appointment) => (
               <option key={appointment.id} value={appointment.id}>
-                {appointment.services.map((service) => service.name).join(", ")} · {appointment.startsAtIso.slice(0, 10)}
+                {appointment.procedureLabel} · {appointment.startsAtIso.slice(0, 10)}
               </option>
             ))}
           </select>

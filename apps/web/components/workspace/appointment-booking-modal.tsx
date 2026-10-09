@@ -175,6 +175,9 @@ export function AppointmentBookingModal({
   const [serviceId, setServiceId] = useState(
     initialAppointment?.serviceIds[0] ?? "",
   );
+  const [procedureMode, setProcedureMode] = useState<"catalog" | "custom">(initialAppointment?.customProcedureName ? "custom" : "catalog");
+  const [customProcedureName, setCustomProcedureName] = useState(initialAppointment?.customProcedureName ?? "");
+  const isCustomProcedure = procedureMode === "custom";
   const [dateKey, setDateKey] = useState(initialDate ?? selectedDate);
   const [bookingPath, setBookingPath] = useState<BookingPath>(
     mode === "reschedule" ? "availability" : "direct",
@@ -318,11 +321,12 @@ export function AppointmentBookingModal({
     () => effectiveBookingService(references, providerId, serviceId),
     [providerId, references, serviceId],
   );
-  const requestedDurationMinutes = selectedService?.durationMinutes ?? initialAppointment?.durationMinutes ?? 0;
+  const requestedDurationMinutes = directDurationMinutes;
+  const procedureValid = isCustomProcedure ? Boolean(customProcedureName.trim() && customProcedureName.trim().length <= 120) : Boolean(serviceId && selectedService);
 
   useEffect(() => {
     if (!initialAppointment && selectedService?.durationMinutes) {
-      setDirectDurationMinutes(selectedService.durationMinutes);
+      setDirectDurationMinutes(Math.ceil(selectedService.durationMinutes / 15) * 15);
     }
   }, [initialAppointment, selectedService?.durationMinutes]);
 
@@ -354,10 +358,10 @@ export function AppointmentBookingModal({
   ]);
 
   useEffect(() => {
-    if (!availableServices.some((service) => service.id === serviceId)) {
+    if (!isCustomProcedure && !availableServices.some((service) => service.id === serviceId)) {
       setServiceId(availableServices[0]?.id ?? "");
     }
-  }, [availableServices, serviceId]);
+  }, [availableServices, serviceId, isCustomProcedure]);
 
   useEffect(() => {
     if (clientMode !== "new") {
@@ -418,7 +422,7 @@ export function AppointmentBookingModal({
       return;
     }
 
-    if (!providerId || !dateKey || !(serviceId || requestedDurationMinutes)) {
+    if (!providerId || !dateKey || !(serviceId || requestedDurationMinutes) || !Number.isInteger(requestedDurationMinutes) || requestedDurationMinutes < 15 || requestedDurationMinutes > 1440 || requestedDurationMinutes % 15 !== 0) {
       setSlotState((current) => ({ ...current, isLoading: false, slots: [] }));
       setSlotError(null);
       return;
@@ -433,7 +437,7 @@ export function AppointmentBookingModal({
         providerId,
         date: dateKey,
         locationId: references.locationId,
-        serviceId: serviceId || undefined,
+        serviceId: isCustomProcedure ? undefined : serviceId || undefined,
         durationMinutes: requestedDurationMinutes || undefined,
         excludeAppointmentId: initialAppointment?.id,
       })
@@ -442,7 +446,7 @@ export function AppointmentBookingModal({
             return;
           }
 
-          const fallbackDuration = selectedService?.durationMinutes ?? 60;
+          const fallbackDuration = requestedDurationMinutes;
           const fallbackBuffer = selectedService?.bufferMinutes ?? 0;
 
           setSlotState({
@@ -505,6 +509,7 @@ export function AppointmentBookingModal({
     selectedService?.bufferMinutes,
     selectedService?.durationMinutes,
     serviceId,
+    isCustomProcedure,
     showSlotPicker,
     slotPrefilled,
   ]);
@@ -526,7 +531,7 @@ export function AppointmentBookingModal({
       setSubmitError("Choose an available provider before booking.");
       return;
     }
-    if (!serviceId || !selectedService) {
+    if (!procedureValid) {
       setSubmitError("Choose a service offered by this provider before booking.");
       return;
     }
@@ -538,7 +543,11 @@ export function AppointmentBookingModal({
       setSubmitError("Enter an appointment start time before booking.");
       return;
     }
-    if (bookingPath === "availability" && !selectedSlotIso) {
+    if (!Number.isInteger(requestedDurationMinutes) || requestedDurationMinutes < 15 || requestedDurationMinutes > 1440 || requestedDurationMinutes % 15 !== 0) {
+      setSubmitError("Enter 15-1440 minutes in 15-minute increments.");
+      return;
+    }
+    if (bookingPath === "availability" && (slotState.isLoading || !selectedSlotIso)) {
       setSubmitError("Choose an available time before booking.");
       return;
     }
@@ -606,17 +615,18 @@ export function AppointmentBookingModal({
       locationId: references.locationId,
       customerId: resolvedCustomerId,
       providerId,
-      serviceIds: [serviceId],
+      serviceIds: isCustomProcedure ? [] : [serviceId],
+      customProcedureName: isCustomProcedure ? customProcedureName.trim() : undefined,
       startsAtIso: appointmentStartIso,
       durationMinutes:
         bookingPath === "direct"
           ? directDurationMinutes
           : slotPrefilled && !showSlotPicker
-            ? selectedService.durationMinutes
+            ? requestedDurationMinutes
             : slotState.durationMinutes,
       bufferMinutes:
         bookingPath === "direct" || (slotPrefilled && !showSlotPicker)
-          ? selectedService.bufferMinutes
+          ? selectedService?.bufferMinutes ?? initialAppointment?.bufferMinutes ?? 0
           : slotState.bufferMinutes,
       priority,
       notes: notes || undefined,
@@ -667,7 +677,7 @@ export function AppointmentBookingModal({
 
   if (initialAppointment) {
     const isReschedule = mode === "reschedule";
-    const originalServiceNames = initialAppointment.serviceSummaries
+    const originalServiceNames = initialAppointment.customProcedureName ?? initialAppointment.serviceSummaries
       ?.map((service) => service.name)
       .join(", ");
     const selectedTimeIso = isReschedule
@@ -683,10 +693,10 @@ export function AppointmentBookingModal({
     };
     const canSubmitChange = Boolean(
       providerId &&
-        serviceId &&
+        procedureValid &&
         dateKey &&
         (isReschedule
-          ? selectedSlotIso &&
+          ? !slotState.isLoading && selectedSlotIso &&
             selectedSlotIso !== initialAppointment.startsAtIso &&
             rescheduleReason.trim()
           : directStartTime),
@@ -752,7 +762,7 @@ export function AppointmentBookingModal({
           ) : null}
 
           <ChangeSection
-            description="Provider availability and service duration remain authoritative on the server."
+            description="Provider availability and required service buffers are checked when saving."
             title={isReschedule ? "1. Choose the new appointment" : "Appointment details"}
           >
             <div>
@@ -786,7 +796,12 @@ export function AppointmentBookingModal({
               </div>
             </div>
 
-            <Field label="Service">
+            <Field label="Procedure type">
+              <select className={inputClassName} value={procedureMode} disabled={isSaving} onChange={(event) => { setIsDirty(true); setProcedureMode(event.target.value as "catalog" | "custom"); setServiceId(""); setSelectedSlotIso(""); }}>
+                <option value="catalog">Catalog procedure</option><option value="custom">Custom procedure</option>
+              </select>
+            </Field>
+            {isCustomProcedure ? <Field label="Custom procedure"><input className={inputClassName} required maxLength={120} disabled={isSaving} value={customProcedureName} onChange={(event) => { setIsDirty(true); setCustomProcedureName(event.target.value); }} /></Field> : <Field label="Service">
               <select
                 className={inputClassName}
                 disabled={isSaving}
@@ -801,7 +816,7 @@ export function AppointmentBookingModal({
                       nextServiceId,
                     );
                     if (nextService) {
-                      setDirectDurationMinutes(nextService.durationMinutes);
+                      setDirectDurationMinutes(Math.ceil(nextService.durationMinutes / 15) * 15);
                     }
                   }
                 }}
@@ -813,7 +828,7 @@ export function AppointmentBookingModal({
                   <option key={service.id} value={service.id}>{service.name} · {service.durationMinutes} min</option>
                 ))}
               </select>
-            </Field>
+            </Field>}
 
             <DualCalendarDatePicker
               disabled={isSaving}
@@ -829,9 +844,20 @@ export function AppointmentBookingModal({
             />
 
             {isReschedule ? (
+              <Field label="Duration (minutes)">
+                <select className={inputClassName} disabled={isSaving} required value={directDurationMinutes || ""}
+                  onChange={(event) => { setIsDirty(true); setDirectDurationMinutes(Number(event.target.value)); setSelectedSlotIso(""); }}>
+                  <option value="" disabled>Choose duration</option>
+                  {Array.from({ length: 96 }, (_, index) => (index + 1) * 15).map((minutes) => <option key={minutes} value={minutes}>{minutes} minutes</option>)}
+                </select>
+                <p className="mt-1 text-xs text-[var(--text-muted)]">Keeps the original appointment period unless you change it.</p>
+              </Field>
+            ) : null}
+
+            {isReschedule ? (
               <Field label="Available time">
                 <div className="rounded-xl border border-[var(--border)] bg-white p-3">
-                  {!providerId || !serviceId ? (
+                  {!providerId || !procedureValid ? (
                     <p className="py-4 text-sm text-[var(--text-muted)]">Choose a Provider and service to see live times.</p>
                   ) : slotState.isLoading ? (
                     <div className="flex justify-center py-5"><KoiInlineLoader label="Loading available times" /></div>
@@ -1310,7 +1336,12 @@ export function AppointmentBookingModal({
               ) : null}
             </Field>
 
-            <Field label="Service">
+            <Field label="Procedure type">
+              <select className={inputClassName} value={procedureMode} disabled={isSaving} onChange={(event) => { setIsDirty(true); setProcedureMode(event.target.value as "catalog" | "custom"); setServiceId(""); setSelectedSlotIso(""); }}>
+                <option value="catalog">Catalog procedure</option><option value="custom">Custom procedure</option>
+              </select>
+            </Field>
+            {isCustomProcedure ? <Field label="Custom procedure"><input className={inputClassName} required maxLength={120} disabled={isSaving} value={customProcedureName} onChange={(event) => { setIsDirty(true); setCustomProcedureName(event.target.value); }} /></Field> : <Field label="Service">
               <select
                 className={inputClassName}
                 onChange={(event) => setServiceId(event.target.value)}
@@ -1334,7 +1365,7 @@ export function AppointmentBookingModal({
                   location.
                 </div>
               ) : null}
-            </Field>
+            </Field>}
           </div>
         </BookingSection>
         {mode === "reschedule" ? (

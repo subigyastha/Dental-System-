@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
 import {
   applyOptimisticDashboardStatus,
+  BootstrapAppointments,
   dashboardBootstrapError,
   unwrapDashboardBootstrap,
   type DashboardBootstrap,
@@ -62,6 +65,10 @@ test("dashboard status updates are optimistic and remove completed work", () => 
   assert.equal(confirmed.schedule.items[0]?.status, "Confirmed");
   assert.equal(confirmed.summary.appointmentsNext24Hours, 1);
 
+  const checkedIn = applyOptimisticDashboardStatus(confirmed, "appointment-1", "CheckedIn");
+  assert.equal(checkedIn.schedule.items[0]?.status, "CheckedIn");
+  assert.equal(checkedIn.summary.appointmentsNext24Hours, 1);
+
   const completed = applyOptimisticDashboardStatus(
     withAppointment,
     "appointment-1",
@@ -70,4 +77,18 @@ test("dashboard status updates are optimistic and remove completed work", () => 
   assert.equal(completed.schedule.items.length, 0);
   assert.equal(completed.schedule.page.count, 0);
   assert.equal(completed.summary.appointmentsNext24Hours, 0);
+});
+
+test("Dashboard shows direct completion after check-in and a client profile link", () => {
+  const html = renderToStaticMarkup(createElement(BootstrapAppointments, {
+    appointments: [{
+      id: "appointment-1", startsAtIso: "2026-10-08T04:15:00.000Z", endsAtIso: "2026-10-08T04:45:00.000Z",
+      status: "CheckedIn", priority: "Normal", client: { id: "client-1", name: "Client", clientCode: null },
+      provider: { id: "provider-1", name: "Provider" }, location: null,
+    }],
+    hasMore: false, isUpdatingId: null, onAction: () => undefined, timezone: "Asia/Kathmandu",
+  }));
+  assert.match(html, /Complete appointment/);
+  assert.match(html, /href="\/clients\/client-1"/);
+  assert.doesNotMatch(html, /Start appointment/);
 });

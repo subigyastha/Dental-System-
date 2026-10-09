@@ -23,6 +23,10 @@ export function findSelectedBookingSlot(slots: RankedBookingSlot[], selectedIso:
   return slots.find((slot) => isSameBookingTime(slot.startsAtIso, selectedIso));
 }
 
+export function isValidBookingDuration(minutes: number | undefined) {
+  return minutes === undefined || (Number.isInteger(minutes) && minutes >= 15 && minutes <= 1440 && minutes % 15 === 0);
+}
+
 export type GuidedBookingStep =
   | "client"
   | "new-client"
@@ -46,6 +50,9 @@ export type GuidedBookingDraft = {
   skippedPossibleMatchClientIds: string[];
   providerId: string;
   serviceId: string;
+  procedureMode?: "catalog" | "custom";
+  customProcedureName?: string;
+  durationMinutes?: number;
   date: string;
   selectedSlotIso: string;
   selectedSlot: RankedBookingSlot | null;

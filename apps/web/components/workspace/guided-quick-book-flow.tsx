@@ -44,6 +44,7 @@ import {
 } from "@/lib/client-identity";
 import {
   findSelectedBookingSlot,
+  isValidBookingDuration,
   isSameBookingTime,
   isSearchablePhone,
   isSameClientIntakeIdentity,
@@ -130,6 +131,11 @@ export function GuidedQuickBookFlow({
   const selectedService = bootstrap.services.find(
     (item) => item.id === draft.serviceId,
   );
+  const isCustomProcedure = draft.procedureMode === "custom";
+  const procedureName = isCustomProcedure ? draft.customProcedureName?.trim() : selectedService?.name;
+  const procedureValid = isCustomProcedure ? Boolean(procedureName && procedureName.length <= 120 && draft.durationMinutes !== undefined) : Boolean(draft.serviceId && selectedService);
+  const durationValid = isValidBookingDuration(draft.durationMinutes);
+  const effectiveDuration = draft.durationMinutes ?? rankedAvailability?.durationMinutes ?? slots?.durationMinutes ?? (selectedService ? Math.ceil(selectedService.durationMinutes / 15) * 15 : undefined);
 
   useEffect(() => {
     setContactPickerSupported(isBookingContactPickerSupported());
@@ -206,7 +212,8 @@ export function GuidedQuickBookFlow({
     if (
       step !== "details" ||
       !draft.providerId ||
-      !draft.serviceId ||
+      !procedureValid ||
+      !durationValid ||
       !draft.date
     ) {
       setSlots(null);
@@ -220,11 +227,13 @@ export function GuidedQuickBookFlow({
       setIsLoadingSlots(true);
       setSlotError(null);
       const request =
-        draft.path === "slot-first"
+        draft.path === "slot-first" || isCustomProcedure
           ? loadRankedAvailability(
               {
                 providerId: draft.providerId,
-                serviceId: draft.serviceId,
+                serviceId: isCustomProcedure ? undefined : draft.serviceId,
+                customProcedureName: isCustomProcedure ? draft.customProcedureName?.trim() : undefined,
+                durationMinutes: draft.durationMinutes,
                 date: draft.date,
                 locationId: selectedLocationId!,
               },
@@ -233,6 +242,7 @@ export function GuidedQuickBookFlow({
           : fetchProviderSlotsForBookingRef.current({
               providerId: draft.providerId,
               serviceId: draft.serviceId,
+              durationMinutes: draft.durationMinutes,
               date: draft.date,
               locationId: selectedLocationId ?? undefined,
             });
@@ -296,6 +306,12 @@ export function GuidedQuickBookFlow({
     draft.path,
     draft.providerId,
     draft.serviceId,
+    draft.customProcedureName,
+    draft.procedureMode,
+    isCustomProcedure,
+    procedureValid,
+    draft.durationMinutes,
+    durationValid,
     selectedLocationId,
     setQuickBookDraft,
     step,
@@ -518,8 +534,8 @@ export function GuidedQuickBookFlow({
     submitLockRef.current = true;
     quickBook.setBusy(true);
     const retryingUncertain = Boolean(draft.confirmationAttempt?.uncertain);
-    if (!retryingUncertain && (!draft.providerId || !draft.serviceId || !draft.selectedSlotIso || !selectedService)) {
-      setFormError("Choose a provider, service, date, and available time.");
+    if (!retryingUncertain && (!draft.providerId || !procedureValid || !draft.selectedSlotIso || !procedureValid || !durationValid)) {
+      setFormError("Choose a provider, service, valid duration, date, and available time.");
       submitLockRef.current = false;
       quickBook.setBusy(false);
       return;
@@ -552,7 +568,9 @@ export function GuidedQuickBookFlow({
         draftId: draft.draftId,
         locationId: quickBook.selectedLocationId!,
         providerId: draft.providerId,
-        serviceId: draft.serviceId,
+        serviceId: isCustomProcedure ? undefined : draft.serviceId,
+                customProcedureName: isCustomProcedure ? draft.customProcedureName?.trim() : undefined,
+        durationMinutes: draft.durationMinutes,
         startsAtIso: draft.selectedSlotIso,
         priority: draft.priority,
         notes: draft.notes.trim() || undefined,
@@ -678,12 +696,16 @@ export function GuidedQuickBookFlow({
   }
 
   function continueFromDetails() {
+    if (!durationValid) {
+      setFormError("Enter a duration in 15-minute increments, from 15 to 1440 minutes.");
+      return;
+    }
     if (draft.path === "client-first" && isLoadingSlots) {
       setFormError("Wait for the available times to finish updating.");
       return;
     }
-    if (!draft.providerId || !draft.serviceId || !draft.selectedSlotIso) {
-      setFormError("Choose a provider, service, date, and available time.");
+    if (!draft.providerId || !procedureValid || !draft.selectedSlotIso) {
+      setFormError("Choose a provider, procedure, date, and available time.");
       return;
     }
     if (!draft.selectedClient && !draft.newClient) {
@@ -701,9 +723,10 @@ export function GuidedQuickBookFlow({
     if (
       !quickBook.selectedLocationId ||
       !draft.providerId ||
-      !draft.serviceId
+      !procedureValid
+      || !durationValid
     ) {
-      setSlotError("Choose a clinic, provider, and service first.");
+      setSlotError("Choose a clinic, provider, and procedure first.");
       return;
     }
     holdLockRef.current = true;
@@ -719,7 +742,9 @@ export function GuidedQuickBookFlow({
       draftId: draft.draftId,
       locationId: quickBook.selectedLocationId,
       providerId: draft.providerId,
-      serviceId: draft.serviceId,
+      serviceId: isCustomProcedure ? undefined : draft.serviceId,
+                customProcedureName: isCustomProcedure ? draft.customProcedureName?.trim() : undefined,
+      durationMinutes: draft.durationMinutes,
       startsAtIso: slot.startsAtIso,
       slotId: slot.slotId,
       availabilityVersion: draft.availabilityVersion,
@@ -750,13 +775,17 @@ export function GuidedQuickBookFlow({
         locationId: request.locationId,
         providerId: request.providerId,
         serviceId: request.serviceId,
+        customProcedureName: request.customProcedureName,
+        durationMinutes: request.durationMinutes,
       };
       const hold = await createBookingSlotHold(request);
       const current = draftRef.current;
       if (
         quickBook.selectedLocationId !== requestSnapshot.locationId ||
         current.providerId !== requestSnapshot.providerId ||
-        current.serviceId !== requestSnapshot.serviceId
+        (current.procedureMode === "custom" ? undefined : current.serviceId) !== requestSnapshot.serviceId ||
+        (current.procedureMode === "custom" ? current.customProcedureName?.trim() : undefined) !== requestSnapshot.customProcedureName ||
+        current.durationMinutes !== requestSnapshot.durationMinutes
       ) {
         if (hold.status === "active") await releaseBookingSlotHold(hold.id);
         updateDraft({ pendingHold: null });
@@ -852,7 +881,7 @@ export function GuidedQuickBookFlow({
     const preserveRequestedTime = Boolean(
       !hold &&
         draft.selectedSlotIso &&
-        patch.serviceId !== undefined &&
+        (patch.serviceId !== undefined || "customProcedureName" in patch || "procedureMode" in patch || "durationMinutes" in patch) &&
         patch.providerId === undefined &&
         patch.date === undefined,
     );
@@ -924,7 +953,7 @@ export function GuidedQuickBookFlow({
             onChangeTime={changeHeldTime}
             providerName={provider?.name}
             remainingSeconds={remainingSeconds}
-            serviceName={selectedService?.name}
+            serviceName={procedureName}
           />
           <ClientMinimalIntakeFields
             autofocus
@@ -964,7 +993,7 @@ export function GuidedQuickBookFlow({
             onChangeTime={changeHeldTime}
             providerName={provider?.name}
             remainingSeconds={remainingSeconds}
-            serviceName={selectedService?.name}
+            serviceName={procedureName}
           />
           {draft.selectedClient ? <ClientSummary client={draft.selectedClient} /> : null}
           {draft.newClient ? (
@@ -986,6 +1015,7 @@ export function GuidedQuickBookFlow({
                     void updateScheduleSelection({
                       providerId: item.id,
                       serviceId: "",
+                      durationMinutes: undefined,
                     })
                   }
                   type="button"
@@ -996,13 +1026,27 @@ export function GuidedQuickBookFlow({
               ))}
             </div>
           </section>
-          <Field label="Service" required>
+          <Field label="Procedure type" required>
+            <select className={inputClass} value={draft.procedureMode ?? "catalog"} disabled={isCreatingHold || Boolean(draft.pendingHold)}
+              onChange={(event) => void updateScheduleSelection({ procedureMode: event.target.value as "catalog" | "custom", serviceId: "", customProcedureName: "", durationMinutes: event.target.value === "custom" ? 30 : undefined })}>
+              <option value="catalog">Catalog procedure</option>
+              <option value="custom">Custom procedure</option>
+            </select>
+          </Field>
+          {isCustomProcedure ? (
+            <Field label="Custom procedure" required>
+              <input className={inputClass} maxLength={120} value={draft.customProcedureName ?? ""} disabled={isCreatingHold || Boolean(draft.pendingHold)}
+                onChange={(event) => void updateScheduleSelection({ customProcedureName: event.target.value })} placeholder="Describe this visit" />
+              <p className="mt-1 text-xs text-[var(--text-muted)]">Saved on this appointment only.</p>
+            </Field>
+          ) : <Field label="Service" required>
             <select
               className={inputClass}
               disabled={isCreatingHold || Boolean(draft.pendingHold)}
               onChange={(event) =>
                 void updateScheduleSelection({
                   serviceId: event.target.value,
+                  durationMinutes: undefined,
                 })
               }
               value={draft.serviceId}
@@ -1020,6 +1064,23 @@ export function GuidedQuickBookFlow({
                   </option>
                 ))}
             </select>
+          </Field>}
+          <Field label="Duration (minutes)" required>
+            <select className={inputClass}
+              disabled={(!isCustomProcedure && !draft.serviceId) || isCreatingHold || Boolean(draft.pendingHold)}
+              value={effectiveDuration ?? ""}
+              onChange={(event) => void updateScheduleSelection({ durationMinutes: Number(event.target.value) })}>
+              <option value="" disabled>Choose duration</option>
+              {Array.from({ length: 96 }, (_, index) => (index + 1) * 15).map((minutes) => <option key={minutes} value={minutes}>{minutes} minutes</option>)}
+            </select>
+            <p className="mt-1 text-xs text-[var(--text-muted)]">Choose the appointment period in 15-minute increments. Availability includes any required buffer.</p>
+            {!durationValid ? <p role="alert" className="text-sm text-[var(--danger)]">Enter 15–1440 minutes in 15-minute increments.</p> : null}
+            {!isCustomProcedure && draft.durationMinutes !== undefined ? (
+              <button className="mt-1 min-h-11 text-sm text-[var(--accent)]" disabled={isCreatingHold || Boolean(draft.pendingHold)} type="button" onClick={() => void updateScheduleSelection({ durationMinutes: undefined })}>Use service duration</button>
+            ) : null}
+            {durationValid && effectiveDuration && draft.selectedSlotIso ? (
+              <p className="mt-1 text-sm">Ends at {new Date(new Date(draft.selectedSlotIso).getTime() + effectiveDuration * 60_000).toLocaleTimeString("en-NP", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kathmandu" })} · {effectiveDuration} min</p>
+            ) : null}
           </Field>
           <DualCalendarDatePicker
             disabled={isCreatingHold || Boolean(draft.pendingHold)}
@@ -1045,8 +1106,8 @@ export function GuidedQuickBookFlow({
                 {provider ? ` · ${provider.name}` : ""}
               </p>
               <p className="mt-1 text-xs text-[var(--text-muted)]">
-                {!draft.serviceId
-                  ? "Choose a service to check this time."
+                {!procedureValid
+                  ? "Choose a procedure to check this time."
                   : isLoadingSlots
                     ? "Checking this time…"
                     : draft.selectedSlot
@@ -1061,12 +1122,11 @@ export function GuidedQuickBookFlow({
               {isLoadingSlots ? <span aria-live="polite" className="text-xs text-[var(--text-muted)]">Loading…</span> : null}
             </div>
             <InlineError message={slotError} />
-            {!draft.serviceId ? (
+            {!procedureValid ? (
               <p className="rounded-lg bg-[var(--surface-muted)] p-3 text-sm text-[var(--text-muted)]">
-                Choose a service to see live availability.
+                Choose a procedure to see live availability.
               </p>
-            ) : draft.path === "slot-first" &&
-              rankedAvailability && (rankedAvailability.recommended.length + rankedAvailability.later.length > 0) ? (
+            ) : rankedAvailability && (rankedAvailability.recommended.length + rankedAvailability.later.length > 0) ? (
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   {[...rankedAvailability.recommended, ...rankedAvailability.later].map((slot) => (
                     <RankedSlotButton
@@ -1092,7 +1152,7 @@ export function GuidedQuickBookFlow({
                   </button>
                 ))}
               </div>
-            ) : draft.serviceId && !isLoadingSlots ? (
+            ) : procedureValid && !isLoadingSlots ? (
               <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
                 {draft.pendingHold ? "Your selected time may already be held. Check selected time to continue." : "No times are available on this date. Try another day."}
               </p>
@@ -1167,7 +1227,7 @@ export function GuidedQuickBookFlow({
             onChangeTime={changeHeldTime}
             providerName={provider?.name}
             remainingSeconds={remainingSeconds}
-            serviceName={selectedService?.name}
+            serviceName={procedureName}
           />
           <div aria-live="polite" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900" data-drawer-autofocus tabIndex={-1}>
             No match is selected automatically.
@@ -1290,7 +1350,7 @@ export function GuidedQuickBookFlow({
             onChangeTime={changeHeldTime}
             providerName={provider?.name}
             remainingSeconds={remainingSeconds}
-            serviceName={selectedService?.name}
+            serviceName={procedureName}
           />
           {draft.selectedClient ? (
             <>
@@ -1318,7 +1378,7 @@ export function GuidedQuickBookFlow({
             <dd className="font-medium">{provider?.name}</dd>
             <dt className="text-[var(--text-muted)]">Service</dt>
             <dd className="font-medium">
-              {selectedService?.name} · {selectedService?.durationMinutes} min
+              {selectedService?.name} · {effectiveDuration} min
             </dd>
             <dt className="text-[var(--text-muted)]">Time</dt>
             <dd className="space-y-1 font-medium">
@@ -1407,7 +1467,7 @@ export function GuidedQuickBookFlow({
           onChangeTime={changeHeldTime}
           providerName={provider?.name}
           remainingSeconds={remainingSeconds}
-          serviceName={selectedService?.name}
+          serviceName={procedureName}
         />
         <Field label="Client phone number">
           <div className="relative">

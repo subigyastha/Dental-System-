@@ -131,6 +131,7 @@ export type AppointmentDraft = {
   providerId: string;
   resourceId?: string;
   serviceIds: string[];
+  customProcedureName?: string;
   startsAtIso: string;
   durationMinutes: number;
   bufferMinutes: number;

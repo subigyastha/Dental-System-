@@ -1,3 +1,4 @@
+import { BookingProcedureDto } from "./booking-procedure.dto";
 import { Type } from "class-transformer";
 import {
   ArrayMaxSize,
@@ -53,7 +54,7 @@ export class BookingConfirmationClientDto {
   candidateSetVersion?: string;
 }
 
-export class ConfirmBookingDto {
+export class ConfirmBookingDto extends BookingProcedureDto {
   @IsUUID()
   draftId!: string;
 
@@ -62,9 +63,6 @@ export class ConfirmBookingDto {
 
   @IsString()
   providerId!: string;
-
-  @IsString()
-  serviceId!: string;
 
   @IsISO8601()
   startsAtIso!: string;

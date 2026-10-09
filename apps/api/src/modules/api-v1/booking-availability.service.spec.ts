@@ -3,6 +3,11 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 
 import { ConflictException } from "@nestjs/common";
+import { plainToInstance } from "class-transformer";
+import { validateSync } from "class-validator";
+
+import { RankedAvailabilityQueryDto, CreateBookingSlotHoldDto } from "./dto/booking-availability.dto";
+import { ConfirmBookingDto } from "./dto/booking-confirmation.dto";
 
 import { BookingAvailabilityService } from "./booking-availability.service";
 
@@ -103,7 +108,7 @@ function createService(options?: {
     },
   };
   const scheduling = {
-    listProviderSlots: async (_params: unknown, client?: unknown) => {
+    listProviderSlots: async (params: { durationMinutes?: number }, client?: unknown) => {
       if (client) {
         assert.equal(client, tx);
         events.push("transaction-slots");
@@ -111,7 +116,7 @@ function createService(options?: {
       return ({
       providerId: "provider-a",
       dateKey: futureDateKey,
-      durationMinutes: 30,
+      durationMinutes: params.durationMinutes ?? 30,
       bufferMinutes: 10,
       slots: [
         options?.offsetSlots ? { ...slot, startsAtIso: `${futureDateKey}T10:00:00+05:45` } : slot,
@@ -130,10 +135,10 @@ function createService(options?: {
       durationMinutes: 30,
       serviceBufferMinutes: 10,
     }),
-    getEffectiveSlotTiming: async () => {
+    getEffectiveSlotTiming: async (params: { durationMinutes?: number }) => {
       events.push("appointment-conflict-check");
       return {
-        durationMinutes: 30,
+        durationMinutes: params.durationMinutes ?? 30,
         bufferMinutes: 10,
       };
     },
@@ -152,12 +157,14 @@ function createService(options?: {
   };
 }
 
-async function createHoldDto(service: BookingAvailabilityService) {
+async function createHoldDto(service: BookingAvailabilityService, durationMinutes?: number, customProcedureName?: string) {
   const availability = await service.rankedAvailability(
     {
       locationId: "location-a",
       providerId: "provider-a",
-      serviceId: "service-a",
+      serviceId: customProcedureName ? undefined : "service-a",
+      customProcedureName,
+      durationMinutes,
       date: futureDateKey,
     },
     actor,
@@ -168,7 +175,9 @@ async function createHoldDto(service: BookingAvailabilityService) {
     draftId,
     locationId: "location-a",
     providerId: "provider-a",
-    serviceId: "service-a",
+    serviceId: customProcedureName ? undefined : "service-a",
+    customProcedureName,
+      durationMinutes,
     startsAtIso: rankedSlot.startsAtIso,
     slotId: rankedSlot.slotId,
     availabilityVersion: availability.availabilityVersion,
@@ -446,4 +455,37 @@ test("hold release serializes on Provider and hold rows before transitioning", a
   });
   assert.ok(events.indexOf("provider-lock") < events.indexOf("hold-lock"));
   assert.ok(events.indexOf("hold-lock") < events.indexOf("release-update"));
+});
+
+
+test("custom duration reaches ranked availability and hold timing and cannot reuse a key with changed duration", async () => {
+  const { service } = createService({ persistCreated: true });
+  const request = await createHoldDto(service, 15);
+  const held = await service.createHold(request, actor);
+  assert.equal(new Date(held.endsAtIso).getTime() - new Date(held.startsAtIso).getTime(), 15 * 60_000);
+  await assert.rejects(service.createHold({ ...request, durationMinutes: 30 }, actor), ConflictException);
+});
+
+test("a custom procedure hold replays its original name and rejects changed procedure identity", async () => {
+  const { service, events } = createService({ persistCreated: true });
+  const request = await createHoldDto(service, 45, "Case review");
+  const held = await service.createHold(request, actor);
+  assert.equal(new Date(held.endsAtIso).getTime() - new Date(held.startsAtIso).getTime(), 45 * 60_000);
+  assert.equal((await service.createHold(request, actor)).id, held.id);
+  await assert.rejects(service.createHold({ ...request, customProcedureName: "Different case" }, actor), ConflictException);
+  assert.equal(events.filter((event) => event === "hold-create").length, 1);
+});
+
+
+test("booking duration DTOs reject fractional and out-of-range values", () => {
+  for (const Dto of [RankedAvailabilityQueryDto, CreateBookingSlotHoldDto, ConfirmBookingDto]) {
+    for (const durationMinutes of [0, -1, 1, 20, 1.5, 1441, "bad"]) {
+      const errors = validateSync(plainToInstance(Dto as new () => { durationMinutes?: number }, { durationMinutes }));
+      assert.ok(errors.some(error => error.property === "durationMinutes"), `${Dto.name}: ${durationMinutes}`);
+    }
+    for (const durationMinutes of [undefined, 15, 1440, "30"]) {
+      const errors = validateSync(plainToInstance(Dto as new () => { durationMinutes?: number }, { durationMinutes }));
+      assert.ok(!errors.some(error => error.property === "durationMinutes"), `${Dto.name}: ${durationMinutes}`);
+    }
+  }
 });

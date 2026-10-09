@@ -16,6 +16,7 @@ import { useQuickBook } from "@/components/workspace/quick-book-provider";
 import { useSecureSignOut } from "@/components/workspace/secure-sign-out";
 import { ApiRequestError, apiFetchJson } from "@/lib/api-client";
 import type { AppointmentStatus, Priority } from "@/lib/domain";
+import { getPrimaryAppointmentAction } from "@/lib/appointment-workflow";
 
 const billingRoles = new Set(["Owner", "Admin", "Manager", "Receptionist", "Scheduler", "Finance"]);
 
@@ -80,7 +81,7 @@ export function dashboardBootstrapError(error: unknown) {
 export function applyOptimisticDashboardStatus(
   bootstrap: DashboardBootstrap,
   appointmentId: string,
-  status: "Completed" | "Confirmed",
+  status: "Completed" | "Confirmed" | "CheckedIn",
 ): DashboardBootstrap {
   const containsAppointment = bootstrap.schedule.items.some(
     (appointment) => appointment.id === appointmentId,
@@ -179,7 +180,7 @@ export function DashboardPage() {
   const hasBillingAccess = sessionRoles.some((role) => billingRoles.has(role));
   const hasArchiveAccess = sessionRoles.some((role) => ["Owner", "Admin"].includes(role));
   const hasSettingsAccess = sessionRoles.some((role) => ["Owner", "Admin", "Manager"].includes(role));
-  const updateStatus = async (appointmentId: string, status: "Completed" | "Confirmed") => {
+  const updateStatus = async (appointmentId: string, status: "Completed" | "Confirmed" | "CheckedIn") => {
     const previous = bootstrap;
     if (!previous) return;
     setUpdatingId(appointmentId);
@@ -260,8 +261,7 @@ export function DashboardPage() {
               appointments={bootstrap.schedule.items}
               hasMore={bootstrap.schedule.page.hasMore}
               isUpdatingId={updatingId}
-              onComplete={(id) => void updateStatus(id, "Completed")}
-              onConfirm={(id) => void updateStatus(id, "Confirmed")}
+              onAction={(id, status) => void updateStatus(id, status)}
               timezone={bootstrap.context.organization.timezone}
             />
           </Panel>
@@ -303,8 +303,7 @@ export function DashboardPage() {
                 appointments={bootstrap.schedule.items}
                 hasMore={bootstrap.schedule.page.hasMore}
                 isUpdatingId={updatingId}
-                onComplete={(id) => void updateStatus(id, "Completed")}
-                onConfirm={(id) => void updateStatus(id, "Confirmed")}
+                onAction={(id, status) => void updateStatus(id, status)}
                 timezone={bootstrap.context.organization.timezone}
               />
             </Panel>
@@ -407,14 +406,36 @@ function DashboardMetrics({ bootstrap, compact = false }: { bootstrap: Dashboard
   return <div className="grid gap-4 md:grid-cols-3">{metrics.map((metric) => <MetricTile hint={metric.hint} key={metric.label} label={metric.label} value={metric.value} />)}</div>;
 }
 
-function BootstrapAppointments({ appointments, hasMore, isUpdatingId, onComplete, onConfirm, timezone }: { appointments: DashboardBootstrap["schedule"]["items"]; hasMore: boolean; isUpdatingId: string | null; onComplete: (id: string) => void; onConfirm: (id: string) => void; timezone: string }) {
+export function BootstrapAppointments({ appointments, hasMore, isUpdatingId, onAction, timezone }: {
+  appointments: DashboardBootstrap["schedule"]["items"];
+  hasMore: boolean;
+  isUpdatingId: string | null;
+  onAction: (id: string, status: "Confirmed" | "CheckedIn" | "Completed") => void;
+  timezone: string;
+}) {
   if (!appointments.length) return <div className="px-4 py-6 text-sm text-[var(--text-muted)]">No active appointments in the next 24 hours.</div>;
-  return <div className="divide-y divide-[var(--border)]">{appointments.map((appointment) => <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between" key={appointment.id}><div className="min-w-0"><div className="truncate font-medium text-[var(--foreground)]">{appointment.client.name}</div><div className="mt-1 text-sm text-[var(--text-muted)]">{formatTimeRange(appointment.startsAtIso, appointment.endsAtIso, timezone)} · {appointment.provider.name}</div><div className="mt-1 text-sm text-[var(--text-muted)]">{appointment.location?.name ?? "No location assigned"}</div></div><div className="flex flex-wrap items-center gap-2"><PriorityTag priority={appointment.priority} /><StatusPill status={appointment.status} />{appointment.status === "Scheduled" ? <button className="rounded-md border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] disabled:opacity-60" disabled={isUpdatingId === appointment.id} onClick={() => onConfirm(appointment.id)} type="button">Confirm</button> : null}{appointment.status === "InProgress" ? <button className="rounded-md border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] disabled:opacity-60" disabled={isUpdatingId === appointment.id} onClick={() => onComplete(appointment.id)} type="button">Complete</button> : null}</div></div>)}{hasMore ? <div className="px-4 py-3 text-sm text-[var(--text-muted)]">More appointments are available in Reservations.</div> : null}</div>;
+  return <div className="divide-y divide-[var(--border)]">
+    {appointments.map((appointment) => {
+      const action = getPrimaryAppointmentAction(appointment.status);
+      return <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between" key={appointment.id}>
+        <div className="min-w-0">
+          <Link className="truncate font-medium text-[var(--accent)] underline-offset-2 hover:underline" href={`/clients/${encodeURIComponent(appointment.client.id)}`}>{appointment.client.name}</Link>
+          <div className="mt-1 text-sm text-[var(--text-muted)]">{formatTimeRange(appointment.startsAtIso, appointment.endsAtIso, timezone)} · {appointment.provider.name}</div>
+          <div className="mt-1 text-sm text-[var(--text-muted)]">{appointment.location?.name ?? "No location assigned"}</div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <PriorityTag priority={appointment.priority} /><StatusPill status={appointment.status} />
+          {action ? <button className="min-h-11 rounded-md border border-[var(--border)] px-3 py-2 text-sm text-[var(--foreground)] disabled:opacity-60" disabled={isUpdatingId === appointment.id} onClick={() => onAction(appointment.id, action.status)} type="button">{action.label}</button> : null}
+        </div>
+      </div>;
+    })}
+    {hasMore ? <div className="px-4 py-3 text-sm text-[var(--text-muted)]">More appointments are available in Reservations.</div> : null}
+  </div>;
 }
 
 function BootstrapFollowUps({ followUps, hasMore, timezone }: { followUps: DashboardBootstrap["followUps"]["items"]; hasMore: boolean; timezone: string }) {
-  if (!followUps.length) return <div className="px-4 py-6 text-sm text-[var(--text-muted)]">No overdue follow-ups right now.</div>;
-  return <div className="divide-y divide-[var(--border)]">{followUps.map((task) => <div className="px-4 py-4" key={task.id}><div className="flex items-start justify-between gap-3"><div><div className="font-medium text-[var(--foreground)]">{task.summary}</div><div className="mt-1 text-sm text-[var(--text-muted)]">{task.client.name} · due {formatDateTime(task.dueAtIso, timezone)}</div><div className="mt-2 text-sm text-[var(--text-muted)]">{task.nextAction}</div></div><PriorityTag priority={task.priority} /></div></div>)}{hasMore ? <div className="px-4 py-3 text-sm text-[var(--text-muted)]">More overdue follow-ups are available in the work queue.</div> : null}</div>;
+  if (!followUps.length) return <div className="px-4 py-6 text-sm text-[var(--text-muted)]">No overdue follow-ups right now. Open Clients to manage planned follow-ups.</div>;
+  return <div className="divide-y divide-[var(--border)]">{followUps.map((task) => <div className="px-4 py-4" key={task.id}><div className="flex items-start justify-between gap-3"><div><div className="font-medium text-[var(--foreground)]">{task.summary}</div><div className="mt-1 text-sm text-[var(--text-muted)]"><Link className="text-[var(--accent)] hover:underline" href={`/clients/${encodeURIComponent(task.client.id)}`}>{task.client.name}</Link> · due {formatDateTime(task.dueAtIso, timezone)}</div><div className="mt-2 text-sm text-[var(--text-muted)]">{task.nextAction}</div></div><PriorityTag priority={task.priority} /></div></div>)}{hasMore ? <div className="px-4 py-3 text-sm text-[var(--text-muted)]"><Link className="text-[var(--accent)] hover:underline" href="/clients?followUp=due">View all clients due for follow-up</Link></div> : null}</div>;
 }
 
 function DashboardState({ actionLabel, body, onAction, title }: { actionLabel?: string; body: string; onAction?: () => void; title: string }) {

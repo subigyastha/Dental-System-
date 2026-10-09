@@ -14,11 +14,13 @@ import {
   assertBookingActor,
   assertClinicOperator,
   assertClinicOperatorForLocation,
+  effectiveRoleUnionForLocation,
 } from "../auth/authz";
 import { PrismaService } from "../prisma/prisma.service";
 import { SchedulingService } from "../scheduling/scheduling.service";
 import { CreateAppointmentDto } from "./dto/create-appointment.dto";
 import { RescheduleAppointmentDto } from "./dto/reschedule-appointment.dto";
+import { defaultRecallDate, recurringRecallAction, routineRecallAction } from "../followups/recall-date";
 import { ListDaySummariesDto } from "./dto/list-day-summaries.dto";
 import { ListAppointmentsDto } from "./dto/list-appointments.dto";
 import { ListWeekSummariesDto } from "./dto/list-week-summaries.dto";
@@ -46,7 +48,7 @@ const editableStatuses = new Set<AppointmentStatus>([
 const allowedStatusTransitions: Readonly<Record<AppointmentStatus, readonly AppointmentStatus[]>> = {
   Scheduled: ["Confirmed", "CheckedIn", "Cancelled", "NoShow"],
   Confirmed: ["CheckedIn", "Cancelled", "NoShow"],
-  CheckedIn: ["InProgress"],
+  CheckedIn: ["InProgress", "Completed"],
   InProgress: ["Completed"],
   Completed: [],
   Cancelled: [],
@@ -207,6 +209,7 @@ export class AppointmentsService {
           status: "Scheduled",
           communicationState: "Unconfirmed",
           notes: dto.notes,
+          customProcedureName: dto.customProcedureName?.trim() || null,
           services: {
             create: dto.serviceIds.map((serviceId) => ({ serviceId })),
           },
@@ -276,7 +279,8 @@ export class AppointmentsService {
       requestedStart.getTime() !== existing.startsAt.getTime() ||
       dto.providerId !== existing.providerId ||
       dto.locationId !== (existing.locationId ?? undefined) ||
-      serviceIdsChanged
+      serviceIdsChanged ||
+      (existing.customProcedureName ?? undefined) !== (dto.customProcedureName?.trim() || undefined)
     ) {
       throw new BadRequestException(
         "Changing provider, time, location, or services requires the governed reschedule command",
@@ -310,6 +314,7 @@ export class AppointmentsService {
           bufferMinutes: normalized.bufferMinutes,
           priority: dto.priority,
           notes: dto.notes,
+          customProcedureName: dto.customProcedureName?.trim() || null,
           services: {
             create: dto.serviceIds.map((serviceId) => ({ serviceId })),
           },
@@ -449,6 +454,7 @@ export class AppointmentsService {
     }
 
     this.assertLifecycleAuthority(session, existing, dto.status);
+    if (dto.status === "Completed" && existing.status === "Completed") return { ok: true };
 
     if (dto.status === "Rescheduled") {
       throw new BadRequestException(
@@ -470,7 +476,11 @@ export class AppointmentsService {
     }
     if (dto.status === "NoShow") {
       const scheduledEndWithBuffer = existing.endsAt.getTime() + existing.bufferMinutes * 60_000;
-      const roles = session.effectiveRoles ?? [session.role];
+      const roles = existing.locationId
+        ? effectiveRoleUnionForLocation(session, existing.locationId)
+        : session.effectiveRoleScopes
+          ? session.effectiveRoleScopes.filter((scope) => scope.locationId === null).map((scope) => scope.role)
+          : session.effectiveRoles ?? [session.role];
       const ownerOrAdmin = roles.includes("Owner") || roles.includes("Admin");
       if (Date.now() < scheduledEndWithBuffer && !ownerOrAdmin) {
         throw new BadRequestException("A no-show can only be recorded after the scheduled end and buffer");
@@ -480,8 +490,24 @@ export class AppointmentsService {
       }
     }
 
-    const [, , appointment] = await this.prisma.$transaction([
-      this.prisma.workflowEvent.create({
+    await this.prisma.$transaction(async (tx) => {
+      // Claim this transition before writing its events and recall. A retried or
+      // concurrent completion must never create a second recall task.
+      const claimed = await tx.appointment.updateMany({
+        where: { id, organizationId: session.organizationId, status: existing.status },
+        data: {
+          status: dto.status,
+          cancellationReason: dto.status === "Cancelled" ? dto.note!.trim() : undefined,
+          communicationState: dto.status === "Confirmed"
+            ? "Confirmed by phone"
+            : recoveryStates.has(dto.status) ? "Needs call" : undefined,
+        },
+      });
+      if (claimed.count !== 1) {
+        if (dto.status === "Completed" && await tx.appointment.findFirst({ where: { id, organizationId: session.organizationId, status: "Completed" }, select: { id: true } })) return;
+        throw new ConflictException("This appointment has changed. Refresh before updating it again.");
+      }
+      await tx.workflowEvent.create({
         data: {
           organizationId: existing.organizationId,
           appointmentId: existing.id,
@@ -490,8 +516,8 @@ export class AppointmentsService {
           actorUserId: session.id,
           note: dto.note,
         },
-      }),
-      this.prisma.auditLog.create({
+      });
+      await tx.auditLog.create({
         data: {
           organizationId: existing.organizationId,
           actorId: session.id,
@@ -507,57 +533,72 @@ export class AppointmentsService {
           newValue: { status: dto.status },
           description: dto.note,
         },
-      }),
-      this.prisma.appointment.update({
-        where: { id },
-        data: {
-          status: dto.status,
-          communicationState:
-            dto.status === "Confirmed"
-              ? "Confirmed by phone"
-              : recoveryStates.has(dto.status)
-                ? "Needs call"
-                : undefined,
-        },
-        select: {
-          id: true,
-          organizationId: true,
-          customerId: true,
-          providerId: true,
-          priority: true,
-        },
-      }),
-    ]);
-
-    if (recoveryStates.has(dto.status)) {
-      const existingFollowUp = await this.prisma.followUpTask.findFirst({
+      });
+      if (recoveryStates.has(dto.status) || dto.status === "Completed") {
+      const isRecall = dto.status === "Completed";
+      if (isRecall) {
+        // Different visits for the same Client may complete concurrently.
+        // Serialize their routine recall refresh without touching case tasks.
+        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Customer" WHERE "id" = ${existing.customerId} AND "organizationId" = ${existing.organizationId} FOR UPDATE`);
+      }
+      const latestVisit = isRecall ? await tx.appointment.findFirst({
+        where: { organizationId: existing.organizationId, customerId: existing.customerId, status: "Completed" },
+        orderBy: [{ startsAt: "desc" }, { id: "desc" }],
+        select: { id: true, startsAt: true, providerId: true },
+      }) : null;
+      const recallVisit = latestVisit ?? existing;
+      const existingFollowUp = await tx.followUpTask.findFirst({
         where: {
-          appointmentId: appointment.id,
+          organizationId: existing.organizationId,
+          ...(isRecall ? { customerId: existing.customerId, type: "Recall" as const } : { appointmentId: existing.id }),
           status: { in: ["Open", "InProgress", "Waiting", "Blocked"] },
         },
-        select: { id: true },
+        select: { id: true, dueAt: true, nextAction: true, status: true, appointment: { select: { startsAt: true } } },
       });
 
-      if (!existingFollowUp) {
-        await this.prisma.followUpTask.create({
+      if (isRecall && existingFollowUp) {
+        // Only untouched routine defaults are refreshed. Staff-set dates and
+        // actions are case-specific instructions and must survive later visits.
+        const untouchedDefault = existingFollowUp.status === "Open"
+          && (existingFollowUp.nextAction === recurringRecallAction
+            || (existingFollowUp.nextAction === routineRecallAction
+              && existingFollowUp.appointment
+              && existingFollowUp.dueAt.getTime() === defaultRecallDate(existingFollowUp.appointment.startsAt).getTime()));
+        if (untouchedDefault) {
+        await tx.followUpTask.update({ where: { id: existingFollowUp.id }, data: {
+          appointmentId: recallVisit.id, ownerId: recallVisit.providerId,
+          dueAt: defaultRecallDate(recallVisit.startsAt), status: "Open",
+          nextAction: routineRecallAction,
+        } });
+        await tx.auditLog.create({ data: {
+          organizationId: existing.organizationId, actorId: session.id,
+          entityType: "follow_up", entityId: existingFollowUp.id, action: "recall_refreshed",
+          oldValue: { dueAtIso: existingFollowUp.dueAt.toISOString() },
+          newValue: { dueAtIso: defaultRecallDate(recallVisit.startsAt).toISOString(), appointmentId: recallVisit.id },
+          description: "Routine recall refreshed after a completed visit",
+        } });
+        }
+      } else if (!existingFollowUp) {
+        await tx.followUpTask.create({
           data: {
-            organizationId: appointment.organizationId,
-            appointmentId: appointment.id,
-            customerId: appointment.customerId,
-            ownerId: appointment.providerId,
+            organizationId: existing.organizationId,
+            appointmentId: isRecall ? recallVisit.id : existing.id,
+            customerId: existing.customerId,
+            ownerId: isRecall ? recallVisit.providerId : existing.providerId,
             type:
-              dto.status === "NoShow"
+              isRecall ? "Recall" : dto.status === "NoShow"
                 ? "NoShowRecovery"
                 : "TreatmentContinuation",
-            priority: appointment.priority === "Urgent" ? "Urgent" : "High",
-            dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-            summary: `${dto.status.replace(/([A-Z])/g, " $1").trim()} recovery`,
+            priority: isRecall ? "Normal" : existing.priority === "Urgent" ? "Urgent" : "High",
+            dueAt: isRecall ? defaultRecallDate(recallVisit.startsAt) : new Date(Date.now() + 24 * 60 * 60 * 1000),
+            summary: isRecall ? "Six-month dental recall" : `${dto.status.replace(/([A-Z])/g, " $1").trim()} recovery`,
             nextAction:
-              dto.note || "Contact customer and define the next operational step.",
+              isRecall ? routineRecallAction : dto.note || "Contact customer and define the next operational step.",
           },
         });
       }
     }
+    });
 
     this.scheduling.invalidateAppointmentPlanning({
       organizationId: existing.organizationId,
@@ -618,7 +659,9 @@ export class AppointmentsService {
       );
     }
 
-    const normalized = await this.validateAndNormalizeAppointment(dto);
+    // The successor may overlap its own original slot (for example a 15-minute
+    // shift). All other appointments remain part of conflict validation.
+    const normalized = await this.validateAndNormalizeAppointment(dto, id);
     const successor = await this.withProviderBookingConflictGuard(() => this.prisma.$transaction(async (tx) => {
       await this.lockProviderForBooking(
         tx,
@@ -631,10 +674,19 @@ export class AppointmentsService {
         normalized,
         session.id,
       );
-      await tx.appointment.update({
-        where: { id },
+      // Claim the original inside the same transaction as successor creation.
+      // Concurrent reschedules must not create two successors for one visit.
+      const claimed = await tx.appointment.updateMany({
+        where: {
+          id,
+          organizationId: session.organizationId,
+          status: { in: ["Scheduled", "Confirmed"] },
+        },
         data: { status: "Rescheduled", cancellationReason: dto.reason.trim() },
       });
+      if (claimed.count !== 1) {
+        throw new ConflictException("This appointment has changed. Refresh before rescheduling again.");
+      }
       const created = await tx.appointment.create({
         data: {
           organizationId: dto.organizationId,
@@ -650,6 +702,7 @@ export class AppointmentsService {
           status: "Scheduled",
           communicationState: "Unconfirmed",
           notes: dto.notes,
+          customProcedureName: dto.customProcedureName?.trim() || null,
           sourceAppointmentId: id,
           services: { create: dto.serviceIds.map((serviceId) => ({ serviceId })) },
         },
@@ -713,13 +766,20 @@ export class AppointmentsService {
       assertClinicOperatorForLocation(session, appointment.locationId);
     }
 
-    const roles = session.effectiveRoles ?? [session.role];
+    const roles = appointment.locationId
+      ? effectiveRoleUnionForLocation(session, appointment.locationId)
+      : session.effectiveRoleScopes
+        ? session.effectiveRoleScopes.filter((scope) => scope.locationId === null).map((scope) => scope.role)
+        : session.effectiveRoles ?? [session.role];
     const isOwnerOrAdmin = roles.includes("Owner") || roles.includes("Admin");
     const isSchedulingStaff = roles.some((role) =>
       ["Owner", "Admin", "Manager", "Receptionist", "Scheduler"].includes(role),
     );
     const isOwnProvider = roles.includes("Provider") && session.providerId === appointment.providerId;
 
+    // Closing the operational appointment is part of reception's daily work;
+    // this grants no authority to sign or amend a clinical Record.
+    if (target === "Completed" && isSchedulingStaff) return;
     if (["InProgress", "Completed"].includes(target)) {
       if (isOwnerOrAdmin || isOwnProvider) return;
       throw new ForbiddenException("Only the assigned Provider or an Owner/Admin can begin or complete this appointment");
@@ -750,6 +810,10 @@ export class AppointmentsService {
       throw new BadRequestException("Invalid appointment start time");
     }
 
+    const customProcedureName = dto.customProcedureName?.trim();
+    if (Boolean(dto.serviceIds.length) === Boolean(customProcedureName) || (customProcedureName && customProcedureName.length > 120)) {
+      throw new BadRequestException("Choose catalog services or one custom procedure, not both");
+    }
     const resourceId = await this.resolveResourceId(dto);
 
     const [customer, provider, timing] =
@@ -775,7 +839,15 @@ export class AppointmentsService {
             },
           },
         }),
-        this.scheduling.getServiceTiming({
+        customProcedureName ? this.scheduling.getEffectiveSlotTiming({
+          organizationId: dto.organizationId,
+          providerId: dto.providerId,
+          locationId: dto.locationId,
+          customProcedureName,
+          durationMinutes: dto.durationMinutes,
+          startsAtIso: dto.startsAtIso,
+          excludeAppointmentId,
+        }).then((timing) => ({ serviceBufferMinutes: timing.bufferMinutes })) : this.scheduling.getServiceTiming({
           organizationId: dto.organizationId,
           providerId: dto.providerId,
           locationId: dto.locationId,
@@ -799,10 +871,12 @@ export class AppointmentsService {
       throw new ConflictException("Selected provider is inactive");
     }
 
-    // The service/provider duration is the safe minimum. Direct-time booking
-    // may extend the appointment, but can never under-allocate the configured
-    // clinical duration.
-    const durationMinutes = Math.max(dto.durationMinutes, timing.durationMinutes);
+    // Service timing supplies defaults and eligibility, while staff may choose
+    // a custom appointment period. Never silently expand that chosen period.
+    const durationMinutes = dto.durationMinutes;
+    if (!Number.isInteger(durationMinutes) || durationMinutes < 15 || durationMinutes > 1440 || durationMinutes % 15 !== 0) {
+      throw new BadRequestException("Appointment duration must be 15-1440 minutes in 15-minute increments");
+    }
     const bufferMinutes = Math.max(dto.bufferMinutes, timing.serviceBufferMinutes);
     const endsAt = new Date(startsAt.getTime() + durationMinutes * 60_000);
     await this.scheduling.assertSlotAvailable({
@@ -934,8 +1008,9 @@ export class AppointmentsService {
       !ownHold ||
       ownHold.createdByUserId !== actorId ||
       ownHold.locationId !== dto.locationId ||
-      ownHold.serviceId !== dto.serviceIds[0] ||
-      dto.serviceIds.length !== 1 ||
+      (ownHold.serviceId ?? undefined) !== dto.serviceIds[0] ||
+      (ownHold.customProcedureName ?? undefined) !== (dto.customProcedureName?.trim() || undefined) ||
+      dto.serviceIds.length > 1 ||
       ownHold.startsAt.getTime() !== normalized.startsAt.getTime() ||
       ownHold.endsAt.getTime() !== normalized.endsAt.getTime() ||
       ownHold.bufferMinutes !== normalized.bufferMinutes
@@ -1010,7 +1085,9 @@ export class AppointmentsService {
     status: AppointmentStatus;
     priority: Priority;
     communicationState: string;
+    cancellationReason?: string | null;
     notes: string | null;
+    customProcedureName?: string | null;
     resource: { name: string } | null;
     customer?: {
       id: string;
@@ -1042,6 +1119,7 @@ export class AppointmentsService {
       providerId: appointment.providerId,
       resourceId: appointment.resourceId ?? undefined,
       serviceIds: appointment.services.map((item) => item.serviceId),
+      customProcedureName: appointment.customProcedureName ?? undefined,
       startsAtIso: appointment.startsAt.toISOString(),
       endsAtIso: appointment.endsAt.toISOString(),
       durationMinutes: appointment.durationMinutes,
@@ -1051,6 +1129,7 @@ export class AppointmentsService {
       chair: appointment.resource?.name ?? undefined,
       notes: appointment.notes ?? "",
       communicationState: appointment.communicationState,
+      cancellationReason: appointment.cancellationReason ?? undefined,
       clientSummary: appointment.customer
         ? {
             id: appointment.customer.id,
