@@ -84,8 +84,9 @@ test("desktop and mobile occupied cells never become booking actions when detail
         appointmentById: new Map(), scheduleGrid,
         onBookedSlotClick: () => undefined, onOpenBooking: () => undefined,
       }));
-      assert.equal((html.match(/Occupied until/g) ?? []).length, 2);
-      assert.equal((html.match(/disabled=""/g) ?? []).length, 2);
+      assert.equal((html.match(/disabled=""/g) ?? []).length, 1, "one disabled appointment spans both occupied cells");
+      if (Component === ScheduleGridTable) assert.match(html, /grid-row:2 \/ span 2/);
+      else assert.equal((html.match(/Occupied until/g) ?? []).length, 1);
       assert.doesNotMatch(html, /Tap to book/);
       assert.match(html, /08:30/);
     }
@@ -104,6 +105,39 @@ test("Schedule colors distinguish unconfirmed communication, confirmed visits an
   assert.equal(scheduleAppointmentColor("Cancelled", "Confirmed by phone", "#123456"), "#dc2626");
 });
 
+test("Day renders separate visits in time order across providers", async () => {
+  const previousReact = (globalThis as { React?: typeof import("react") }).React;
+  (globalThis as { React?: typeof import("react") }).React = await import("react");
+  try {
+    const { ScheduleGridTable } = await import("./reservations-page");
+    const slot = (time: string, end: string, appointmentId: string) => ({
+      startTime: `2030-01-01T${time}:00+05:45`,
+      endTime: `2030-01-01T${end}:00+05:45`,
+      state: "BOOKED" as const, appointmentId,
+      appointmentSummary: { customerName: "Same Client", serviceName: "Consultation", status: "Confirmed" as const },
+    });
+    const provider = (id: string, slots: ReturnType<typeof slot>[]) => ({
+      providerId: id, providerName: id, providerColor: "#0f766e", specialty: "Dentist", slots,
+    });
+    const html = renderToStaticMarkup(createElement(ScheduleGridTable, {
+      appointmentById: new Map(),
+      onBookedSlotClick: () => undefined, onOpenBooking: () => undefined,
+      scheduleGrid: {
+        date: "2030-01-01", timezone: "Asia/Kathmandu",
+        providers: [
+          provider("provider-a", [slot("08:00", "08:30", "visit-a"), slot("08:15", "08:30", "visit-a"), slot("08:30", "08:45", "visit-c")]),
+          provider("provider-b", [slot("08:15", "08:30", "visit-b")]),
+        ],
+      },
+    }));
+    assert.deepEqual([...html.matchAll(/data-appointment-id="([^"]+)"/g)].map(match => match[1]), ["visit-a", "visit-b", "visit-c"]);
+    assert.match(html, /grid-row:2 \/ span 2/);
+    assert.match(html, /Unavailable/, "missing provider rows keep their unavailable state");
+  } finally {
+    (globalThis as { React?: typeof import("react") }).React = previousReact;
+  }
+});
+
 test("week dates stay sticky inside the bounded Schedule scroll region", async () => {
   const { WeekPanel } = await import("./reservations-page");
   const html = renderToStaticMarkup(createElement(WeekPanel, {
@@ -114,4 +148,33 @@ test("week dates stay sticky inside the bounded Schedule scroll region", async (
   assert.match(html, /max-h-\[70vh\] overflow-auto/);
   assert.match(html, /sticky top-0 z-10/);
   assert.match(html, /Tue/);
+  assert.match(html, /sm:min-w-\[1960px\]/);
+  assert.match(html, /w-\[700%\]/);
+});
+
+test("the main date label identifies the weekday in both calendars", async () => {
+  const { ScheduleDateLabel } = await import("./reservations-page");
+  for (const mode of ["AD", "BS"] as const) {
+    const html = renderToStaticMarkup(createElement(ScheduleDateLabel, { adDateKey: "2026-10-10", mode }));
+    assert.match(html, /Saturday/);
+    assert.match(html, /2026/);
+    assert.match(html, /2083/);
+  }
+});
+
+test("Month exposes weekday headings and keeps civil-date buttons aligned across AD and BS", async () => {
+  const { MonthPanel } = await import("./reservations-page");
+  for (const calendarMode of ["AD", "BS"] as const) {
+    const grid = buildCalendarGrid("2026-10-10", calendarMode);
+    const html = renderToStaticMarkup(createElement(MonthPanel, {
+      calendarMode, grid, selectedDate: "2026-10-10", summaries: new Map(), summaryLoading: false,
+      onChangeMonth() {}, onDaySelect() {}, onOpenDay() {},
+    }));
+    for (const day of ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]) assert.match(html, new RegExp(`title="${day}"`));
+    assert.equal((html.match(/aria-label="Select /g) ?? []).length, 42);
+    assert.match(html, /Open selected day/);
+    assert.match(html, /data-date="2026-10-10"/);
+    assert.match(html, /aria-pressed="true"/);
+    assert.doesNotMatch(html, /<button\b[^>]*>(?:(?!<\/button>)[\s\S])*<button\b/);
+  }
 });
