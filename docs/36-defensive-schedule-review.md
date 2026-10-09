@@ -39,4 +39,4 @@ The final independent source review found no remaining P1/P2 issues in this chan
 
 Overlapping history can widen desktop columns; scrolling stays inside the grid. Mobile uses a list. Cancellation markers express an interval overlap, not a permanent successor relationship; they do not infer chronology for terminal visits. Archived/deleted records follow existing visibility rules. History outside the day's existing grid is not projected onto invented booking rows.
 
-Private upload approval, CI and production verification remain pending. Apply migration `20261008_000027_custom_booking_procedures` before the dependent rollout. Confirm behavior on physical phones and with production permissions after deployment. [Current handoff](progress.md).
+The owner authorized private branch upload on October 9. CI and production verification remain pending. Apply migration `20261008_000027_custom_booking_procedures` before the dependent rollout. Confirm behavior on physical phones and with production permissions after deployment. [Current handoff](progress.md).
