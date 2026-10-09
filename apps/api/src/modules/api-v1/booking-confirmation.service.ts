@@ -1,3 +1,4 @@
+import { assertBookingProcedure } from "./dto/booking-procedure.dto";
 import { createHash, randomUUID } from "node:crypto";
 
 import {
@@ -246,7 +247,8 @@ export class BookingConfirmationService {
         status: "Scheduled",
         communicationState: "Unconfirmed",
         notes: dto.notes?.trim() || null,
-        services: { create: [{ serviceId: dto.serviceId }] },
+        customProcedureName: dto.customProcedureName?.trim(),
+        services: dto.serviceId ? { create: [{ serviceId: dto.serviceId }] } : undefined,
       },
       select: { id: true },
     });
@@ -272,6 +274,7 @@ export class BookingConfirmationService {
           locationId: dto.locationId,
           providerId: dto.providerId,
           serviceId: dto.serviceId,
+          customProcedureName: dto.customProcedureName?.trim(),
           customerId: client.id,
           startsAtIso: startsAt.toISOString(),
           durationMinutes: timing.durationMinutes,
@@ -670,7 +673,8 @@ export class BookingConfirmationService {
         createdByUserId: string;
         locationId: string;
         providerId: string;
-        serviceId: string;
+        serviceId: string | null;
+        customProcedureName: string | null;
         startsAt: Date;
         endsAt: Date;
         bufferMinutes: number;
@@ -681,7 +685,7 @@ export class BookingConfirmationService {
     >(Prisma.sql`
       SELECT
         "id", "draftId", "organizationId", "createdByUserId",
-        "locationId", "providerId", "serviceId", "startsAt", "endsAt",
+        "locationId", "providerId", "serviceId", "customProcedureName", "startsAt", "endsAt",
         "bufferMinutes", "expiresAt", "releasedAt", "consumedAt"
       FROM "BookingSlotHold"
       WHERE "id" = ${dto.holdId}
@@ -706,7 +710,8 @@ export class BookingConfirmationService {
       hold.draftId !== dto.draftId ||
       hold.locationId !== dto.locationId ||
       hold.providerId !== dto.providerId ||
-      hold.serviceId !== dto.serviceId ||
+      (hold.serviceId ?? undefined) !== dto.serviceId ||
+      (hold.customProcedureName ?? undefined) !== dto.customProcedureName?.trim() ||
       hold.startsAt.getTime() !== new Date(dto.startsAtIso).getTime() ||
       hold.endsAt.getTime() !== endsAt.getTime() ||
       hold.bufferMinutes !== bufferMinutes
@@ -852,6 +857,8 @@ export class BookingConfirmationService {
           locationId: dto.locationId,
           providerId: dto.providerId,
           serviceId: dto.serviceId,
+          customProcedureName: dto.customProcedureName?.trim(),
+          durationMinutes: dto.durationMinutes,
           startsAtIso: new Date(dto.startsAtIso).toISOString(),
           priority: dto.priority,
           notes: dto.notes?.trim() || undefined,
@@ -863,6 +870,7 @@ export class BookingConfirmationService {
   }
 
   private assertConfirmation(dto: ConfirmBookingDto) {
+    assertBookingProcedure(dto);
     if (!dto.client) {
       throw new BadRequestException({
         code: "INVALID_CONFIRMATION",
@@ -898,6 +906,8 @@ export class BookingConfirmationService {
           providerId: dto.providerId,
           locationId: dto.locationId,
           serviceId: dto.serviceId,
+          customProcedureName: dto.customProcedureName?.trim(),
+          durationMinutes: dto.durationMinutes,
           startsAtIso: dto.startsAtIso,
         },
         tx,

@@ -148,6 +148,7 @@ export type Appointment = {
   customerId: string;
   providerId: string;
   serviceIds: string[];
+  customProcedureName?: string;
   startsAtIso: string;
   durationMinutes: number;
   bufferMinutes: number;
@@ -155,6 +156,7 @@ export type Appointment = {
   priority: Priority;
   chair: string;
   notes: string;
+  cancellationReason?: string;
   communicationState: "Unconfirmed" | "Confirmed by phone" | "SMS sent" | "Needs call";
   /** Directory-safe labels returned with bounded schedule range reads. */
   clientSummary?: {
@@ -205,7 +207,9 @@ export type ProviderDayScheduleGrid = {
         customerName: string;
         serviceName: string;
         status: AppointmentStatus;
+        communicationState?: string;
       };
+      cancelledSummary?: { customerName: string; reason: string };
     }>;
   }>;
 };

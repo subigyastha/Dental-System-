@@ -369,3 +369,97 @@ test("effective slot timing preserves the Provider window buffer", async () => {
     { durationMinutes: 30, bufferMinutes: 20 },
   );
 });
+
+for (const bufferMinutes of [0, 15]) {
+  test(`day grid occupies the full appointment and ${bufferMinutes}-minute buffer, with an open end boundary`, async () => {
+    const service = createSchedulingService(15, () => undefined, (db) => {
+      db.appointment = { findMany: async ({ where }: { where: { status: { in: string[] } } }) => {
+        assert.deepEqual(where.status.in, ["Scheduled", "Confirmed", "CheckedIn", "InProgress", "Cancelled"]);
+        return [{
+          id: "appointment-a", providerId: "provider-a",
+          startsAt: new Date("2030-01-01T09:00:00+05:45"),
+          endsAt: new Date("2030-01-01T09:30:00+05:45"),
+          durationMinutes: 30, bufferMinutes, status: "Confirmed",
+          customer: { fullName: "Test Client" }, services: [],
+        }];
+      } };
+    });
+    const grid = await service.listScheduleGridForDay({ organizationId: "clinic-a", providerIds: ["provider-a"], dateKey: "2030-01-01" });
+    const slots = grid.providers[0].slots;
+    const at = (time: string) => slots.find((slot) => new Date(slot.startTime).getTime() === new Date(`2030-01-01T${time}:00+05:45`).getTime())!;
+    assert.equal(at("09:00").state, "BOOKED");
+    assert.equal(at("09:15").state, "BOOKED");
+    assert.equal(at("09:15").appointmentId, "appointment-a");
+    assert.equal(at("09:30").state, bufferMinutes ? "BOOKED" : "AVAILABLE");
+    assert.equal(at("09:45").state, "AVAILABLE");
+    assert.equal(new Date(at("09:15").endTime).getTime(), new Date("2030-01-01T09:30:00+05:45").getTime() + bufferMinutes * 60_000);
+  });
+}
+
+test("day grid with no active appointments keeps the whole interval available", async () => {
+  const service = createSchedulingService(15, () => undefined, (db) => {
+    db.appointment = { findMany: async ({ where }: { where: { status: { in: string[] } } }) => {
+      assert.equal(where.status.in.includes("Cancelled"), true);
+      assert.equal(where.status.in.includes("Completed"), false);
+      return [];
+    } };
+  });
+  const grid = await service.listScheduleGridForDay({ organizationId: "clinic-a", providerIds: ["provider-a"], dateKey: "2030-01-01" });
+  const available = grid.providers[0].slots.filter((slot) => slot.state === "AVAILABLE");
+  assert.equal(available.length, 4);
+  assert.equal(grid.providers[0].slots.some((slot) => slot.state === "BOOKED"), false);
+});
+
+
+test("custom duration overrides service preset and stays isolated in the slot cache", async () => {
+  const service = createSchedulingService(15, () => undefined, (db) => {
+    db.service = { findMany: async () => [{ id: "service-a", durationMinutes: 45, bufferMinutes: 0 }] };
+    db.providerService = { findMany: async () => [] };
+  });
+  const params = { organizationId: "clinic-a", providerId: "provider-a", dateKey: "2030-01-01", serviceId: "service-a" };
+  const short = await service.listProviderSlots({ ...params, durationMinutes: 15 });
+  const long = await service.listProviderSlots({ ...params, durationMinutes: 30 });
+  const preset = await service.listProviderSlots(params);
+  assert.deepEqual(short.slots.map(slot => slot.time), ["09:00", "09:15", "09:45"]);
+  assert.deepEqual(long.slots.map(slot => slot.time), ["09:00"]);
+  assert.equal(preset.durationMinutes, 45);
+  assert.deepEqual(preset.slots, []);
+  const timing = await service.getEffectiveSlotTiming({ ...params, startsAtIso: "2030-01-01T09:15:00+05:45", durationMinutes: 15 });
+  assert.equal(timing.durationMinutes, 15);
+});
+
+
+test("day grid blocks cells that partially overlap an off-grid appointment", async () => {
+  const service = createSchedulingService(15, () => undefined, (db) => {
+    db.appointment = { findMany: async () => [{
+      id: "off-grid", providerId: "provider-a",
+      startsAt: new Date("2030-01-01T09:10:00+05:45"),
+      endsAt: new Date("2030-01-01T09:25:00+05:45"),
+      durationMinutes: 15, bufferMinutes: 0, status: "Scheduled",
+      customer: { fullName: "Test Client" }, services: [],
+    }] };
+  });
+  const grid = await service.listScheduleGridForDay({ organizationId: "clinic-a", providerIds: ["provider-a"], dateKey: "2030-01-01" });
+  const slots = grid.providers[0].slots;
+  for (const time of ["09:00", "09:10", "09:15"]) {
+    assert.equal(slots.find((slot) => new Date(slot.startTime).getTime() === new Date(`2030-01-01T${time}:00+05:45`).getTime())?.state, "BOOKED");
+  }
+  assert.equal(slots.find((slot) => new Date(slot.startTime).getTime() === new Date("2030-01-01T09:30:00+05:45").getTime())?.state, "AVAILABLE");
+});
+
+
+test("cancelled grid history never occupies continuation cells and disappears when a replacement overlaps", async () => {
+  for (const replacement of [false, true]) {
+    const service = createSchedulingService(15, () => undefined, (db) => {
+      const cancelled = { id: "cancelled", providerId: "provider-a", startsAt: new Date("2030-01-01T09:00:00+05:45"), endsAt: new Date("2030-01-01T09:30:00+05:45"), durationMinutes: 30, bufferMinutes: 0, status: "Cancelled", cancellationReason: "Client requested", customer: { fullName: "Test Client" }, services: [] };
+      db.appointment = { findMany: async () => [cancelled, ...(replacement ? [{ ...cancelled, id: "new", status: "Confirmed", startsAt: new Date("2030-01-01T09:15:00+05:45"), endsAt: new Date("2030-01-01T09:45:00+05:45") }] : [])] };
+    });
+    const grid = await service.listScheduleGridForDay({ organizationId: "clinic-a", providerIds: ["provider-a"], dateKey: "2030-01-01" });
+    const at = (time: string) => grid.providers[0].slots.find((slot) => new Date(slot.startTime).getTime() === new Date(`2030-01-01T${time}:00+05:45`).getTime())!;
+    assert.equal(at("09:00").state, "AVAILABLE");
+    assert.equal(at("09:00").cancelledSummary?.reason, replacement ? undefined : "Client requested");
+    assert.equal(at("09:15").state, replacement ? "BOOKED" : "AVAILABLE");
+    assert.equal(at("09:15").cancelledSummary, undefined);
+    assert.equal(at("09:00").appointmentId, undefined);
+  }
+});

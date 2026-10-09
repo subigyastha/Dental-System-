@@ -1,22 +1,20 @@
+import { BookingProcedureDto } from "./booking-procedure.dto";
 import { IsISO8601, IsString, IsUUID, Length } from "class-validator";
 
 import { IsAdDateKey } from "../../scheduling/ad-date-key";
 
-export class RankedAvailabilityQueryDto {
+export class RankedAvailabilityQueryDto extends BookingProcedureDto {
   @IsString()
   locationId!: string;
 
   @IsString()
   providerId!: string;
 
-  @IsString()
-  serviceId!: string;
-
   @IsAdDateKey()
   date!: string;
 }
 
-export class CreateBookingSlotHoldDto {
+export class CreateBookingSlotHoldDto extends BookingProcedureDto {
   @IsUUID()
   draftId!: string;
 
@@ -25,9 +23,6 @@ export class CreateBookingSlotHoldDto {
 
   @IsString()
   providerId!: string;
-
-  @IsString()
-  serviceId!: string;
 
   @IsISO8601()
   startsAtIso!: string;

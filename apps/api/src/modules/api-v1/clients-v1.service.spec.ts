@@ -83,6 +83,57 @@ test("v1 Client directory normalizes an HTTP query-string limit", async () => {
   assert.equal(result.page.limit, 25);
 });
 
+test("due Client call list combines outstanding tasks and historical visits missing an active recall", async () => {
+  let observed: Record<string, unknown> | undefined;
+  const service = new ClientsV1Service({ customer: { findMany: async ({ where }: { where: Record<string, unknown> }) => { observed = where; return []; } } } as never,
+    { requireSession: async () => ({ ...actor, effectiveRoleScopes: [{ role: "Receptionist", locationId: "location-a" }] }) } as never);
+  await service.list({ limit: 25, followUp: "due", query: "Asha" });
+  assert.equal(observed?.organizationId, actor.organizationId);
+  assert.equal(observed?.archivedAt, null);
+  const branches = (observed?.AND as Array<{ OR: Array<Record<string, unknown>> }>)[0].OR;
+  assert.deepEqual(branches[0], { followUpTasks: { some: {
+    organizationId: actor.organizationId,
+    appointment: { is: { locationId: { in: ["location-a"] } } },
+    status: { in: ["Open", "InProgress", "Waiting", "Blocked"] },
+    dueAt: { lte: (branches[0].followUpTasks as { some: { dueAt: { lte: Date } } }).some.dueAt.lte },
+  } } });
+  assert.deepEqual(branches[1], {
+    appointments: { some: { organizationId: actor.organizationId, status: "Completed", locationId: { in: ["location-a"] } } },
+    followUpTasks: { none: { organizationId: actor.organizationId, type: "Recall", status: { not: "Done" } } },
+  });
+  assert.ok(observed?.OR, "name search remains combined with the due filter");
+});
+
+test("Client profile exposes every outstanding task and explicit historical review without read writes", async () => {
+  const queries: Array<Record<string, unknown>> = [];
+  const completedVisit = { id: "visit-a", startsAt: new Date("2026-08-31T04:00:00Z"), locationId: "location-a", providerId: "provider-a" };
+  const openTasks = Array.from({ length: 16 }, (_, index) => ({
+    id: "task-" + index, dueAt: new Date("2026-10-01T00:00:00Z"), status: "Open", type: "TreatmentContinuation",
+    summary: "Case follow-up", nextAction: "Call the client", ownerId: "provider-a", appointment: completedVisit,
+  }));
+  const service = new ClientsV1Service({
+    customer: { findFirst: async () => ({ ...clientRow, primaryMerges: [], mergedIntoCustomer: null }) },
+    appointment: {
+      findMany: async () => [{ ...completedVisit, status: "Completed", customProcedureName: "Implant review", cancellationReason: null, provider: { displayName: "Dr A" } }],
+      findFirst: async () => completedVisit,
+    },
+    followUpTask: {
+      findMany: async (query: Record<string, unknown>) => { queries.push(query); return (query.where as Record<string, unknown>).status ? openTasks : [{ ...openTasks[0], id: "done-a", status: "Done" }]; },
+      findFirst: async () => null,
+    },
+    invoice: { findMany: async () => [] }, communicationLog: { findMany: async () => [] },
+  } as never, { requireSession: async () => ({ ...actor, effectiveRoleScopes: [{ role: "Receptionist", locationId: "location-a" }] }) } as never);
+  const result = await service.getOne(clientRow.id);
+  assert.equal(result.followUps.filter((item) => item.status !== "Done").length, 16);
+  assert.equal(result.followUps.length, 17);
+  assert.ok(result.followUps.every((item) => item.canManage));
+  assert.equal(result.recallReview.needsReview, true);
+  assert.equal(result.recallReview.canCreate, true);
+  assert.match(result.timeline.find((item) => item.kind === "appointment")!.title, /Implant review/);
+  assert.deepEqual((queries[0].where as Record<string, unknown>).appointment, { is: { locationId: { in: ["location-a"] } } });
+  assert.equal(queries[1].take, undefined, "older outstanding tasks cannot disappear behind the history limit");
+});
+
 test("v1 Client directory can return a deterministic recent-booking list", async () => {
   let observedOrder: unknown;
   const service = new ClientsV1Service(

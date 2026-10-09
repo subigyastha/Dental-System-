@@ -58,6 +58,9 @@ export function buildAppointmentView(
     ...appointment,
     customer,
     provider,
+    procedureLabel: appointment.customProcedureName ?? (appointment.serviceIds
+      .flatMap((serviceId) => serviceMap.get(serviceId)?.name ?? [])
+      .join(", ") || "Visit"),
     services: appointment.serviceIds.flatMap((serviceId) => {
       const service = serviceMap.get(serviceId);
       return service ? [service] : [];

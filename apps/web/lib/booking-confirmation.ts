@@ -4,7 +4,9 @@ export type ConfirmBookingRequest = {
   draftId: string;
   locationId: string;
   providerId: string;
-  serviceId: string;
+  serviceId?: string;
+  customProcedureName?: string;
+  durationMinutes?: number;
   startsAtIso: string;
   priority: "Low" | "Normal" | "High" | "Urgent";
   notes?: string;

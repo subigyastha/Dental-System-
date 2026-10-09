@@ -31,8 +31,8 @@ test(
       email: `${prefix}@example.test`,
     };
     const scheduling = {
-      getEffectiveSlotTiming: async () => ({
-        durationMinutes: 30,
+      getEffectiveSlotTiming: async (params: { durationMinutes?: number }) => ({
+        durationMinutes: params.durationMinutes ?? 30,
         bufferMinutes: 10,
       }),
       invalidateAppointmentPlanning: () => undefined,
@@ -243,6 +243,64 @@ test(
         }),
         0,
       );
+
+      // A custom visit reserves exactly its requested duration plus the buffer.
+      // Exercise the database exclusion constraint, receipt, and hold consumption.
+      const customStart = new Date(future.getTime() + 11 * 60 * 60_000);
+      const customDto = { ...dtoAt(customStart), serviceId: undefined, customProcedureName: "Case review", durationMinutes: 45 };
+      const customHold = await prisma.bookingSlotHold.create({
+        data: {
+          draftId: customDto.draftId,
+          idempotencyKey: `${prefix}-custom-hold`,
+          requestHash: "integration-custom-hold",
+          organizationId,
+          locationId,
+          providerId,
+          serviceId: null,
+          customProcedureName: customDto.customProcedureName,
+          startsAt: customStart,
+          endsAt: new Date(customStart.getTime() + 45 * 60_000),
+          bufferMinutes: 10,
+          expiresAt: new Date(Date.now() + 180_000),
+          createdByUserId: actorUserId,
+        },
+      });
+      const heldCustomDto = { ...customDto, holdId: customHold.id };
+      const customKey = `${prefix}-custom-confirm`;
+      const custom = await service.confirm(heldCustomDto, customKey, actor);
+      const storedCustom = await prisma.appointment.findUniqueOrThrow({
+        where: { id: custom.appointment.id },
+      });
+      assert.equal(storedCustom.durationMinutes, 45);
+      assert.equal(storedCustom.customProcedureName, "Case review");
+      assert.equal(await prisma.appointmentService.count({ where: { appointmentId: storedCustom.id } }), 0);
+      assert.equal(storedCustom.bufferMinutes, 10);
+      assert.equal(storedCustom.endsAt.getTime(), customStart.getTime() + 45 * 60_000);
+      const consumedCustomHold = await prisma.bookingSlotHold.findUniqueOrThrow({
+        where: { id: customHold.id },
+      });
+      assert.ok(consumedCustomHold.consumedAt);
+      const customReplay = await service.confirm(heldCustomDto, customKey, actor);
+      assert.equal(customReplay.replayed, true);
+      assert.equal(customReplay.appointment.id, custom.appointment.id);
+      await assert.rejects(
+        service.confirm({ ...heldCustomDto, durationMinutes: 60 }, customKey, actor),
+        (error) => domainReason(error) === "IDEMPOTENCY_KEY_REUSED",
+      );
+      await assert.rejects(
+        service.confirm(
+          { ...dtoAt(new Date(customStart.getTime() + 54 * 60_000)), durationMinutes: 15 },
+          `${prefix}-custom-overlap`,
+          actor,
+        ),
+        (error) => domainReason(error) === "SLOT_UNAVAILABLE",
+      );
+      const adjacent = await service.confirm(
+        { ...dtoAt(new Date(customStart.getTime() + 55 * 60_000)), durationMinutes: 15 },
+        `${prefix}-custom-adjacent`,
+        actor,
+      );
+      assert.equal(adjacent.appointment.durationMinutes, 15);
 
       const rollbackPhone = "9779800000022";
       const rollbackVersion = createHash("sha256")

@@ -66,3 +66,52 @@ test("schedule request state starts loading before an empty state can render", a
   assert.equal(isScheduleRequestPending(true, "day-b", "day-a"), true);
   assert.equal(isScheduleRequestPending(false, "day-b", "day-a"), false);
 });
+
+
+test("desktop and mobile occupied cells never become booking actions when details are missing", async () => {
+  const previousReact = (globalThis as { React?: typeof import("react") }).React;
+  (globalThis as { React?: typeof import("react") }).React = await import("react");
+  try {
+    const { ScheduleGridTable, MobileDayScheduleList } = await import("./reservations-page");
+    const scheduleGrid = {
+      date: "2030-01-01", timezone: "Asia/Kathmandu" as const,
+      providers: [{ providerId: "provider-a", providerName: "Test Provider", providerColor: "#0f766e", specialty: "Dentist",
+        slots: ["08:00", "08:15"].map((time) => ({ startTime: `2030-01-01T${time}:00+05:45`, endTime: "2030-01-01T08:30:00+05:45", state: "BOOKED" as const, appointmentId: "appointment-a", appointmentSummary: { customerName: "Test Client", serviceName: "Consultation", status: "Confirmed" as const } })),
+      }],
+    };
+    for (const Component of [ScheduleGridTable, MobileDayScheduleList]) {
+      const html = renderToStaticMarkup(createElement(Component, {
+        appointmentById: new Map(), scheduleGrid,
+        onBookedSlotClick: () => undefined, onOpenBooking: () => undefined,
+      }));
+      assert.equal((html.match(/Occupied until/g) ?? []).length, 2);
+      assert.equal((html.match(/disabled=""/g) ?? []).length, 2);
+      assert.doesNotMatch(html, /Tap to book/);
+      assert.match(html, /08:30/);
+    }
+  } finally {
+    (globalThis as { React?: typeof import("react") }).React = previousReact;
+  }
+});
+
+
+test("Schedule colors distinguish unconfirmed communication, confirmed visits and cancellations", async () => {
+  const { scheduleAppointmentColor } = await import("./reservations-page");
+  assert.equal(scheduleAppointmentColor("Scheduled", "Unconfirmed", "#123456"), "#ca8a04");
+  assert.equal(scheduleAppointmentColor("Scheduled", "SMS sent", "#123456"), "#ca8a04");
+  assert.equal(scheduleAppointmentColor("Scheduled", "Confirmed by phone", "#123456"), "#123456");
+  assert.equal(scheduleAppointmentColor("Confirmed", "Unconfirmed", "#123456"), "#123456");
+  assert.equal(scheduleAppointmentColor("Cancelled", "Confirmed by phone", "#123456"), "#dc2626");
+});
+
+test("week dates stay sticky inside the bounded Schedule scroll region", async () => {
+  const { WeekPanel } = await import("./reservations-page");
+  const html = renderToStaticMarkup(createElement(WeekPanel, {
+    appointmentsByDate: new Map(), isLoading: false, onBookedSlotClick: () => undefined,
+    onOpenBooking: () => undefined, onOpenDay: () => undefined, providerDetailsById: new Map(),
+    visibleProviders: [], weekDateKeys: ["2030-01-01"], weekSummaryByDate: new Map(),
+  }));
+  assert.match(html, /max-h-\[70vh\] overflow-auto/);
+  assert.match(html, /sticky top-0 z-10/);
+  assert.match(html, /Tue/);
+});

@@ -26,6 +26,7 @@ import {
 import { PrismaService } from "../prisma/prisma.service";
 import { adDateKeyInTimeZone, isValidAdDateKey } from "../scheduling/ad-date-key";
 import { boundedInteger } from "./bounded-integer";
+import { canManageFollowup, followupLocationScope, recallAppointmentLocationScope } from "../followups/followup-access";
 import {
   type AppendClientPhoneDto,
   type AppendCallerPhoneDto,
@@ -86,6 +87,17 @@ export class ClientsV1Service {
       organizationId: actor.organizationId,
       archivedAt: null,
       mergedIntoCustomerId: null,
+      ...(query.followUp === "due" ? { AND: [{ OR: [
+        { followUpTasks: { some: {
+          organizationId: actor.organizationId,
+          ...followupLocationScope(actor),
+          status: { in: ["Open", "InProgress", "Waiting", "Blocked"] as Array<"Open" | "InProgress" | "Waiting" | "Blocked"> },
+          dueAt: { lte: new Date() },
+        } } },
+        // Existing completed visits are surfaced for explicit recall review;
+        // reading the call list never writes or silently backfills records.
+        { appointments: { some: { organizationId: actor.organizationId, status: "Completed", ...recallAppointmentLocationScope(actor) } }, followUpTasks: { none: { organizationId: actor.organizationId, type: "Recall", status: { not: "Done" } } } },
+      ] }] } : {}),
       ...(search ? { OR: this.searchWhere(search) } : {}),
     };
     const rows = await this.prisma.customer.findMany({
@@ -132,16 +144,17 @@ export class ClientsV1Service {
     });
     if (!client) throw new NotFoundException("Client not found");
 
-    const [appointments, followUps, invoices, communications] = await Promise.all([
+    const followUpSelect = { id: true, dueAt: true, status: true, type: true, summary: true, nextAction: true, ownerId: true, appointment: { select: { locationId: true, providerId: true } } } as const;
+    const [appointments, followUps, invoices, communications, openFollowUps, latestCompletedVisit, activeRecall] = await Promise.all([
       this.prisma.appointment.findMany({
         where: { customerId: id, organizationId: actor.organizationId },
-        select: { id: true, startsAt: true, status: true, provider: { select: { displayName: true } } },
+        select: { id: true, startsAt: true, status: true, cancellationReason: true, customProcedureName: true, provider: { select: { displayName: true } } },
         orderBy: { startsAt: "desc" },
         take: 15,
       }),
       this.prisma.followUpTask.findMany({
-        where: { customerId: id, organizationId: actor.organizationId },
-        select: { id: true, dueAt: true, status: true, summary: true },
+        where: { customerId: id, organizationId: actor.organizationId, ...followupLocationScope(actor) },
+        select: followUpSelect,
         orderBy: { dueAt: "desc" },
         take: 15,
       }),
@@ -157,6 +170,20 @@ export class ClientsV1Service {
         orderBy: { occurredAt: "desc" },
         take: 15,
       }),
+      this.prisma.followUpTask.findMany({
+        where: { customerId: id, organizationId: actor.organizationId, status: { not: "Done" }, ...followupLocationScope(actor) },
+        select: followUpSelect,
+        orderBy: { dueAt: "asc" },
+      }),
+      this.prisma.appointment.findFirst({
+        where: { customerId: id, organizationId: actor.organizationId, status: "Completed" },
+        orderBy: [{ startsAt: "desc" }, { id: "desc" }],
+        select: { id: true, startsAt: true, locationId: true, providerId: true },
+      }),
+      this.prisma.followUpTask.findFirst({
+        where: { customerId: id, organizationId: actor.organizationId, type: "Recall", status: { not: "Done" } },
+        select: { id: true },
+      }),
     ]);
 
     const timeline = [
@@ -164,8 +191,9 @@ export class ClientsV1Service {
         id: `appointment:${item.id}`,
         atIso: item.startsAt.toISOString(),
         kind: "appointment",
-        title: `${item.status} appointment`,
-        detail: item.provider.displayName,
+        title: `${item.status} appointment${item.customProcedureName ? " · " + item.customProcedureName : ""}`,
+        detail: item.status === "Cancelled" && item.cancellationReason
+          ? `${item.provider.displayName} · ${item.cancellationReason}` : item.provider.displayName,
       })),
       ...followUps.map((item) => ({
         id: `follow-up:${item.id}`,
@@ -214,6 +242,16 @@ export class ClientsV1Service {
         },
       })),
       timeline,
+      followUps: [...openFollowUps, ...followUps.filter((task) => task.status === "Done")].map((task) => ({
+        id: task.id, dueAtIso: task.dueAt.toISOString(), status: task.status,
+        summary: task.summary, nextAction: task.nextAction,
+        type: task.type, canManage: canManageFollowup(actor, task),
+      })),
+      recallReview: {
+        needsReview: Boolean(latestCompletedVisit && !activeRecall),
+        canCreate: Boolean(!client.archivedAt && !client.mergedIntoCustomerId && latestCompletedVisit && !activeRecall && canManageFollowup(actor, { appointment: latestCompletedVisit, ownerId: latestCompletedVisit.providerId })),
+        lastCompletedVisitIso: latestCompletedVisit?.startsAt.toISOString() ?? null,
+      },
     };
   }
 

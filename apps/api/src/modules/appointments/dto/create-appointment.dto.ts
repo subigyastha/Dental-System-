@@ -1,4 +1,4 @@
-import { IsArray, IsEnum, IsInt, IsOptional, IsString, Min } from "class-validator";
+import { IsArray, IsDivisibleBy, Length, IsEnum, IsInt, IsOptional, IsString, Max, Min } from "class-validator";
 import { Priority } from "@prisma/client";
 
 export class CreateAppointmentDto {
@@ -31,11 +31,18 @@ export class CreateAppointmentDto {
   @IsString({ each: true })
   serviceIds!: string[];
 
+  @IsOptional()
+  @IsString()
+  @Length(1, 120)
+  customProcedureName?: string;
+
   @IsString()
   startsAtIso!: string;
 
   @IsInt()
-  @Min(1)
+  @Min(15)
+  @Max(1440)
+  @IsDivisibleBy(15)
   durationMinutes!: number;
 
   @IsInt()

@@ -2,6 +2,8 @@
 
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { getPrimaryAppointmentAction } from "@/lib/appointment-workflow";
 import {
   CalendarPlus2,
   Check,
@@ -53,6 +55,33 @@ import type {
 
 type CalendarView = "day" | "week" | "month";
 type AppointmentView = ReturnType<typeof buildAppointmentView>;
+type ScheduleSlot = ProviderDayScheduleGrid["providers"][number]["slots"][number];
+function scheduleSlotAction(slot: ScheduleSlot | undefined, appointment: AppointmentView | undefined, canBook: boolean) {
+  if (slot?.state === "BOOKED") return appointment ? "details" : null;
+  return slot?.state === "AVAILABLE" && canBook ? "book" : null;
+}
+export function scheduleAppointmentColor(status: Appointment["status"], communicationState: string | undefined, providerColor: string) {
+  if (status === "Cancelled") return "#dc2626";
+  if (status === "Scheduled" && communicationState !== "Confirmed by phone") return "#ca8a04";
+  return providerColor;
+}
+export function cancelledAppointmentWasReplaced(appointment: Appointment, appointments: Appointment[]) {
+  if (appointment.status !== "Cancelled") return false;
+  const start = new Date(appointment.startsAtIso).getTime();
+  const end = start + appointment.durationMinutes * 60_000;
+  return appointments.some((active) => active.providerId === appointment.providerId &&
+    ["Scheduled", "Confirmed", "CheckedIn", "InProgress"].includes(active.status) &&
+    new Date(active.startsAtIso).getTime() < end &&
+    new Date(active.startsAtIso).getTime() + active.durationMinutes * 60_000 > start);
+}
+
+function cancelledSlotNote(slot: ScheduleSlot) {
+  return slot.cancelledSummary ? `Cancelled: ${slot.cancelledSummary.customerName} - ${slot.cancelledSummary.reason}. Available to book.` : null;
+}
+function occupiedSlotLabel(slot: ScheduleSlot, appointment?: AppointmentView) {
+  const continuation = appointment && new Date(slot.startTime).getTime() > new Date(appointment.startsAtIso).getTime();
+  return `${continuation ? "Continues" : "Occupied"} until ${formatClockLabel(slot.endTime)}`;
+}
 const selfBookingRestrictedRoles = new Set(["Provider", "Assistant"]);
 const crossProviderBookingRoles = new Set([
   "Owner",
@@ -172,6 +201,7 @@ export function ReservationsPage({
   const appointmentViews = useMemo(
     () =>
       rangeAppointments
+        .filter((appointment) => !cancelledAppointmentWasReplaced(appointment, rangeAppointments))
         .map((appointment) =>
           buildAppointmentView(appointment, data.customers, data.providers, data.services),
         )
@@ -982,6 +1012,7 @@ function MobileReservationsView({
             </Panel>
           ) : null}
           <Panel title="Day schedule">
+            <div className="border-b border-[var(--border)] px-4 py-3 text-sm font-semibold">{formatShortWeekday(selectedDate)} · {selectedDate}</div>
             {dayGridLoading ? (
               <KoiSectionLoader label="Loading day schedule" />
             ) : dayScheduleGrid ? (
@@ -1343,7 +1374,7 @@ function WeekInsightRail({
   );
 }
 
-function WeekPanel({
+export function WeekPanel({
   appointmentsByDate,
   isLoading,
   lockedProviderId,
@@ -1371,7 +1402,7 @@ function WeekPanel({
       {isLoading ? (
         <KoiSectionLoader className="min-h-[520px]" label="Loading weekly board" />
       ) : (
-        <div className="overflow-x-auto">
+        <div className="max-h-[70vh] overflow-auto" data-testid="week-scroll-container">
           <div className="grid min-w-[980px] grid-cols-7 divide-x divide-[var(--border)]">
             {weekDateKeys.map((dateKey) => {
               const summary = weekSummaryByDate.get(dateKey);
@@ -1379,7 +1410,7 @@ function WeekPanel({
               return (
                 <div className="flex min-h-[640px] flex-col bg-white" key={dateKey}>
                   <button
-                    className="border-b border-[var(--border)] bg-[var(--surface-muted)] px-4 py-4 text-left transition hover:bg-white"
+                    className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--surface-muted)] px-4 py-4 text-left transition hover:bg-white"
                     onClick={() => onOpenDay(dateKey)}
                     type="button"
                   >
@@ -1418,7 +1449,7 @@ function WeekPanel({
                             className="w-full rounded-2xl border border-[var(--border)] bg-white px-3 py-3 text-left shadow-[0_10px_30px_rgba(16,61,58,0.06)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(16,61,58,0.1)]"
                             key={appointment.id}
                             onClick={() => onBookedSlotClick(appointment)}
-                            style={{ boxShadow: `inset 3px 0 0 ${providerColor}` }}
+                            style={{ boxShadow: `inset 3px 0 0 ${scheduleAppointmentColor(appointment.status, appointment.communicationState, providerColor)}`, backgroundColor: `${scheduleAppointmentColor(appointment.status, appointment.communicationState, providerColor)}12` }}
                             type="button"
                           >
                             <div className="text-xs font-semibold text-[var(--text-muted)]">
@@ -1428,13 +1459,14 @@ function WeekPanel({
                               {appointment.customer?.name ?? "Unknown Client"}
                             </div>
                             <div className="mt-1 text-sm text-[var(--text-muted)]">
-                              {appointment.services[0]?.name ?? "Scheduled appointment"}
+                              {appointment.procedureLabel}
                             </div>
                             <div className="mt-3 flex items-center justify-between gap-2 text-xs">
                               <span style={{ color: providerColor }}>
                                 {appointment.provider?.name ?? "Provider"}
                               </span>
                               <StatusPill status={appointment.status} />
+                              {appointment.status === "Cancelled" ? <span className="text-xs text-red-700">{appointment.cancellationReason || "Reason not recorded"}</span> : null}
                             </div>
                           </button>
                         );
@@ -1506,7 +1538,7 @@ function DayGridPanel({
     <Panel title="Day view">
       <div className="border-b border-[var(--border)] bg-[var(--surface-muted)] px-5 py-5">
         <div className="flex items-start justify-between gap-4">
-          <AppointmentDateHeader adDateKey={dateKey} mode={calendarMode} />
+          <div><div className="mb-1 text-sm font-semibold">{formatShortWeekday(dateKey)}</div><AppointmentDateHeader adDateKey={dateKey} mode={calendarMode} /></div>
           <div className="rounded-full border border-[var(--border)] bg-white px-3 py-1.5 text-xs font-medium text-[var(--text-muted)]">
             Provider-based Client board
           </div>
@@ -1571,7 +1603,7 @@ export function MonthPanel({
       <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
         <div>
           <div className="font-medium text-[var(--foreground)]">{grid.primaryMonthLabel}</div>
-          <div className="text-sm text-[var(--text-muted)]">{grid.secondaryMonthLabel}</div>
+          <div className="text-sm text-[var(--text-muted)]">{grid.secondaryMonthLabel}</div><div className="mt-1 text-xs text-[var(--text-muted)]">{formatShortWeekday(selectedDate)} · {selectedDate}</div>
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -1677,7 +1709,7 @@ function MonthDayRail({
   return (
     <Panel title="Selected day">
       <div className="border-b border-[var(--border)] p-4">
-        <DualDateDisplay adDateKey={dateKey} mode={calendarMode} />
+        <div className="mb-1 text-sm font-semibold">{formatShortWeekday(dateKey)}</div><DualDateDisplay adDateKey={dateKey} mode={calendarMode} />
       </div>
       <div className="space-y-4 p-4">
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-3">
@@ -1700,6 +1732,7 @@ function MonthDayRail({
                 className="w-full rounded-md border border-[var(--border)] px-3 py-3 text-left"
                 key={appointment.id}
                 onClick={() => onAppointmentClick(appointment)}
+                style={{ borderLeft: `4px solid ${scheduleAppointmentColor(appointment.status, appointment.communicationState, appointment.provider?.color ?? "#0f766e")}` }}
                 type="button"
               >
                 <div className="font-medium text-[var(--foreground)]">
@@ -1739,7 +1772,7 @@ function DayListPanel({
   return (
     <Panel title="Daily list">
       <div className="border-b border-[var(--border)] p-4">
-        <DualDateDisplay adDateKey={dateKey} mode={calendarMode} />
+        <div className="mb-1 text-sm font-semibold">{formatShortWeekday(dateKey)}</div><DualDateDisplay adDateKey={dateKey} mode={calendarMode} />
       </div>
       <div className="divide-y divide-[var(--border)]">
         {isLoading ? (
@@ -1765,6 +1798,7 @@ function DayListPanel({
                 </div>
               </div>
               <StatusPill status={appointment.status} />
+                              {appointment.status === "Cancelled" ? <span className="text-xs text-red-700">{appointment.cancellationReason || "Reason not recorded"}</span> : null}
             </button>
           ))
         ) : (
@@ -1775,7 +1809,7 @@ function DayListPanel({
   );
 }
 
-const ScheduleGridTable = memo(function ScheduleGridTable({
+export const ScheduleGridTable = memo(function ScheduleGridTable({
   appointmentById,
   lockedProviderId,
   onBookedSlotClick,
@@ -1891,9 +1925,9 @@ const ScheduleGridRow = memo(function ScheduleGridRow({
           ? appointmentById.get(slot.appointmentId)
           : undefined;
         const canBookThisProvider = !lockedProviderId || lockedProviderId === provider.providerId;
-        const interactive =
-          slot?.state === "BOOKED" || (slot?.state === "AVAILABLE" && canBookThisProvider);
+        const action = scheduleSlotAction(slot, appointmentView, canBookThisProvider);
         const isBooked = slot?.state === "BOOKED";
+        const slotColor = slot?.cancelledSummary ? "#dc2626" : scheduleAppointmentColor(slot?.appointmentSummary?.status ?? "Scheduled", slot?.appointmentSummary?.communicationState, provider.providerColor);
         return (
           <button
             className={`min-h-16 border-b border-r border-[var(--border)] px-3 py-2 text-left transition ${
@@ -1901,41 +1935,41 @@ const ScheduleGridRow = memo(function ScheduleGridRow({
                 ? "hover:bg-[var(--surface-muted)]"
                 : "bg-[var(--surface-muted)] text-[var(--text-muted)]"
             }`}
-            disabled={!interactive}
+            disabled={!action}
             key={`${provider.providerId}-${slotStart}`}
             style={
               isBooked
                 ? {
-                    backgroundColor: `${provider.providerColor}16`,
-                    boxShadow: `inset 4px 0 0 ${provider.providerColor}`,
+                    backgroundColor: `${slotColor}16`,
+                    boxShadow: `inset 4px 0 0 ${slotColor}`,
                   }
                 : slot?.state === "AVAILABLE"
                   ? {
-                      backgroundColor: "#fcfffe",
+                      backgroundColor: slot?.cancelledSummary ? "#fef2f2" : "#fcfffe",
                       opacity: canBookThisProvider ? 1 : 0.7,
                     }
                   : undefined
             }
             onClick={() =>
-              slot?.state === "BOOKED" && appointmentView
+              action === "details" && appointmentView
                 ? onBookedSlotClick(appointmentView)
-                : onOpenBooking(provider.providerId, scheduleGrid.date, undefined, slot?.startTime)
+                : action === "book" ? onOpenBooking(provider.providerId, scheduleGrid.date, undefined, slot?.startTime) : undefined
             }
             type="button"
           >
-            {slot?.state === "BOOKED" && appointmentView ? (
+            {slot?.state === "BOOKED" ? (
               <div>
                 <div className="truncate font-semibold text-[var(--foreground)]">
-                  {slot.appointmentSummary?.customerName ?? appointmentView.customer?.name ?? "Client"}
+                  {slot.appointmentSummary?.customerName ?? appointmentView?.customer?.name ?? "Client"}
                 </div>
                 <div className="mt-1 text-xs text-[var(--text-muted)]">
                   {slot.appointmentSummary?.serviceName ?? "Booked"}
-                </div>
+                </div><div className="mt-1 text-xs font-medium text-[var(--text-muted)]">{occupiedSlotLabel(slot, appointmentView)}</div>
                 <div className="mt-2 flex items-center justify-between gap-2">
                   <div className="text-[11px] font-medium" style={{ color: provider.providerColor }}>
                     {slot.appointmentSummary?.status ?? "Booked"}
                   </div>
-                  {appointmentView.priority === "Urgent" ? (
+                  {appointmentView?.priority === "Urgent" ? (
                     <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-600">
                       Urgent
                     </span>
@@ -1945,6 +1979,7 @@ const ScheduleGridRow = memo(function ScheduleGridRow({
             ) : slot?.state === "AVAILABLE" ? (
               <div className="text-xs text-[var(--text-muted)]">
                 {canBookThisProvider ? "Open slot" : "View only"}
+                {slot.cancelledSummary ? <div className="mt-1 text-red-700">{cancelledSlotNote(slot)}</div> : null}
               </div>
             ) : (
               <div className="text-xs text-[var(--text-muted)]">
@@ -1958,7 +1993,7 @@ const ScheduleGridRow = memo(function ScheduleGridRow({
   );
 });
 
-function MobileDayScheduleList({
+export function MobileDayScheduleList({
   appointmentById,
   lockedProviderId,
   onBookedSlotClick,
@@ -2013,6 +2048,8 @@ function MobileDayScheduleList({
             ? appointmentById.get(slot.appointmentId)
             : undefined;
           const isBooked = slot.state === "BOOKED";
+          const action = scheduleSlotAction(slot, appointmentView, !lockedProviderId || lockedProviderId === provider.providerId);
+          const slotColor = slot.cancelledSummary ? "#dc2626" : scheduleAppointmentColor(slot.appointmentSummary?.status ?? "Scheduled", slot.appointmentSummary?.communicationState, provider.providerColor);
           const canBookThisProvider =
             !lockedProviderId || lockedProviderId === provider.providerId;
           return (
@@ -2027,15 +2064,15 @@ function MobileDayScheduleList({
               />
               <button
                 className="min-w-0 rounded-xl border border-[var(--border)] px-3 py-3 text-left disabled:opacity-60"
-                disabled={!isBooked && !canBookThisProvider}
+                disabled={!action}
                 style={{
-                  backgroundColor: isBooked ? `${provider.providerColor}18` : "white",
-                  boxShadow: `inset 3px 0 0 ${provider.providerColor}`,
+                  backgroundColor: isBooked || slot.cancelledSummary ? `${slotColor}18` : "white",
+                  boxShadow: `inset 3px 0 0 ${isBooked || slot.cancelledSummary ? slotColor : provider.providerColor}`,
                 }}
                 onClick={() =>
-                  isBooked && appointmentView
+                  action === "details" && appointmentView
                     ? onBookedSlotClick(appointmentView)
-                    : canBookThisProvider
+                    : action === "book"
                       ? onOpenBooking(
                           provider.providerId,
                           scheduleGrid.date,
@@ -2057,10 +2094,10 @@ function MobileDayScheduleList({
                       {provider.providerName}
                       {isBooked && slot.appointmentSummary?.serviceName
                         ? ` · ${slot.appointmentSummary.serviceName}`
-                        : canBookThisProvider
-                          ? " · Tap to book"
-                          : " · View only"}
+                        : !isBooked ? canBookThisProvider ? " · Tap to book" : " · View only" : ""}
                     </span>
+                    {isBooked ? <span className="mt-1 block text-xs font-medium">{occupiedSlotLabel(slot, appointmentView)}</span> : null}
+                    {slot.cancelledSummary ? <span className="mt-1 block text-xs font-medium text-red-700">{cancelledSlotNote(slot)}</span> : null}
                   </span>
                   {isBooked ? (
                     <StatusPill status={slot.appointmentSummary?.status ?? "Scheduled"} />
@@ -2101,16 +2138,7 @@ function AppointmentDetailModal({
   const [reason, setReason] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [archiveConfirmationOpen, setArchiveConfirmationOpen] = useState(false);
-  const nextAction =
-    appointment.status === "Scheduled"
-      ? { label: "Confirm appointment", status: "Confirmed" as const }
-      : appointment.status === "Confirmed"
-        ? { label: "Check in Client", status: "CheckedIn" as const }
-        : appointment.status === "CheckedIn"
-          ? { label: "Start appointment", status: "InProgress" as const }
-          : appointment.status === "InProgress"
-            ? { label: "Complete appointment", status: "Completed" as const }
-            : null;
+  const nextAction = getPrimaryAppointmentAction(appointment.status);
 
   async function runStatusChange(
     status: "Confirmed" | "CheckedIn" | "InProgress" | "Completed" | "Cancelled" | "NoShow",
@@ -2137,13 +2165,14 @@ function AppointmentDetailModal({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="truncate text-lg font-semibold text-[var(--foreground)]">
-                {appointment.customer?.name ?? "Unknown Client"}
+                <Link className="underline decoration-dotted underline-offset-4" href={`/clients/${encodeURIComponent(appointment.customerId)}`}>{appointment.customer?.name ?? "Unknown Client"}</Link>
               </div>
               <div className="mt-1 text-sm text-[var(--text-muted)]">
-                {appointment.services.map((service) => service.name).join(", ") || "Service not specified"}
+                {appointment.procedureLabel}
               </div>
             </div>
             <StatusPill status={appointment.status} />
+                              {appointment.status === "Cancelled" ? <span className="text-xs text-red-700">{appointment.cancellationReason || "Reason not recorded"}</span> : null}
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <PriorityTag priority={appointment.priority} />
@@ -2172,6 +2201,7 @@ function AppointmentDetailModal({
           </AppointmentDetailField>
         </section>
 
+        {appointment.status === "Cancelled" ? <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">Cancelled: {appointment.cancellationReason || "Reason not recorded"}</p> : null}
         {appointment.notes ? (
           <section className="rounded-xl border border-[var(--border)] p-4">
             <h3 className="text-sm font-semibold text-[var(--foreground)]">Notes</h3>

@@ -18,6 +18,10 @@ import {
 
 export class ClientDirectoryQueryDto {
   @IsOptional()
+  @IsIn(["due"])
+  followUp?: "due";
+
+  @IsOptional()
   @IsString()
   cursor?: string;
 

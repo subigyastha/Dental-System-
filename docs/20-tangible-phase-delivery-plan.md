@@ -655,45 +655,13 @@ Before pilot sign-off, complete the B8 responsive/native-feel certification:
 
 ## 5. Agent orchestration rules
 
-### Capacity and ownership
+Work directly by default; four available slots are capacity, not a target. Delegate only when requested and the independent work justifies added context and integration cost. Use one worker unless more are explicitly requested. No recursive delegation.
 
-The current workspace supports **four active agents total**. Use this topology in each phase:
+A delegated brief names the exact goal, owned paths, contract/invariants and required checks. Pass minimal context; avoid full-history forks. Return changed paths, validation results and blockers briefly. Do not duplicate the worker's investigation or tests.
 
-```text
-Integration lead (root)
-├── Core/domain agent        — owns one module’s commands and tests
-├── UI/read-model agent      — owns only the matching API consumer and UI
-└── QA/security/ops agent    — owns invariant, migration, and demo evidence
-```
+Keep schema/migrations, authentication, shared workspace state and cross-domain contracts under one owner's control. Integrate dependent changes serially. The integration owner completes applicable migration, suite, authorization and demo release gates before declaring completion.
 
-An agent may spawn a subagent only by freeing/replacing its own bounded work or when an active slot is available. More agents do not make shared-boundary work faster. In particular, only the integration lead may approve changes to:
-
-- `prisma/schema.prisma` and migration ordering;
-- Nest authentication, authorization, request-context, and API-v1 conventions;
-- shared capability types and web workspace state/navigation;
-- contract changes that affect more than one domain.
-
-### Parallel work rules
-
-| Situation | Allowed parallel work | Must remain serial |
-| --- | --- | --- |
-| Before P2 | Test/CI, route inventory, auth UX, and security tests after contracts are agreed. | Global guard/session/auth context changes. |
-| P3/P4/P4B | UI fixtures, API tests, and domain code in separate worktrees. | Prisma migration integration and shared Client/capability contracts. |
-| P6 lanes | Messaging, Fonepay, and Inventory may develop in separate worktrees. | Schema train, worker-runtime wiring, provider secrets/configuration, global feature flags. |
-| P7/P8 | Cache/worker implementation, resilience UI, observability/load tests. | Enabling production delivery/traffic and final launch gate. |
-
-### Agent task contract
-
-Every agent task must state:
-
-1. the exact phase and work slice;
-2. allowed files/modules and shared boundaries it must not edit;
-3. API/schema contract assumptions;
-4. required tests and the visible demo contribution;
-5. migration or external-state risk; and
-6. final handoff: changed files, tests run, demo steps, unresolved risks.
-
-The integration lead—not an individual agent—runs the migration rehearsal, full suite, authorization review, and phase demo before marking the phase complete.
+Current status: docs/progress.md. Historical plans and evidence are read only for relevant sections; update the current status rather than repeating it across documents.
 
 ## 6. Recommended next move
 

@@ -36,6 +36,7 @@ function fixture(options?: {
   session?: typeof actor & { providerId?: string };
 }) {
   const events: string[] = [];
+  const appointmentWrites: Record<string, unknown>[] = [];
   const now = new Date("2029-12-01T00:00:00.000Z");
   const tx = {
     $executeRaw: async () => {
@@ -94,8 +95,9 @@ function fixture(options?: {
       create: async () => ({ id: "review-new" }),
     },
     appointment: {
-      create: async () => {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
         events.push("appointment-create");
+        appointmentWrites.push(data);
         return { id: "appointment-a" };
       },
     },
@@ -111,10 +113,10 @@ function fixture(options?: {
     ) => operation(tx),
   };
   const scheduling = {
-    getEffectiveSlotTiming: async () => {
+    getEffectiveSlotTiming: async (params: { durationMinutes?: number }) => {
       events.push("schedule-recheck");
       return {
-      durationMinutes: 30,
+      durationMinutes: params.durationMinutes ?? 30,
       bufferMinutes: 10,
       };
     },
@@ -124,6 +126,7 @@ function fixture(options?: {
   };
   return {
     events,
+    appointmentWrites,
     service: new BookingConfirmationService(
       prisma as never,
       { requireSession: async () => options?.session ?? actor } as never,
@@ -200,6 +203,7 @@ test("completed confirmation replay returns the stored result without a transact
   assert.equal(result.replayed, true);
   assert.equal(result.confirmationId, "confirmation-a");
   assert.deepEqual(events, []);
+  await assert.rejects(service.confirm({ ...dto, durationMinutes: 15 }, "1234567890abcdef", actor), ConflictException);
 });
 
 test("same-key confirmation replay returns its receipt after the consumed hold expires", async () => {
@@ -468,4 +472,32 @@ test("new Client confirmation requires a reviewed candidate-set version", async 
     ),
     BadRequestException,
   );
+});
+
+
+test("confirmation persists the requested custom duration", async () => {
+  const { service } = fixture();
+  const result = await service.confirm({ ...dto, durationMinutes: 15 }, "custom-duration-key", actor);
+  assert.equal(result.appointment.durationMinutes, 15);
+});
+
+test("a custom procedure creates a named visit without a catalog service", async () => {
+  const { service, appointmentWrites } = fixture();
+  await service.confirm({ ...dto, serviceId: undefined, customProcedureName: "  Case review  ", durationMinutes: 45 }, "custom-procedure-key", actor);
+  assert.equal(appointmentWrites[0].customProcedureName, "Case review");
+  assert.equal(appointmentWrites[0].durationMinutes, 45);
+  assert.equal(appointmentWrites[0].services, undefined);
+});
+
+test("confirmation rejects ambiguous procedures and custom visits without a valid block duration before writing", async () => {
+  for (const change of [
+    { customProcedureName: "Review", durationMinutes: 30 },
+    { serviceId: undefined },
+    { serviceId: undefined, customProcedureName: "Review" },
+    { serviceId: undefined, customProcedureName: "Review", durationMinutes: 20 },
+  ]) {
+    const { service, events } = fixture();
+    await assert.rejects(service.confirm({ ...dto, ...change }, "invalid-custom-procedure", actor), BadRequestException);
+    assert.equal(events.includes("appointment-create"), false);
+  }
 });
