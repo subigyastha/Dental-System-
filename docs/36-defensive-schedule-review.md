@@ -1,6 +1,6 @@
 # Defensive schedule review — DD-2026-10-09
 
-Reviewed October 9, 2026, on `codex/weekly-clinic-workflow`. Scope: Day timeline records, booking capacity, lifecycle transitions and failed Day navigation. This is a focused source review and local synthetic workflow check; production rollout is pending.
+Reviewed October 9, 2026, on `codex/weekly-clinic-workflow`. Scope: Day timeline records, booking capacity, lifecycle transitions and failed Day navigation. This is a focused source review and local synthetic workflow check; production workflow acceptance remains pending.
 
 ## Resulting behavior
 
@@ -39,4 +39,4 @@ The final independent source review found no remaining P1/P2 issues in this chan
 
 Overlapping history can widen desktop columns; scrolling stays inside the grid. Mobile uses a list. Cancellation markers express an interval overlap, not a permanent successor relationship; they do not infer chronology for terminal visits. Archived/deleted records follow existing visibility rules. History outside the day's existing grid is not projected onto invented booking rows.
 
-The owner authorized private branch upload on October 9; the branch is pushed in [draft PR #6](https://github.com/subigyastha/Dental-System-/pull/6), which links current CI evidence. Production verification remains pending. Apply migration `20261008_000027_custom_booking_procedures` before the dependent rollout. Confirm behavior on physical phones and with production permissions after deployment. [Current handoff](progress.md).
+[PR #6](https://github.com/subigyastha/Dental-System-/pull/6) was approved and merged on October 9 as `138c1a9`; PR CI passed. Production migration `20261008_000027_custom_booking_procedures` was applied before merge. Vercel reports successful production web deployment; Render health/readiness return 200, with the exact API revision still requiring hosting verification. The owner requested further acceptance in production. Check physical phones and production permissions next. [Current handoff](progress.md).
