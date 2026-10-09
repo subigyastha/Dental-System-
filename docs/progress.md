@@ -1,6 +1,6 @@
 # Current progress
 
-Updated: 2026-10-09. Branch: `codex/weekly-clinic-workflow`. Current slice: release readiness after retained Day history and defensive review. Owner authorized commit/push on October 9; production is not deployed.
+Updated: 2026-10-09. Branch: `codex/weekly-clinic-workflow`. Current slice: pushed clinic-workflow release, [draft PR #6](https://github.com/subigyastha/Dental-System-/pull/6). Owner authorized upload on October 9; production is not deployed.
 
 ## Completed locally
 - Occupied 15-minute cells and buffers block booking; self-overlapping reschedules exclude only the original visit.
@@ -19,8 +19,8 @@ Updated: 2026-10-09. Branch: `codex/weekly-clinic-workflow`. Current slice: rele
 - Local API/web remain on localhost:4000/3000; Supabase unchanged. [Eye-test guide](35-clinic-eye-test.md): October 10 full day for Pratik/Mira; original 33 records plus 3 recall cases, with later user edits preserved. Added October 17 Pratik 10:00 history/replacement cases through real lifecycle APIs.
 
 ## Remaining and blockers
-- Owner authorized private branch upload; the earlier approval blocker is resolved. Push/draft PR and CI are the current release step. No blocking code gaps found in this clinic-workflow slice; messaging/review work is excluded.
-- CI, production migration/deployment and physical-device acceptance remain pending. Apply `20261008_000027_custom_booking_procedures` before dependent rollout.
+- Branch pushed and draft PR #6 opened; the earlier private-upload blocker is resolved. No blocking code gaps found in this clinic-workflow slice; messaging/review work is excluded. Current CI evidence is linked from the PR.
+- CI must pass before merge. Production migration/deployment and physical-device acceptance remain pending. Apply `20261008_000027_custom_booking_procedures` before dependent rollout.
 - Dense history may widen desktop grids; overlap markers do not establish permanent successor relationships. Review scope/limits are documented.
 - Reconcile missing historical recalls through staff review; agree a rule for clients without completed visits.
 - Clarify “procedure review.” WhatsApp/SMS, broadcasts and Google reviews remain later work. Phone contacts deferred.
