@@ -4,6 +4,7 @@ import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getPrimaryAppointmentAction } from "@/lib/appointment-workflow";
+import { scheduleLoadErrorMessage } from "@/lib/schedule-day";
 import { buildDayTimeline, replacementCancellationNote, groupScheduleSlots, type ScheduleDisplayGroup } from "@/lib/schedule-display";
 import {
   CalendarPlus2,
@@ -512,9 +513,9 @@ export function ReservationsPage({
           setRangeAppointments(snapshot.appointments);
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!cancelled) {
-          setPlanningError("Provider availability could not be loaded. Try again.");
+          setPlanningError(scheduleLoadErrorMessage(error));
         }
       })
       .finally(() => {

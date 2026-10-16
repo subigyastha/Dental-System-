@@ -4,6 +4,8 @@ Updated: 2026-10-16. Released [PR #7](https://github.com/subigyastha/Dental-Syst
 
 ## Current slice
 
+Mobile PWA error identified as day-schedule loading, before confirmation. Fix: 60-second total read budget, one bounded transient GET retry, and underlying error feedback. No mutation/auth/capacity changes. Local 60 schedule/workspace + 69 UI tests, types/lint/format passed; build/CI/release pending. Original phone HTTP status/OS unavailable; physical retest required. [Investigation and evidence](51-mobile-schedule-loading.md).
+
 Released staff-directed follow-up logging/scheduling, Table/Status board, shared client table, calendar AD/BS navigation and booking date limits, client histories and visit payments. Tenant/auth, booking idempotency and billing permissions remain. [Workflow](41-staff-directed-followups.md), [model](43-followup-data-model.md), [UI/payments](44-followup-ui-and-visit-payments.md), [follow-up table](47-followup-table-and-status-board.md), [client table](48-client-directory-shared-table.md).
 
 Free-plan improvements: one coalesced sign-in wake request, 60-second sign-in/initial bootstrap deadlines, grouped follow-up status counts and API revision metadata. Render SUPABASE_POOL_MODE=session replaces transaction pooling on the existing database. No recurring keep-alive, paid plan or region migration. [Release evidence](50-free-plan-performance-release.md).
