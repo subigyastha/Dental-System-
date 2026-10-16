@@ -38,6 +38,8 @@ import {
 } from "@/components/workspace/mobile-workspace-nav";
 import { useSecureSignOut } from "@/components/workspace/secure-sign-out";
 import { useQuickBook } from "@/components/workspace/quick-book-provider";
+import { FollowupClientSuggestions } from "./followup-client-suggestions";
+import { VisitPaymentButton } from "./finance/visit-payment";
 import {
   buildAppointmentView,
   formatClockRange,
@@ -598,24 +600,20 @@ export function ReservationsPage({
 
           <div className="mt-4 flex flex-wrap items-center justify-between gap-4 rounded-[24px] border border-[var(--border)] bg-white px-5 py-4">
             <div className="flex flex-wrap items-center gap-3">
-              <div>
-                {calendarView === "week" ? (
-                  <div className="text-3xl font-semibold tracking-tight text-[var(--foreground)]">
-                    {formatWeekRangeLabel(weekDateKeys)}
-                  </div>
-                ) : (
-                  <ScheduleDateLabel
-                    adDateKey={selectedDate}
-                    mode={calendarMode}
-                    primaryClassName="text-3xl font-semibold tracking-tight"
-                    secondaryClassName="text-sm"
-                  />
-                )}
-              </div>
+              <DualCalendarDatePicker
+                toolbar
+                label="Go to date"
+                periodLabel={calendarView === "week" ? formatWeekRangeLabel(weekDateKeys) : calendarView === "month" ? monthGrid.primaryMonthLabel : undefined}
+                mode={calendarMode}
+                onChange={(dateKey) => { setSelectedDate(dateKey); setMonthAnchorDate(dateKey); setSelectedDayDetailsDate(dateKey); }}
+                onModeChange={setCalendarMode}
+                value={calendarView === "month" ? monthAnchorDate : selectedDate}
+              />
               <div className="ml-2 flex flex-wrap items-center gap-2">
                 <button
                   className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-muted)] text-[var(--foreground)] transition hover:bg-white"
-                  onClick={() => handlePrevious(calendarView, selectedDate, monthAnchorDate, setSelectedDate, setMonthAnchorDate)}
+                  aria-label={`Previous ${calendarView}`}
+                  onClick={() => calendarView === "month" ? setMonthAnchorDate(shiftCalendarPage(monthAnchorDate, calendarMode, -1)) : handlePrevious(calendarView, selectedDate, monthAnchorDate, setSelectedDate, setMonthAnchorDate)}
                   type="button"
                 >
                   <ChevronLeft size={16} />
@@ -630,7 +628,8 @@ export function ReservationsPage({
                 />
                 <button
                   className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-muted)] text-[var(--foreground)] transition hover:bg-white"
-                  onClick={() => handleNext(calendarView, selectedDate, monthAnchorDate, setSelectedDate, setMonthAnchorDate)}
+                  aria-label={`Next ${calendarView}`}
+                  onClick={() => calendarView === "month" ? setMonthAnchorDate(shiftCalendarPage(monthAnchorDate, calendarMode, 1)) : handleNext(calendarView, selectedDate, monthAnchorDate, setSelectedDate, setMonthAnchorDate)}
                   type="button"
                 >
                   <ChevronRight size={16} />
@@ -697,14 +696,10 @@ export function ReservationsPage({
 
           <div className="space-y-5">
             <ScheduleFiltersRail
-              activeDate={activeDate}
-              calendarMode={calendarMode}
               calendarView={calendarView}
               onProviderChange={setSelectedProviderId}
-              onSelectDate={setSelectedDate}
               providerOptions={providerFilterOptions}
               selectedProviderId={selectedProviderId}
-              setCalendarMode={setCalendarMode}
               visibleProviderScope={visibleProviderScope}
             />
 
@@ -828,7 +823,8 @@ export function ReservationsPage({
           }
           onStatusChange={async (status, reason) => {
             await updateAppointmentStatus(selectedAppointment.id, status, reason);
-            setSelectedAppointment(null);
+            if (status === "Completed") setSelectedAppointment({ ...selectedAppointment, status: "Completed" });
+            else setSelectedAppointment(null);
           }}
         />
       ) : null}
@@ -922,40 +918,28 @@ function MobileReservationsView({
   weekDateKeys: string[];
   weekSummaryByDate: Map<string, AppointmentWeekSummary>;
 }) {
-  const selectedDateLabel = (
-    <ScheduleDateLabel
-      adDateKey={calendarView === "month" ? monthAnchorDate : selectedDate}
-      mode={calendarMode}
-      primaryClassName="text-base font-semibold"
-      secondaryClassName="text-xs"
-    />
-  );
 
   return (
     <div className="mobile-schedule space-y-4">
       <div className="sticky top-[57px] z-10 -mx-4 border-b border-[var(--border)] bg-[var(--surface)]/95 px-4 pb-3 pt-3 backdrop-blur">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-col gap-3">
           <div>
             <div className="text-lg font-semibold text-[var(--foreground)]">{title}</div>
-            <div className="mt-1">{selectedDateLabel}</div>
+            <div className="mt-2">
+              <DualCalendarDatePicker toolbar label="Go to date" mode={calendarMode} onChange={(dateKey) => { onSelectDate(dateKey); setMonthAnchorDate(dateKey); onSelectDayDetailsDate(dateKey); }} onModeChange={setCalendarMode} value={calendarView === "month" ? monthAnchorDate : selectedDate} periodLabel={calendarView === "week" ? formatWeekRangeLabel(weekDateKeys) : calendarView === "month" ? monthGrid.primaryMonthLabel : undefined} />
+            </div>
           </div>
-          <div className="shrink-0">
-            <ViewToggle
-              current={calendarView}
-              onChange={(view) => {
-                onChangeView(view);
-              }}
-            />
-          </div>
+
         </div>
 
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <button
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface-muted)]"
+            aria-label={`Previous ${calendarView}`}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface-muted)]"
             onClick={() =>
               calendarView === "month"
                 ? onChangeMonth(-1)
-                : onSelectDate(addDaysToDateKey(selectedDate, -1))
+                : onSelectDate(addDaysToDateKey(selectedDate, calendarView === "week" ? -7 : -1))
             }
             type="button"
           >
@@ -970,11 +954,12 @@ function MobileReservationsView({
             }}
           />
           <button
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface-muted)]"
+            aria-label={`Next ${calendarView}`}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface-muted)]"
             onClick={() =>
               calendarView === "month"
                 ? onChangeMonth(1)
-                : onSelectDate(addDaysToDateKey(selectedDate, 1))
+                : onSelectDate(addDaysToDateKey(selectedDate, calendarView === "week" ? 7 : 1))
             }
             type="button"
           >
@@ -982,7 +967,7 @@ function MobileReservationsView({
           </button>
           {!visibleProviderScope ? (
             <select
-              className={`${inputClassName} min-w-0 flex-1`}
+              className={`${inputClassName} min-w-0 w-full`}
               onChange={(event) => setSelectedProviderId(event.target.value)}
               value={selectedProviderId}
             >
@@ -995,20 +980,18 @@ function MobileReservationsView({
             </select>
           ) : null}
         </div>
+        <div className="w-full">
+            <ViewToggle
+              current={calendarView}
+              onChange={(view) => {
+                onChangeView(view);
+              }}
+            />
+          </div>
       </div>
 
       {calendarView === "day" ? (
         <div className="space-y-4">
-          <Panel title="Today">
-            <div className="p-4">
-              <DualCalendarDatePicker
-                mode={calendarMode}
-                onChange={onSelectDate}
-                onModeChange={setCalendarMode}
-                value={selectedDate}
-              />
-            </div>
-          </Panel>
           {!visibleProviderScope ? (
             <Panel title="Providers">
               <div className="flex gap-2 overflow-x-auto p-4 scrollbar-quiet">
@@ -1143,10 +1126,11 @@ function ViewToggle({
   onChange: (view: CalendarView) => void;
 }) {
   return (
-    <div className="flex rounded-2xl border border-[var(--border)] bg-[var(--surface-muted)] p-1">
+    <div role="group" aria-label="Calendar view" className="flex rounded-2xl border border-[var(--border)] bg-[var(--surface-muted)] p-1">
       {(["day", "week", "month"] as CalendarView[]).map((view) => (
         <button
-          className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+          aria-pressed={current === view}
+          className={`min-h-11 flex-1 rounded-xl px-4 py-2 text-sm font-medium transition ${
             current === view
               ? "bg-white text-[var(--foreground)] shadow-sm"
               : "text-[var(--text-muted)]"
@@ -1187,21 +1171,14 @@ function DateShortcutButton({
 }
 
 function ScheduleFiltersRail({
-  activeDate,
-  calendarMode,
   calendarView,
   onProviderChange,
-  onSelectDate,
   providerOptions,
   selectedProviderId,
-  setCalendarMode,
   visibleProviderScope,
 }: {
-  activeDate: string;
-  calendarMode: "BS" | "AD";
   calendarView: CalendarView;
   onProviderChange: (providerId: string) => void;
-  onSelectDate: (dateKey: string) => void;
   providerOptions: Array<{
     id: string;
     name: string;
@@ -1210,22 +1187,10 @@ function ScheduleFiltersRail({
     appointmentCount: number;
   }>;
   selectedProviderId: string;
-  setCalendarMode: (mode: "BS" | "AD") => void;
   visibleProviderScope?: string;
 }) {
   return (
     <>
-      <Panel title="Date">
-        <div className="p-4">
-          <DualCalendarDatePicker
-            mode={calendarMode}
-            onChange={onSelectDate}
-            onModeChange={setCalendarMode}
-            value={activeDate}
-          />
-        </div>
-      </Panel>
-
       {!visibleProviderScope ? (
         <Panel title="Filters">
           <div className="space-y-4 p-4">
@@ -2438,6 +2403,7 @@ function AppointmentDetailModal({
     setActionError(null);
     try {
       await onStatusChange(status, statusReason);
+      setIsUpdating(false);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "The appointment could not be updated.");
       setIsUpdating(false);
@@ -2498,6 +2464,11 @@ function AppointmentDetailModal({
             <p className="mt-2 whitespace-pre-wrap text-sm text-[var(--text-muted)]">{appointment.notes}</p>
           </section>
         ) : null}
+
+        <section className="grid gap-3 border-t border-[var(--border)] pt-4 sm:grid-cols-[1fr_auto]">
+          {appointment.status === "Completed" ? <div className="space-y-3"><h3 className="text-sm font-semibold">Follow-up</h3><FollowupClientSuggestions appointmentId={appointment.id} /></div> : <p className="text-sm text-[var(--text-muted)]">Log or schedule a post-visit follow-up after completion.</p>}
+          <div className="flex items-start"><VisitPaymentButton appointmentId={appointment.id} clientId={appointment.customerId} clientName={appointment.customer?.name ?? "Client"} description={appointment.procedureLabel} /></div>
+        </section>
 
         {nextAction ? (
           <Button className="h-12 w-full" disabled={isUpdating} loading={isUpdating} loadingLabel="Updating appointment" onClick={() => void runStatusChange(nextAction.status)}>

@@ -5,8 +5,33 @@ import {
   ApiRequestError,
   apiFetchJson,
   rememberCsrfToken,
+  warmApi,
 } from "./api-client";
 import { subscribeToSessionEnd } from "./session-events";
+
+test("sign-in warmup coalesces concurrent mounts and recovers silently after an outage", async () => {
+  const originalFetch = globalThis.fetch;
+  let finish!: () => void;
+  let calls = 0;
+  globalThis.fetch = ((_url, init) => {
+    calls++;
+    assert.equal(String(_url), "/api/health/live");
+    assert.equal(init?.credentials, "omit");
+    assert.equal(init?.cache, "no-store");
+    return new Promise<Response>(resolve => { finish = () => resolve(Response.json({ status: "ok" })); });
+  }) as typeof fetch;
+  try {
+    const first = warmApi();
+    assert.equal(warmApi(), first);
+    assert.equal(calls, 1);
+    finish(); await first;
+    globalThis.fetch = (async () => { calls++; throw new Error("offline"); }) as typeof fetch;
+    await warmApi();
+    assert.equal(calls, 2);
+    await warmApi();
+    assert.equal(calls, 3);
+  } finally { globalThis.fetch = originalFetch; }
+});
 
 test("cookie transport never sends a bearer header", async () => {
   const originalFetch = globalThis.fetch;

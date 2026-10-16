@@ -123,8 +123,7 @@ export function RecordPaymentDrawer({
     >
       <form className="space-y-5" onSubmit={submit}>
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-          Record only money already received. This creates an immutable completed
-          receipt; it does not initiate a provider payment.
+          Record only money already received. The receipt is saved to the client’s payment history.
         </div>
 
         <Field label="Amount received (NPR)">

@@ -128,9 +128,22 @@ export function Drawer({
     const previousBodyOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
+    // Disable background controls while keeping any parent drawer's prior state.
+    const background: Array<{ element: HTMLElement; inert: boolean }> = [];
+    let ancestor: HTMLElement | null = panelRef.current?.parentElement ?? null;
+    while (ancestor && ancestor !== document.body) {
+      for (const sibling of Array.from(ancestor.parentElement?.children ?? [])) {
+        if (sibling !== ancestor && sibling instanceof HTMLElement) {
+          background.push({ element: sibling, inert: sibling.inert });
+          sibling.inert = true;
+        }
+      }
+      ancestor = ancestor.parentElement;
+    }
+
     const focusTimer = window.setTimeout(() => {
       const preferredFocus = contentRef.current?.querySelector<HTMLElement>(
-        "[data-drawer-autofocus], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), a[href]",
+        '[data-drawer-autofocus], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), a[href]',
       );
       (preferredFocus ?? panelRef.current)?.focus();
     }, 0);
@@ -138,6 +151,7 @@ export function Drawer({
     return () => {
       window.clearTimeout(focusTimer);
       document.body.style.overflow = previousBodyOverflow;
+      for (const entry of background) entry.element.inert = entry.inert;
       previouslyFocused?.focus();
     };
   }, [hidden]);
@@ -145,6 +159,7 @@ export function Drawer({
   function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
+      event.stopPropagation();
       if (!closeDisabled) {
         onClose();
       }
@@ -154,12 +169,13 @@ export function Drawer({
     if (event.key !== "Tab" || !panelRef.current) {
       return;
     }
+    event.stopPropagation();
 
     const focusableElements = Array.from(
       panelRef.current.querySelectorAll<HTMLElement>(
         'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
       ),
-    ).filter((element) => !element.hasAttribute("aria-hidden"));
+    ).filter((element) => !element.hasAttribute("aria-hidden") && element.getClientRects().length > 0 && !element.closest("[inert]"));
 
     if (focusableElements.length === 0) {
       event.preventDefault();
@@ -221,7 +237,7 @@ export function Drawer({
             </button>
           </div>
           {context ? (
-            <p className="mt-1 text-xs text-[var(--text-muted)]" id={contextId}>
+            <p className="mt-1 break-words text-xs text-[var(--text-muted)]" id={contextId}>
               {context}
             </p>
           ) : null}

@@ -28,7 +28,7 @@ const nextConfig: NextConfig = {
   // A running dev server and `next build` must never write the same artifact
   // tree. Otherwise a build can replace chunks while dev is still serving
   // them, producing persistent 500s until the cache is manually removed.
-  distDir: process.env.NODE_ENV === "development" ? ".next-dev" : ".next",
+  distDir: process.env.NEXT_DIST_DIR ?? (process.env.NODE_ENV === "development" ? ".next-dev" : ".next"),
   async headers() {
     return [{
       source: "/sw.js",

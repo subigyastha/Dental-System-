@@ -9,7 +9,9 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui";
 import {
@@ -144,6 +146,8 @@ export function LocalizedAppointmentCardDate({
 }
 
 export function DualCalendarDatePicker({
+  toolbar = false,
+  periodLabel,
   disabled = false,
   label = "Appointment date",
   max,
@@ -153,6 +157,8 @@ export function DualCalendarDatePicker({
   onModeChange,
   value,
 }: {
+  toolbar?: boolean;
+  periodLabel?: string;
   disabled?: boolean;
   label?: string;
   max?: string;
@@ -166,6 +172,8 @@ export function DualCalendarDatePicker({
   const [anchorAdDateKey, setAnchorAdDateKey] = useState(value);
   const [focusedAdDateKey, setFocusedAdDateKey] = useState(value);
   const [isOpen, setIsOpen] = useState(false);
+  const [position, setPosition] = useState({ left: 16, top: 72, maxHeight: 520 });
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const labelId = useId();
   const popoverId = useId();
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -177,18 +185,18 @@ export function DualCalendarDatePicker({
   }, [value]);
 
   useEffect(() => {
-    function handlePointerDown(event: MouseEvent) {
-      if (!popoverRef.current?.contains(event.target as Node)) {
+    function handlePointerDown(event: PointerEvent) {
+      if (!popoverRef.current?.contains(event.target as Node) && !dialogRef.current?.contains(event.target as Node)) {
         setIsOpen(false);
       }
     }
 
     if (isOpen) {
-      document.addEventListener("mousedown", handlePointerDown);
+      document.addEventListener("pointerdown", handlePointerDown);
     }
 
     return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("pointerdown", handlePointerDown);
     };
   }, [isOpen]);
 
@@ -198,13 +206,35 @@ export function DualCalendarDatePicker({
     }
 
     const focusTimer = window.setTimeout(() => {
-      popoverRef.current
+      dialogRef.current
         ?.querySelector<HTMLButtonElement>(`[data-calendar-date="${focusedAdDateKey}"]`)
         ?.focus();
     }, 0);
 
     return () => window.clearTimeout(focusTimer);
   }, [focusedAdDateKey, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !toolbar) return;
+    function positionPopover() {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const width = Math.min(320, window.innerWidth - 32);
+      const top = window.innerWidth < 768 ? 72 : Math.max(16, Math.min(rect.bottom + 8, window.innerHeight - 520));
+      setPosition({ left: Math.max(16, Math.min(rect.left, window.innerWidth - width - 16)), top, maxHeight: window.innerHeight - top - 16 });
+    }
+    positionPopover();
+    window.addEventListener("resize", positionPopover);
+    window.addEventListener("scroll", positionPopover, true);
+    return () => {
+      window.removeEventListener("resize", positionPopover);
+      window.removeEventListener("scroll", positionPopover, true);
+    };
+  }, [isOpen, toolbar]);
+
+  function renderPopover(node: ReactNode) {
+    return toolbar ? createPortal(node, document.body) : node;
+  }
 
   const grid = useMemo(
     () => buildCalendarGrid(anchorAdDateKey, mode),
@@ -277,12 +307,12 @@ export function DualCalendarDatePicker({
   }
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-3">
+    <div className={toolbar ? "min-w-0" : "space-y-2"}>
+      <div className={toolbar ? "sr-only" : "flex items-center justify-between gap-3"}>
         <div className="text-sm font-medium text-[var(--ink)]" id={labelId}>
           {label}
         </div>
-        <CalendarModeToggle className="h-9" mode={mode} onChange={onModeChange} />
+        {!toolbar ? <CalendarModeToggle className="h-9" mode={mode} onChange={onModeChange} /> : null}
       </div>
 
       <div className="relative" ref={popoverRef}>
@@ -299,10 +329,10 @@ export function DualCalendarDatePicker({
         >
           <div className="min-w-0">
             <div
-              className="truncate text-sm font-semibold text-[var(--ink)]"
+              className={clsx("truncate font-semibold text-[var(--ink)]", toolbar ? "text-base md:text-xl" : "text-sm")}
               id={`${popoverId}-value`}
             >
-              {triggerPrimary}
+              {periodLabel ?? triggerPrimary}
             </div>
             <div className="truncate text-xs text-[var(--text-muted)]">
               {mode === "AD" ? `BS ${triggerSecondary}` : `AD ${triggerSecondary}`}
@@ -313,12 +343,26 @@ export function DualCalendarDatePicker({
           </div>
         </button>
 
-        {isOpen ? (
+        {isOpen ? renderPopover(
           <div
             aria-labelledby={`${popoverId}-heading`}
-            className="absolute left-0 top-[calc(100%+0.5rem)] z-30 w-[min(20rem,calc(100vw-2rem))] max-w-full overflow-hidden rounded-lg border border-[var(--border)] bg-white shadow-[0_18px_50px_rgba(15,23,42,0.18)]"
+            ref={dialogRef}
+            style={toolbar ? position : undefined}
+            className={clsx(toolbar ? "fixed z-[100] overflow-y-auto" : "absolute left-0 top-[calc(100%+0.5rem)] z-30", "w-[min(20rem,calc(100vw-2rem))] rounded-lg border border-[var(--border)] bg-white shadow-[0_18px_50px_rgba(15,23,42,0.18)]")}
             id={popoverId}
             onKeyDown={(event) => {
+              if (toolbar && event.key === "Tab") {
+                const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled])")).filter((control) => control.tabIndex >= 0);
+                const first = controls[0];
+                const last = controls[controls.length - 1];
+                if (event.shiftKey && document.activeElement === first) {
+                  event.preventDefault();
+                  last?.focus();
+                } else if (!event.shiftKey && document.activeElement === last) {
+                  event.preventDefault();
+                  first?.focus();
+                }
+              }
               if (event.key === "Escape") {
                 event.preventDefault();
                 closePopover();
@@ -327,6 +371,8 @@ export function DualCalendarDatePicker({
             role="dialog"
           >
             <div className="border-b border-[var(--border)] p-3">
+              {toolbar ? <div className="mb-3 flex items-center justify-between"><CalendarModeToggle mode={mode} onChange={onModeChange} /><button type="button" className="min-h-11 px-3 text-sm" onClick={closePopover}>Close</button></div> : null}
+              {!toolbar ? <>
               <label className="block text-xs font-semibold text-[var(--text-muted)]">
                 Gregorian date (AD)
                 <input
@@ -345,6 +391,7 @@ export function DualCalendarDatePicker({
               <p className="mt-2 text-xs text-[var(--text-muted)]">
                 Nepali date (BS): <span className="font-semibold text-[var(--ink)]">{dual.bsDate}</span>
               </p>
+              </> : null}
             </div>
 
             <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-2">
@@ -435,9 +482,14 @@ export function DualCalendarDatePicker({
             </div>
 
             <div className="flex items-center justify-between border-t border-[var(--border)] px-3 py-2">
-              <span className="text-[10px] text-[var(--text-muted)]">
-                Stored as AD/ISO
-              </span>
+              {toolbar ? (
+                <DualDateDisplay
+                  adDateKey={todayAdDateKey}
+                  mode={mode}
+                  primaryClassName="text-xs"
+                  secondaryClassName="text-[10px]"
+                />
+              ) : <span className="text-[10px] text-[var(--text-muted)]">Stored as AD/ISO</span>}
               <Button
                 disabled={!isDateKeyWithinBounds(todayAdDateKey, min, max)}
                 onClick={() => commitDate(todayAdDateKey)}

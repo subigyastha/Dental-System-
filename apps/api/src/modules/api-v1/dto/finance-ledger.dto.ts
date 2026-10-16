@@ -78,6 +78,10 @@ export class CreateFinanceInvoiceDto {
 export class FinanceWorkspaceQueryDto {
   @IsOptional()
   @IsString()
+  appointmentId?: string;
+
+  @IsOptional()
+  @IsString()
   locationId?: string;
 
   @IsOptional()

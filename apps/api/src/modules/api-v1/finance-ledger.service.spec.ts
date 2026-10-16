@@ -379,7 +379,7 @@ test("workspace exposes gross collections separately from executed corrections",
             patientCode: "CL-000001",
           },
           payments: [
-            { amount: new Prisma.Decimal("100.00"), status: "Completed" },
+            { id: "payment-a", amount: new Prisma.Decimal("100.00"), status: "Completed", paidAt: new Date("2030-01-01T05:00:00Z"), method: "Cash" },
           ],
           corrections: [
             {
@@ -402,11 +402,24 @@ test("workspace exposes gross collections separately from executed corrections",
   );
   assert.equal(result.invoices[0]?.collectedNpr, "100.00");
   assert.equal(result.invoices[0]?.correctedNpr, "20.00");
+  assert.equal(result.paymentHistory[0]?.amountNpr, "100.00"); assert.equal(result.paymentHistory[0]?.invoiceId, "invoice-a");
   assert.deepEqual(observedWhere, {
     organizationId: "clinic-a",
     locationId: { equals: "location-a" },
     customerId: "client-a",
   });
+});
+
+test("visit payment entry restricts both visit lookup and invoices to the same client, tenant and finance location", async () => {
+  const queries: Array<{ where: Record<string, unknown> }> = [];
+  const service = serviceWith({
+    appointment: { findFirst: async (args: { where: Record<string, unknown> }) => { queries.push(args); return { id: "visit-a", locationId: "location-a" }; } },
+    invoice: { findMany: async (args: { where: Record<string, unknown> }) => { queries.push(args); return []; } },
+  });
+  const result = await service.workspace({ appointmentId: "visit-a", clientId: "client-a" }, financeActor);
+  assert.deepEqual(result.visitContext, { id: "visit-a", locationId: "location-a" });
+  for (const query of queries) { assert.equal(query.where.organizationId, "clinic-a"); assert.equal(query.where.customerId, "client-a"); assert.deepEqual(query.where.locationId, { in: ["location-a"] }); }
+  assert.equal(queries[0].where.id, "visit-a"); assert.equal(queries[1].where.appointmentId, "visit-a");
 });
 
 test("workspace returns invoice capabilities for each assigned location", async () => {

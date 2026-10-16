@@ -8,7 +8,6 @@ import {
 } from "@nestjs/common";
 
 import { AppointmentsService } from "./appointments.service";
-import { defaultRecallDate, recurringRecallAction, routineRecallAction } from "../followups/recall-date";
 
 const actor = {
   id: "staff-a",
@@ -566,7 +565,7 @@ test("reschedule rejects invalid custom periods before changing the original", a
   }
 });
 
-function completionFixture(options: { initialStatus?: string; session?: unknown; activeRecall?: unknown; latestVisit?: unknown; concurrentCompleted?: boolean; failRecall?: boolean } = {}) {
+function completionFixture(options: { initialStatus?: string; session?: unknown; activeRecall?: unknown; latestVisit?: unknown; concurrentCompleted?: boolean; failRecall?: boolean; existingPostVisit?: unknown; failPostVisit?: boolean } = {}) {
   const writes: Array<{ kind: string; data: Record<string, unknown> }> = [];
   const appointment = {
     id: "visit-a", organizationId: "clinic-a", customerId: "client-a", providerId: "provider-a", locationId: "location-a",
@@ -596,15 +595,26 @@ function completionFixture(options: { initialStatus?: string; session?: unknown;
     followUpTask: {
       findFirst: async ({ where }: { where: Record<string, unknown> }) => {
         assert.equal(locked, true);
-        assert.equal(where.type, "Recall", "case-specific tasks cannot be overwritten by recall planning");
         assert.equal(where.organizationId, "clinic-a");
         assert.equal(where.customerId, "client-a");
+        if (where.type === "TreatmentContinuation") {
+          assert.equal(where.appointmentId, appointment.id);
+          assert.equal(where.status, undefined, "finished visit tasks must also prevent duplicates");
+          return options.existingPostVisit ?? null;
+        }
+        assert.equal(where.type, "Recall", "case-specific tasks cannot be overwritten by recall planning");
         return options.activeRecall ?? null;
       },
       update: async ({ data }: { data: Record<string, unknown> }) => { writes.push({ kind: "recall-update", data }); },
       create: async ({ data }: { data: Record<string, unknown> }) => {
+        if (data.type === "TreatmentContinuation") {
+          if (options.failPostVisit) throw new Error("Post-visit insert failed");
+          writes.push({ kind: "post-visit-create", data });
+          return { id: "post-visit-a" };
+        }
         if (options.failRecall) throw new Error("Recall insert failed");
         writes.push({ kind: "recall-create", data });
+        return { id: "recall-a" };
       },
     },
   };
@@ -618,67 +628,32 @@ function completionFixture(options: { initialStatus?: string; session?: unknown;
   return { service, writes, appointment };
 }
 
-test("reception completes checked-in visits with one atomic six-calendar-month recall and safe retries", async () => {
-  const { service, writes, appointment } = completionFixture();
-  assert.deepEqual(await service.updateStatus(appointment.id, { status: "Completed" }), { ok: true });
-  assert.equal(appointment.status, "Completed");
-  assert.deepEqual(writes.map((write) => write.kind), ["appointment", "event", "audit", "recall-create"]);
-  const recall = writes[3].data;
-  assert.equal((recall.dueAt as Date).toISOString(), defaultRecallDate(appointment.startsAt).toISOString());
-  assert.equal(recall.type, "Recall");
-  assert.equal(recall.nextAction, routineRecallAction);
-  await service.updateStatus(appointment.id, { status: "Completed" });
-  assert.equal(writes.length, 4);
-});
-
-test("legacy in-progress visits can complete without a separate start action", async () => {
-  const { service, appointment } = completionFixture({ initialStatus: "InProgress" });
-  await service.updateStatus(appointment.id, { status: "Completed" });
-  assert.equal(appointment.status, "Completed");
-});
-
-test("completion refreshes an untouched routine recall to the latest completed visit", async () => {
-  const priorVisit = new Date("2026-01-31T09:00:00+05:45");
-  const latestVisit = { id: "newer-visit", startsAt: new Date("2026-09-30T09:00:00+05:45"), providerId: "provider-b" };
-  const { service, writes } = completionFixture({ latestVisit, activeRecall: {
-    id: "recall-a", status: "Open", dueAt: defaultRecallDate(priorVisit), nextAction: routineRecallAction, appointment: { startsAt: priorVisit },
-  } });
-  await service.updateStatus("visit-a", { status: "Completed" });
-  const refresh = writes.find((write) => write.kind === "recall-update")!.data;
-  assert.equal(refresh.appointmentId, latestVisit.id);
-  assert.equal(refresh.ownerId, latestVisit.providerId);
-  assert.equal((refresh.dueAt as Date).toISOString(), defaultRecallDate(latestVisit.startsAt).toISOString());
-  assert.equal(writes.some((write) => write.kind === "recall-create"), false);
-});
-
-test("completion preserves staff-adjusted recall dates and actions", async () => {
-  const priorVisit = new Date("2026-01-31T09:00:00+05:45");
-  for (const custom of [
-    { dueAt: new Date("2026-05-01"), nextAction: routineRecallAction },
-    { dueAt: defaultRecallDate(priorVisit), nextAction: "Call next week as agreed" },
-  ]) {
-    const { service, writes } = completionFixture({ activeRecall: { id: "recall-a", status: "Open", appointment: { startsAt: priorVisit }, ...custom } });
-    await service.updateStatus("visit-a", { status: "Completed" });
-    assert.equal(writes.some((write) => write.kind.startsWith("recall-")), false);
+test("completion records the transition and history without creating or changing any follow-ups", async () => {
+  for (const initialStatus of ["CheckedIn", "InProgress"]) {
+    const f = completionFixture({ initialStatus });
+    await f.service.complete("visit-a");
+    assert.equal(f.appointment.status, "Completed");
+    assert.deepEqual(f.writes.map(row => row.kind), ["appointment", "event", "audit"]);
+    await f.service.complete("visit-a");
+    assert.equal(f.writes.length, 3);
   }
 });
 
-test("completion refreshes an untouched recurring recall after a new visit", async () => {
-  const { service, writes, appointment } = completionFixture({ activeRecall: {
-    id: "recall-a", status: "Open", dueAt: new Date("2027-04-09"), nextAction: recurringRecallAction, appointment: null,
-  } });
-  await service.updateStatus(appointment.id, { status: "Completed" });
-  assert.equal((writes.find((write) => write.kind === "recall-update")!.data.dueAt as Date).toISOString(), defaultRecallDate(appointment.startsAt).toISOString());
+test("completion preserves every existing reminder and does not consult automatic scheduling", async () => {
+  for (const options of [{ failRecall: true }, { failPostVisit: true }, { activeRecall: { id: "staff-plan" } }, { existingPostVisit: { id: "staff-review" } }]) {
+    const f = completionFixture(options); await f.service.complete("visit-a");
+    assert.deepEqual(f.writes.map(row => row.kind), ["appointment", "event", "audit"]);
+  }
+  const concurrent = completionFixture({ concurrentCompleted: true });
+  await concurrent.service.complete("visit-a"); assert.equal(concurrent.writes.length, 0);
 });
 
-test("concurrent successful completion is idempotent and failed recall creation rolls back the transition", async () => {
-  const concurrent = completionFixture({ concurrentCompleted: true });
-  assert.deepEqual(await concurrent.service.updateStatus("visit-a", { status: "Completed" }), { ok: true });
-  assert.equal(concurrent.writes.length, 0);
-  const failed = completionFixture({ failRecall: true });
-  await assert.rejects(failed.service.updateStatus("visit-a", { status: "Completed" }), /Recall insert failed/);
-  assert.equal(failed.appointment.status, "CheckedIn");
-  assert.equal(failed.writes.length, 0);
+test("cancelled and missed visits do not create recovery reminders automatically", async () => {
+  for (const status of ["Cancelled", "NoShow"] as const) {
+    const f = completionFixture({ initialStatus: "Confirmed" });
+    await f.service.updateStatus("visit-a", { status, note: "Client called" });
+    assert.deepEqual(f.writes.map(row => row.kind), ["appointment", "event", "audit"]);
+  }
 });
 
 test("completion authority uses roles at the visit location and rejects locationless scoped grants", async () => {

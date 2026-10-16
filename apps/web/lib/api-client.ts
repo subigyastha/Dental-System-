@@ -7,8 +7,10 @@ import { publishSessionEnd } from "@/lib/session-events";
 const configuredApiBase = "/api";
 const UNSAFE_METHODS = new Set(["DELETE", "PATCH", "POST", "PUT"]);
 const DEFAULT_API_TIMEOUT_MS = 8_000;
+export const API_WAKE_TIMEOUT_MS = 60_000;
 
 let csrfToken: string | null = null;
+let pendingWarmup: Promise<void> | null = null;
 
 export type ApiRequestInit = RequestInit & { timeoutMs?: number };
 
@@ -58,6 +60,21 @@ async function fetchWithDeadline(url: string, init?: ApiRequestInit) {
     }
     throw error;
   }
+}
+
+// Start the free backend while the user enters their credentials. Coalesce
+// mounts, never poll, and leave actual sign-in responsible for reporting errors.
+export function warmApi(): Promise<void> {
+  if (pendingWarmup) return pendingWarmup;
+  const request = fetchWithDeadline(apiUrl("/health/live"), {
+    credentials: "omit",
+    cache: "no-store",
+    timeoutMs: API_WAKE_TIMEOUT_MS,
+  }).then(() => undefined, () => undefined).finally(() => {
+    if (pendingWarmup === request) pendingWarmup = null;
+  });
+  pendingWarmup = request;
+  return request;
 }
 
 async function ensureCsrfToken(timeoutMs?: number) {

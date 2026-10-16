@@ -139,7 +139,7 @@ export async function issueFinanceInvoice(
 }
 
 export async function loadFinanceWorkspace(
-  options: { locationId?: string; clientId?: string; signal?: AbortSignal } = {},
+  options: { locationId?: string; clientId?: string; appointmentId?: string; signal?: AbortSignal } = {},
 ) {
   const response = await apiFetchJson<
     V1Envelope<
@@ -151,6 +151,7 @@ export async function loadFinanceWorkspace(
     `/v1/finance/workspace${queryString({
       locationId: options.locationId,
       clientId: options.clientId,
+      appointmentId: options.appointmentId,
     })}`,
     { cache: "no-store", signal: options.signal },
   );

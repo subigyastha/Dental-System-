@@ -20,7 +20,6 @@ import { PrismaService } from "../prisma/prisma.service";
 import { SchedulingService } from "../scheduling/scheduling.service";
 import { CreateAppointmentDto } from "./dto/create-appointment.dto";
 import { RescheduleAppointmentDto } from "./dto/reschedule-appointment.dto";
-import { defaultRecallDate, recurringRecallAction, routineRecallAction } from "../followups/recall-date";
 import { ListDaySummariesDto } from "./dto/list-day-summaries.dto";
 import { ListAppointmentsDto } from "./dto/list-appointments.dto";
 import { ListWeekSummariesDto } from "./dto/list-week-summaries.dto";
@@ -446,6 +445,8 @@ export class AppointmentsService {
         startsAt: true,
         endsAt: true,
         bufferMinutes: true,
+        customProcedureName: true,
+        services: { select: { service: { select: { name: true } } }, take: 20 },
       },
     });
 
@@ -534,70 +535,7 @@ export class AppointmentsService {
           description: dto.note,
         },
       });
-      if (recoveryStates.has(dto.status) || dto.status === "Completed") {
-      const isRecall = dto.status === "Completed";
-      if (isRecall) {
-        // Different visits for the same Client may complete concurrently.
-        // Serialize their routine recall refresh without touching case tasks.
-        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Customer" WHERE "id" = ${existing.customerId} AND "organizationId" = ${existing.organizationId} FOR UPDATE`);
-      }
-      const latestVisit = isRecall ? await tx.appointment.findFirst({
-        where: { organizationId: existing.organizationId, customerId: existing.customerId, status: "Completed" },
-        orderBy: [{ startsAt: "desc" }, { id: "desc" }],
-        select: { id: true, startsAt: true, providerId: true },
-      }) : null;
-      const recallVisit = latestVisit ?? existing;
-      const existingFollowUp = await tx.followUpTask.findFirst({
-        where: {
-          organizationId: existing.organizationId,
-          ...(isRecall ? { customerId: existing.customerId, type: "Recall" as const } : { appointmentId: existing.id }),
-          status: { in: ["Open", "InProgress", "Waiting", "Blocked"] },
-        },
-        select: { id: true, dueAt: true, nextAction: true, status: true, appointment: { select: { startsAt: true } } },
-      });
-
-      if (isRecall && existingFollowUp) {
-        // Only untouched routine defaults are refreshed. Staff-set dates and
-        // actions are case-specific instructions and must survive later visits.
-        const untouchedDefault = existingFollowUp.status === "Open"
-          && (existingFollowUp.nextAction === recurringRecallAction
-            || (existingFollowUp.nextAction === routineRecallAction
-              && existingFollowUp.appointment
-              && existingFollowUp.dueAt.getTime() === defaultRecallDate(existingFollowUp.appointment.startsAt).getTime()));
-        if (untouchedDefault) {
-        await tx.followUpTask.update({ where: { id: existingFollowUp.id }, data: {
-          appointmentId: recallVisit.id, ownerId: recallVisit.providerId,
-          dueAt: defaultRecallDate(recallVisit.startsAt), status: "Open",
-          nextAction: routineRecallAction,
-        } });
-        await tx.auditLog.create({ data: {
-          organizationId: existing.organizationId, actorId: session.id,
-          entityType: "follow_up", entityId: existingFollowUp.id, action: "recall_refreshed",
-          oldValue: { dueAtIso: existingFollowUp.dueAt.toISOString() },
-          newValue: { dueAtIso: defaultRecallDate(recallVisit.startsAt).toISOString(), appointmentId: recallVisit.id },
-          description: "Routine recall refreshed after a completed visit",
-        } });
-        }
-      } else if (!existingFollowUp) {
-        await tx.followUpTask.create({
-          data: {
-            organizationId: existing.organizationId,
-            appointmentId: isRecall ? recallVisit.id : existing.id,
-            customerId: existing.customerId,
-            ownerId: isRecall ? recallVisit.providerId : existing.providerId,
-            type:
-              isRecall ? "Recall" : dto.status === "NoShow"
-                ? "NoShowRecovery"
-                : "TreatmentContinuation",
-            priority: isRecall ? "Normal" : existing.priority === "Urgent" ? "Urgent" : "High",
-            dueAt: isRecall ? defaultRecallDate(recallVisit.startsAt) : new Date(Date.now() + 24 * 60 * 60 * 1000),
-            summary: isRecall ? "Six-month dental recall" : `${dto.status.replace(/([A-Z])/g, " $1").trim()} recovery`,
-            nextAction:
-              isRecall ? routineRecallAction : dto.note || "Contact customer and define the next operational step.",
-          },
-        });
-      }
-    }
+      // Follow-up reminders are created only by an explicit staff action.
     });
 
     this.scheduling.invalidateAppointmentPlanning({

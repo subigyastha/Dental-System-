@@ -8,7 +8,7 @@ import { KoiInlineLoader } from "@/components/koi-loader";
 import { Button } from "@/components/ui";
 import { apiFetchJson } from "@/lib/api-client";
 import type { BookingBootstrap } from "@/lib/booking-bootstrap";
-import { buildNepalIsoFromDateAndTime, getMinutesInNepalFromIso } from "@/lib/calendar";
+import { buildNepalIsoFromDateAndTime, dateKeyInTimeZone, getMinutesInNepalFromIso, NEPAL_TIME_ZONE } from "@/lib/calendar";
 import { isProviderTimeConflict } from "@/lib/booking-error";
 import {
   type AppointmentDraft,
@@ -1417,6 +1417,7 @@ export function AppointmentBookingModal({
               </Field>
 
               <DualCalendarDatePicker
+                min={dateKeyInTimeZone(NEPAL_TIME_ZONE)}
                 mode={calendarMode}
                 onChange={setDateKey}
                 onModeChange={setCalendarMode}
@@ -1487,6 +1488,7 @@ export function AppointmentBookingModal({
               </Field>
 
               <DualCalendarDatePicker
+                min={dateKeyInTimeZone(NEPAL_TIME_ZONE)}
                 mode={calendarMode}
                 onChange={(nextDateKey) => {
                   setDateKey(nextDateKey);

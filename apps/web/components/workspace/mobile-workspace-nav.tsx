@@ -3,6 +3,7 @@
 import { CalendarDays, ChevronRight, MoreHorizontal, Plus, X } from "lucide-react";
 import { useEffect } from "react";
 import { InstallAppButton } from "@/components/pwa-provider";
+import { useWorkspaceApp } from "./app-state";
 
 type MobileWorkspaceBottomNavProps = {
   active: "schedule" | "book" | "more";
@@ -95,6 +96,8 @@ export function MobileWorkspaceMoreSheet({
   onLogout: () => void;
   onNavigate: (href: string) => void;
 }) {
+  const { sessionUser } = useWorkspaceApp();
+  const canFollowup = (sessionUser?.effectiveRoles ?? (sessionUser ? [sessionUser.role] : [])).some(role => ["Owner", "Admin", "Manager", "Receptionist", "Scheduler", "Provider"].includes(role));
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -128,6 +131,7 @@ export function MobileWorkspaceMoreSheet({
         </div>
         <div className="space-y-2">
           <MobileMoreSheetAction label="Clients" onClick={() => onNavigate("/clients")} />
+          {canFollowup ? <MobileMoreSheetAction label="Follow-ups" onClick={() => onNavigate("/followups")} /> : null}
           {hasMySchedule ? (
             <MobileMoreSheetAction label="My schedule" onClick={() => onNavigate("/my-schedule")} />
           ) : null}

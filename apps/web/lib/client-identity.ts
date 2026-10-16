@@ -122,6 +122,18 @@ export async function loadRecentBookingClients(signal?: AbortSignal) {
   }));
 }
 
+export async function loadBookingClientIdentity(clientId: string, signal?: AbortSignal): Promise<BookingClientIdentity> {
+  const response = await apiFetchJson<V1Envelope<{ client: {
+    id: string; name: string; clientCode: string | null; phone: string;
+    phoneSummaries?: ClientPhoneSummary[]; lastVisitIso: string | null;
+    archivedAtIso: string | null; mergedIntoClientId: string | null;
+  } }>>("/v1/clients/" + encodeURIComponent(clientId), { cache: "no-store", signal });
+  const client = response.data.client;
+  if (client.id !== clientId || client.archivedAtIso || client.mergedIntoClientId) throw new Error("This client is no longer active. Choose their current record.");
+  return { id: client.id, name: client.name, clientCode: client.clientCode, lastVisitIso: client.lastVisitIso,
+    phoneSummaries: client.phoneSummaries?.length ? client.phoneSummaries : [{ id: "legacy:" + client.id, displayValue: client.phone, label: "Mobile", isPrimary: true }] };
+}
+
 export async function createStandaloneClient(
   input: CreateStandaloneClientInput,
   idempotencyKey: string,

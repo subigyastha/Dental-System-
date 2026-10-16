@@ -323,11 +323,15 @@ export class FinanceLedgerService {
     if (query.locationId) {
       await this.assertLocation(actor.organizationId, query.locationId);
     }
+    const visit = query.appointmentId ? await this.prisma.appointment.findFirst({ where: { id: query.appointmentId, organizationId: actor.organizationId,
+      ...(scope.locationWhere ? { locationId: scope.locationWhere } : {}), ...(query.clientId ? { customerId: query.clientId } : {}) }, select: { id: true, locationId: true } }) : null;
+    if (query.appointmentId && !visit) throw new NotFoundException("Visit not found");
     const invoices = await this.prisma.invoice.findMany({
       where: {
         organizationId: actor.organizationId,
         ...(scope.locationWhere ? { locationId: scope.locationWhere } : {}),
         ...(query.clientId ? { customerId: query.clientId } : {}),
+        ...(query.appointmentId ? { appointmentId: query.appointmentId } : {}),
       },
       include: {
         customer: { select: { id: true, fullName: true, patientCode: true } },
@@ -341,6 +345,11 @@ export class FinanceLedgerService {
     return {
       capabilities: this.capabilities(scope.roles),
       createLocationIds: this.allowedLocationIds(actor, DRAFT_ROLES),
+      visitContext: visit,
+      paymentHistory: invoices.flatMap(invoice => invoice.payments.map(payment => ({
+        id: payment.id, invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber,
+        paidAtIso: payment.paidAt.toISOString(), amountNpr: this.money(payment.amount), method: payment.method, status: payment.status,
+      }))).sort((left, right) => right.paidAtIso.localeCompare(left.paidAtIso) || right.id.localeCompare(left.id)).slice(0, 50),
       summary,
       invoices: invoices.map((invoice) => ({
         id: invoice.id,
