@@ -5,7 +5,7 @@ import "reflect-metadata";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 
-import { CreateClientDto } from "./client-hub.dto";
+import { ClientDirectoryQueryDto, CreateClientDto } from "./client-hub.dto";
 
 const valid = {
   name: "Asha Rai",
@@ -32,4 +32,12 @@ test("Client intake rejects malformed email and timestamp-valued DOB", async () 
   );
   assert.ok(errors.some((error) => error.property === "email"));
   assert.ok(errors.some((error) => error.property === "dateOfBirthIso"));
+});
+
+test("client directory accepts known sort/filter fields and rejects unsupported values", async () => {
+  assert.equal((await validate(plainToInstance(ClientDirectoryQueryDto, { sort: "visit", direction: "desc", risk: "High priority", followUp: "due", includeTotal: "true", limit: "25" }))).length, 0);
+  for (const field of ["sort", "direction", "risk", "includeTotal"]) {
+    const errors = await validate(plainToInstance(ClientDirectoryQueryDto, { [field]: "unsupported" }));
+    assert.ok(errors.some(error => error.property === field));
+  }
 });

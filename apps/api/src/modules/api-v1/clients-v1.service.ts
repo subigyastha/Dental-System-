@@ -83,38 +83,64 @@ export class ClientsV1Service {
       max: 100,
     });
     const search = query.query?.trim();
+    const dueWhere: Prisma.FollowUpTaskWhereInput = {
+      organizationId: actor.organizationId,
+      ...followupLocationScope(actor),
+      status: { in: ["Open", "InProgress", "Waiting", "Blocked"] },
+      dueAt: { lte: new Date() },
+    };
     const where: Prisma.CustomerWhereInput = {
       organizationId: actor.organizationId,
       archivedAt: null,
       mergedIntoCustomerId: null,
-      ...(query.followUp === "due" ? { AND: [{ OR: [
-        { followUpTasks: { some: {
-          organizationId: actor.organizationId,
-          ...followupLocationScope(actor),
-          status: { in: ["Open", "InProgress", "Waiting", "Blocked"] as Array<"Open" | "InProgress" | "Waiting" | "Blocked"> },
-          dueAt: { lte: new Date() },
-        } } },
-        // Existing completed visits are surfaced for explicit recall review;
-        // reading the call list never writes or silently backfills records.
-        { appointments: { some: { organizationId: actor.organizationId, status: "Completed", ...recallAppointmentLocationScope(actor) } }, followUpTasks: { none: { organizationId: actor.organizationId, type: "Recall", status: { not: "Done" } } } },
-      ] }] } : {}),
+      ...(query.risk ? { riskLabel: query.risk } : {}),
+      ...(query.followUp === "due" ? { AND: [{ followUpTasks: { some: dueWhere } }] } : {}),
       ...(search ? { OR: this.searchWhere(search) } : {}),
     };
-    const rows = await this.prisma.customer.findMany({
+    if (query.cursor && !await this.prisma.customer.findFirst({ where: { AND: [where, { id: query.cursor }] }, select: { id: true } })) {
+      throw new ConflictException("The client list has changed. Refresh it.");
+    }
+    const direction = query.direction ?? "asc";
+    const order: Prisma.CustomerOrderByWithRelationInput = query.sort === "code" ? { patientCode: { sort: direction, nulls: "last" } }
+      : query.sort === "phone" ? { phone: direction } : query.sort === "risk" ? { riskLabel: direction }
+        : query.sort === "visit" ? { lastVisitAt: { sort: direction, nulls: "last" } } : { fullName: direction };
+    const [rows, total] = await Promise.all([this.prisma.customer.findMany({
       where,
-      select: this.directorySelect,
+      select: {
+        ...this.directorySelect,
+        ...(query.followUp === "due" ? {
+          followUpTasks: {
+            where: dueWhere,
+            select: { id: true, dueAt: true, type: true, summary: true, nextAction: true },
+            orderBy: [{ dueAt: "asc" }, { id: "asc" }] as Prisma.FollowUpTaskOrderByWithRelationInput[],
+            take: 3,
+          },
+          _count: { select: { followUpTasks: { where: dueWhere } } },
+        } : {}),
+      },
       orderBy:
-        query.order === "recent"
+        query.sort || query.direction ? [order, { id: direction }] : query.order === "recent"
           ? [{ lastVisitAt: { sort: "desc", nulls: "last" } }, { updatedAt: "desc" }, { id: "desc" }]
           : [{ fullName: "asc" }, { id: "asc" }],
       take: limit + 1,
       ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
-    });
+    }), query.includeTotal === "true" ? this.prisma.customer.count({ where }) : Promise.resolve(undefined)]);
     const hasMore = rows.length > limit;
-    const items = rows.slice(0, limit).map((row) => this.mapDirectoryClient(row));
+    const items = rows.slice(0, limit).map((row) => ({
+      ...this.mapDirectoryClient(row),
+      ...(query.followUp === "due" ? {
+        dueFollowUps: row.followUpTasks.map((task) => ({
+          id: task.id, dueAtIso: task.dueAt.toISOString(), type: task.type,
+          summary: task.summary, nextAction: task.nextAction,
+        })),
+        dueFollowUpCount: row._count.followUpTasks,
+        needsRecallReview: false,
+      } : {}),
+    }));
 
     return {
       items,
+      ...(total !== undefined ? { total } : {}),
       page: {
         limit,
         count: items.length,
@@ -145,10 +171,10 @@ export class ClientsV1Service {
     if (!client) throw new NotFoundException("Client not found");
 
     const followUpSelect = { id: true, dueAt: true, status: true, type: true, summary: true, nextAction: true, ownerId: true, appointment: { select: { locationId: true, providerId: true } } } as const;
-    const [appointments, followUps, invoices, communications, openFollowUps, latestCompletedVisit, activeRecall] = await Promise.all([
+    const [appointments, followUps, invoices, communications, openFollowUps, latestCompletedVisit] = await Promise.all([
       this.prisma.appointment.findMany({
         where: { customerId: id, organizationId: actor.organizationId },
-        select: { id: true, startsAt: true, status: true, cancellationReason: true, customProcedureName: true, provider: { select: { displayName: true } } },
+        select: { id: true, startsAt: true, status: true, locationId: true, providerId: true, cancellationReason: true, customProcedureName: true, provider: { select: { displayName: true } } },
         orderBy: { startsAt: "desc" },
         take: 15,
       }),
@@ -165,7 +191,8 @@ export class ClientsV1Service {
         take: 15,
       }),
       this.prisma.communicationLog.findMany({
-        where: { customerId: id, organizationId: actor.organizationId },
+        where: { customerId: id, organizationId: actor.organizationId,
+          ...(Object.keys(recallAppointmentLocationScope(actor)).length ? { appointment: { is: recallAppointmentLocationScope(actor) } } : {}) },
         select: { id: true, channel: true, direction: true, summary: true, occurredAt: true },
         orderBy: { occurredAt: "desc" },
         take: 15,
@@ -179,10 +206,6 @@ export class ClientsV1Service {
         where: { customerId: id, organizationId: actor.organizationId, status: "Completed" },
         orderBy: [{ startsAt: "desc" }, { id: "desc" }],
         select: { id: true, startsAt: true, locationId: true, providerId: true },
-      }),
-      this.prisma.followUpTask.findFirst({
-        where: { customerId: id, organizationId: actor.organizationId, type: "Recall", status: { not: "Done" } },
-        select: { id: true },
       }),
     ]);
 
@@ -242,14 +265,17 @@ export class ClientsV1Service {
         },
       })),
       timeline,
+      procedureReviewVisits: !client.archivedAt && !client.mergedIntoCustomerId ? appointments
+        .filter((visit) => visit.status === "Completed" && canManageFollowup(actor, { appointment: visit, ownerId: visit.providerId }))
+        .map((visit) => ({ id: visit.id, startsAtIso: visit.startsAt.toISOString(), label: visit.customProcedureName ?? "Completed visit" })) : [],
       followUps: [...openFollowUps, ...followUps.filter((task) => task.status === "Done")].map((task) => ({
         id: task.id, dueAtIso: task.dueAt.toISOString(), status: task.status,
         summary: task.summary, nextAction: task.nextAction,
         type: task.type, canManage: canManageFollowup(actor, task),
       })),
       recallReview: {
-        needsReview: Boolean(latestCompletedVisit && !activeRecall),
-        canCreate: Boolean(!client.archivedAt && !client.mergedIntoCustomerId && latestCompletedVisit && !activeRecall && canManageFollowup(actor, { appointment: latestCompletedVisit, ownerId: latestCompletedVisit.providerId })),
+        needsReview: false,
+        canCreate: false,
         lastCompletedVisitIso: latestCompletedVisit?.startsAt.toISOString() ?? null,
       },
     };
@@ -1548,6 +1574,7 @@ export class ClientsV1Service {
       email: client.email,
       risk: client.riskLabel,
       lastVisitIso: (client.lastVisitAt ?? client.updatedAt).toISOString(),
+      lastRecordedVisitIso: client.lastVisitAt?.toISOString() ?? null,
     };
   }
 

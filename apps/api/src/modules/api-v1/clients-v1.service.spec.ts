@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { ConflictException } from "@nestjs/common";
 
 import { buildClientCandidateSetVersion } from "../customers/client-match-version";
 import { normalizeClientPhone } from "../customers/client-phone-normalization";
@@ -83,29 +84,18 @@ test("v1 Client directory normalizes an HTTP query-string limit", async () => {
   assert.equal(result.page.limit, 25);
 });
 
-test("due Client call list combines outstanding tasks and historical visits missing an active recall", async () => {
-  let observed: Record<string, unknown> | undefined;
-  const service = new ClientsV1Service({ customer: { findMany: async ({ where }: { where: Record<string, unknown> }) => { observed = where; return []; } } } as never,
-    { requireSession: async () => ({ ...actor, effectiveRoleScopes: [{ role: "Receptionist", locationId: "location-a" }] }) } as never);
+test("due Client directory includes scheduled tasks only, never unscheduled completed visits", async () => {
+  let observed: unknown;
+  const service = new ClientsV1Service({ customer: { findMany: async (args: { where: unknown }) => { observed = args.where; return []; } } } as never, { requireSession: async () => actor } as never);
   await service.list({ limit: 25, followUp: "due", query: "Asha" });
-  assert.equal(observed?.organizationId, actor.organizationId);
-  assert.equal(observed?.archivedAt, null);
-  const branches = (observed?.AND as Array<{ OR: Array<Record<string, unknown>> }>)[0].OR;
-  assert.deepEqual(branches[0], { followUpTasks: { some: {
-    organizationId: actor.organizationId,
-    appointment: { is: { locationId: { in: ["location-a"] } } },
-    status: { in: ["Open", "InProgress", "Waiting", "Blocked"] },
-    dueAt: { lte: (branches[0].followUpTasks as { some: { dueAt: { lte: Date } } }).some.dueAt.lte },
-  } } });
-  assert.deepEqual(branches[1], {
-    appointments: { some: { organizationId: actor.organizationId, status: "Completed", locationId: { in: ["location-a"] } } },
-    followUpTasks: { none: { organizationId: actor.organizationId, type: "Recall", status: { not: "Done" } } },
-  });
-  assert.ok(observed?.OR, "name search remains combined with the due filter");
+  const where = observed as { AND: Array<{ followUpTasks: { some: { organizationId: string } } }> };
+  assert.equal(where.AND.length, 1); assert.equal(where.AND[0].followUpTasks.some.organizationId, actor.organizationId);
+  assert.doesNotMatch(JSON.stringify(where.AND), /appointments|Recall/);
 });
 
 test("Client profile exposes every outstanding task and explicit historical review without read writes", async () => {
   const queries: Array<Record<string, unknown>> = [];
+  let communicationQuery: Record<string, unknown> | undefined;
   const completedVisit = { id: "visit-a", startsAt: new Date("2026-08-31T04:00:00Z"), locationId: "location-a", providerId: "provider-a" };
   const openTasks = Array.from({ length: 16 }, (_, index) => ({
     id: "task-" + index, dueAt: new Date("2026-10-01T00:00:00Z"), status: "Open", type: "TreatmentContinuation",
@@ -121,17 +111,38 @@ test("Client profile exposes every outstanding task and explicit historical revi
       findMany: async (query: Record<string, unknown>) => { queries.push(query); return (query.where as Record<string, unknown>).status ? openTasks : [{ ...openTasks[0], id: "done-a", status: "Done" }]; },
       findFirst: async () => null,
     },
-    invoice: { findMany: async () => [] }, communicationLog: { findMany: async () => [] },
+    invoice: { findMany: async () => [] }, communicationLog: { findMany: async (query: Record<string, unknown>) => { communicationQuery = query; return []; } },
   } as never, { requireSession: async () => ({ ...actor, effectiveRoleScopes: [{ role: "Receptionist", locationId: "location-a" }] }) } as never);
   const result = await service.getOne(clientRow.id);
   assert.equal(result.followUps.filter((item) => item.status !== "Done").length, 16);
   assert.equal(result.followUps.length, 17);
   assert.ok(result.followUps.every((item) => item.canManage));
-  assert.equal(result.recallReview.needsReview, true);
-  assert.equal(result.recallReview.canCreate, true);
+  assert.equal(result.recallReview.needsReview, false);
+  assert.equal(result.recallReview.canCreate, false);
+  assert.deepEqual(result.procedureReviewVisits, [{ id: completedVisit.id, startsAtIso: completedVisit.startsAt.toISOString(), label: "Implant review" }]);
   assert.match(result.timeline.find((item) => item.kind === "appointment")!.title, /Implant review/);
   assert.deepEqual((queries[0].where as Record<string, unknown>).appointment, { is: { locationId: { in: ["location-a"] } } });
   assert.equal(queries[1].take, undefined, "older outstanding tasks cannot disappear behind the history limit");
+  assert.deepEqual(communicationQuery!.where, { customerId: clientRow.id, organizationId: actor.organizationId, appointment: { is: { locationId: { in: ["location-a"] } } } });
+});
+
+test("due directory returns bounded task previews and counts with the same tenant and location scope", async () => {
+  let observed: Record<string, unknown> | undefined;
+  const dueTask = { id: "review-a", dueAt: new Date("2026-10-01T18:15:00Z"), type: "TreatmentContinuation", summary: "Extraction review", nextAction: "Arrange review" };
+  const service = new ClientsV1Service({ customer: { findMany: async (args: Record<string, unknown>) => {
+    observed = args;
+    return [{ ...clientRow, followUpTasks: [dueTask], _count: { followUpTasks: 4 } }];
+  } } } as never, { requireSession: async () => ({ ...actor, effectiveRoleScopes: [{ role: "Receptionist", locationId: "location-a" }] }) } as never);
+  const result = await service.list({ limit: 25, followUp: "due" });
+  assert.equal(result.items[0].dueFollowUpCount, 4);
+  assert.equal(result.items[0].dueFollowUps?.[0].dueAtIso, dueTask.dueAt.toISOString());
+  assert.equal(result.items[0].needsRecallReview, false);
+  const select = observed!.select as { followUpTasks: { where: Record<string, unknown>; take: number }; _count: { select: { followUpTasks: { where: unknown } } } };
+  assert.equal(select.followUpTasks.take, 3);
+  assert.deepEqual(select.followUpTasks.where, select._count.select.followUpTasks.where);
+  assert.equal(select.followUpTasks.where.organizationId, actor.organizationId);
+  assert.deepEqual(select.followUpTasks.where.appointment, { is: { locationId: { in: ["location-a"] } } });
+  assert.deepEqual(select.followUpTasks.where.status, { in: ["Open", "InProgress", "Waiting", "Blocked"] });
 });
 
 test("v1 Client directory can return a deterministic recent-booking list", async () => {
@@ -155,6 +166,50 @@ test("v1 Client directory can return a deterministic recent-booking list", async
     { updatedAt: "desc" },
     { id: "desc" },
   ]);
+});
+
+test("shared directory sorting and totals apply to the entire scoped filtered result before pagination", async () => {
+  const observed: Array<Record<string, unknown>> = [];
+  let countedWhere: unknown;
+  const session = { ...actor, effectiveRoleScopes: [{ role: "Receptionist", locationId: "location-a" }] };
+  const service = new ClientsV1Service({ customer: {
+    findMany: async (args: Record<string, unknown>) => { observed.push(args); return []; },
+    count: async ({ where }: { where: unknown }) => { countedWhere = where; return 45; },
+  } } as never, { requireSession: async () => session } as never);
+  const sorts = [["name", { fullName: "desc" }], ["code", { patientCode: { sort: "desc", nulls: "last" } }], ["phone", { phone: "desc" }], ["visit", { lastVisitAt: { sort: "desc", nulls: "last" } }], ["risk", { riskLabel: "desc" }]] as const;
+  for (const [sort, order] of sorts) {
+    const result = await service.list({ limit: 25, sort, direction: "desc", risk: "Needs attention", followUp: "due", query: "Asha", includeTotal: "true" });
+    const args = observed.at(-1)!;
+    assert.deepEqual(args.orderBy, [order, { id: "desc" }]); assert.equal(args.take, 26);
+    assert.deepEqual(args.where, countedWhere); assert.equal(result.total, 45);
+    const where = args.where as Record<string, unknown>;
+    assert.equal(where.organizationId, actor.organizationId); assert.equal(where.riskLabel, "Needs attention");
+    assert.equal(where.archivedAt, null); assert.equal(where.mergedIntoCustomerId, null); assert.ok(where.OR);
+    assert.match(JSON.stringify(where.AND), /location-a/); assert.match(JSON.stringify(where.AND), /clinic-a/);
+  }
+});
+
+test("directory cursor must still belong to the current tenant and filters", async () => {
+  let fetched = false;
+  const service = new ClientsV1Service({ customer: {
+    findFirst: async ({ where }: { where: unknown }) => { const serialized = JSON.stringify(where); assert.match(serialized, /clinic-a/); assert.match(serialized, /High priority/); assert.match(serialized, /foreign-cursor/); return null; },
+    findMany: async () => { fetched = true; return []; },
+  } } as never, { requireSession: async () => actor } as never);
+  await assert.rejects(service.list({ limit: 25, risk: "High priority", cursor: "foreign-cursor", sort: "phone" }), ConflictException);
+  assert.equal(fetched, false);
+});
+
+test("directory pagination remains bounded and visit dates do not substitute record updates", async () => {
+  const rows = Array.from({ length: 26 }, (_, index) => ({ ...clientRow, id: "client-" + index }));
+  const service = new ClientsV1Service({ customer: {
+    findFirst: async () => ({ id: "anchor" }),
+    findMany: async ({ cursor, skip, orderBy }: { cursor: unknown; skip: unknown; orderBy: unknown }) => {
+      assert.deepEqual(cursor, { id: "anchor" }); assert.equal(skip, 1); assert.deepEqual(orderBy, [{ fullName: "asc" }, { id: "asc" }]); return rows;
+    },
+  } } as never, { requireSession: async () => actor } as never);
+  const result = await service.list({ limit: 25, cursor: "anchor", sort: "name" });
+  assert.equal(result.items.length, 25); assert.equal(result.page.hasMore, true); assert.equal(result.page.nextCursor, "client-24");
+  assert.equal(result.items[0].lastRecordedVisitIso, null); assert.equal(result.total, undefined);
 });
 
 test("v1 Client creation allocates unique server-side codes and permits shared phones", async () => {

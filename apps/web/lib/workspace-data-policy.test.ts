@@ -9,6 +9,7 @@ import {
 test("route-owned screens use the minimal bootstrap", () => {
   assert.equal(workspaceDataPolicy("/dashboard"), "minimal-bootstrap");
   assert.equal(workspaceDataPolicy("/clients"), "minimal-bootstrap");
+  assert.equal(workspaceDataPolicy("/followups"), "minimal-bootstrap");
   assert.equal(workspaceDataPolicy("/billing"), "minimal-bootstrap");
   assert.equal(workspaceDataPolicy("/archive"), "minimal-bootstrap");
   assert.equal(workspaceDataPolicy("/inventory"), "minimal-bootstrap");
@@ -17,6 +18,7 @@ test("route-owned screens use the minimal bootstrap", () => {
   assert.equal(workspaceDataPolicy("/patients"), "minimal-bootstrap");
   assert.equal(requiresCompatibilityBootstrap("/dashboard"), false);
   assert.equal(requiresCompatibilityBootstrap("/clients"), false);
+  assert.equal(requiresCompatibilityBootstrap("/followups"), false);
   assert.equal(requiresCompatibilityBootstrap("/billing"), false);
   assert.equal(requiresCompatibilityBootstrap("/archive"), false);
   assert.equal(requiresCompatibilityBootstrap("/inventory"), false);

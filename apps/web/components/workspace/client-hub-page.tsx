@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Archive, GitMerge, Plus, Search } from "lucide-react";
+import { Archive, GitMerge, Plus } from "lucide-react";
 
 import { KoiSectionLoader } from "@/components/koi-loader";
 import { Button, Panel } from "@/components/ui";
@@ -14,6 +14,9 @@ import { apiFetchJson } from "@/lib/api-client";
 import { isAbortedRequest, requestErrorMessage } from "@/lib/request-error";
 import { toDateKey } from "@/lib/calendar/conversion";
 import { buildFollowupUpdate } from "@/lib/followup-update";
+import { FollowupClientSuggestions } from "./followup-client-suggestions";
+import { ClientPaymentHistory } from "./finance/visit-payment";
+import { DataTable, DataTableControls, type TableColumn, type TableSort } from "./data-table";
 
 type Client = {
   id: string;
@@ -23,16 +26,21 @@ type Client = {
   email: string | null;
   risk: string;
   lastVisitIso: string;
+  lastRecordedVisitIso?: string | null;
+  dueFollowUps?: Array<{ id: string; dueAtIso: string; type: string; summary: string; nextAction: string }>;
+  dueFollowUpCount?: number;
+  needsRecallReview?: boolean;
 };
 type Envelope<T> = { data: T };
-type Directory = { items: Client[]; page?: { hasMore: boolean; nextCursor: string | null } };
+type Directory = { items: Client[]; total?: number; page?: { hasMore: boolean; nextCursor: string | null } };
 type FollowUp = { id: string; dueAtIso: string; status: string; type: string; summary: string; nextAction: string; canManage: boolean };
 type Profile = {
   client: Client & { allergies: string | null; medicalNotes: string | null; dateOfBirthIso: string | null };
   mergeHistory: Array<{ id: string; atIso: string; reason: string; secondaryClient: Client }>;
-  timeline: Array<{ id: string; atIso: string; title: string; detail: string }>;
+  timeline: Array<{ id: string; atIso: string; title: string; detail: string; kind?: string }>;
   followUps?: FollowUp[];
   recallReview?: { needsReview: boolean; canCreate: boolean; lastCompletedVisitIso: string | null };
+  procedureReviewVisits?: Array<{ id: string; startsAtIso: string; label: string }>;
 };
 async function request<T>(path: string, init?: RequestInit) {
   return (await apiFetchJson<Envelope<T>>(path, init)).data;
@@ -46,6 +54,9 @@ export function ClientDirectoryPage() {
   const { workspaceBootstrap } = useWorkspaceApp();
   const [query, setQuery] = useState("");
   const [dueOnly, setDueOnly] = useState(false);
+  const [risk, setRisk] = useState("");
+  const [sort, setSort] = useState<TableSort>({ key: "name", direction: "asc" });
+  const [total, setTotal] = useState<number | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const moreRequest = useRef<AbortController | null>(null);
@@ -57,20 +68,26 @@ export function ClientDirectoryPage() {
   const canCreateClient =
     workspaceBootstrap.context.capabilities.canCreateClient;
   useEffect(() => { setDueOnly(new URLSearchParams(window.location.search).get("followUp") === "due"); }, []);
-  const directoryPath = "/v1/clients?limit=25&query=" + encodeURIComponent(query) + (dueOnly ? "&followUp=due" : "");
+  const params = new URLSearchParams({ limit: "25", query, sort: sort.key, direction: sort.direction, includeTotal: "true" });
+  if (dueOnly) params.set("followUp", "due");
+  if (risk) params.set("risk", risk);
+  const directoryPath = "/v1/clients?" + params.toString();
+  const changeDueFilter = (value: boolean) => { setDueOnly(value); window.history.replaceState(window.history.state, "", value ? "/clients?followUp=due" : "/clients"); };
+  const resetFilters = () => { setQuery(""); setRisk(""); setSort({ key: "name", direction: "asc" }); changeDueFilter(false); };
 
   useEffect(() => {
     const controller = new AbortController();
     moreRequest.current?.abort();
     setLoadingMore(false);
     setLoading(true);
+    setNextCursor(null);
     const timer = window.setTimeout(() => {
       setError(null);
       void request<Directory>(
         directoryPath,
         { signal: controller.signal },
       )
-        .then((result) => { if (!controller.signal.aborted) { setItems(result.items); setNextCursor(result.page?.nextCursor ?? null); } })
+        .then((result) => { if (!controller.signal.aborted) { setItems(result.items); setTotal(result.total ?? null); setNextCursor(result.page?.nextCursor ?? null); } })
         .catch((cause: unknown) => {
           if (!isAbortedRequest(cause)) {
             setError(requestErrorMessage(cause, "Unable to load Clients."));
@@ -94,8 +111,9 @@ export function ClientDirectoryPage() {
       setLoadRevision((current) => current + 1);
     };
     window.addEventListener("clinicflow:client-changed", handleBookingCompleted);
+    window.addEventListener("clinicflow:followup-changed", handleBookingCompleted);
     return () =>
-      window.removeEventListener("clinicflow:client-changed", handleBookingCompleted);
+      { window.removeEventListener("clinicflow:client-changed", handleBookingCompleted); window.removeEventListener("clinicflow:followup-changed", handleBookingCompleted); };
   }, []);
 
   return (
@@ -112,52 +130,27 @@ export function ClientDirectoryPage() {
           ) : undefined
         }
       />
-      <Panel title="Client directory">
-        <div className="border-b border-[var(--border)] p-4">
-          <label className="mb-3 flex min-h-11 items-center gap-2 text-sm">
-            <input checked={dueOnly} onChange={(event) => setDueOnly(event.target.checked)} type="checkbox" />
-            Follow-ups due — call list
-          </label>
-          <div className="flex h-10 items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3">
-            <Search aria-hidden="true" className="text-[var(--text-muted)]" size={16} />
-            <input
-              aria-label="Search Clients"
-              className="w-full border-none bg-transparent p-0 text-sm outline-none"
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search name, phone, email, or Client code"
-              value={query}
-            />
-          </div>
-        </div>
+      <DataTableControls search={query} onSearch={setQuery} searchLabel="Search clients" placeholder="Name, phone, email or code" sort={sort} sortOptions={[
+        { value: "name", label: "Client" }, { value: "code", label: "Client code" }, { value: "phone", label: "Phone" }, { value: "visit", label: "Last visit" }, { value: "risk", label: "Risk" },
+      ]} onSort={setSort} onReset={resetFilters}>
+        <Field label="Follow-ups"><select className={inputClassName} value={dueOnly ? "due" : "all"} onChange={event => changeDueFilter(event.target.value === "due")}><option value="all">All clients</option><option value="due">Due follow-ups</option></select></Field>
+        <Field label="Risk"><select className={inputClassName} value={risk} onChange={event => setRisk(event.target.value)}><option value="">All risks</option><option>Routine</option><option>Needs attention</option><option>High priority</option></select></Field>
+      </DataTableControls>
+      {dueOnly ? <p className="text-sm text-[var(--text-muted)]">Clients with scheduled follow-ups that are due or overdue. Open a client to log contact or change the date.</p> : null}
+      {!loading && !error && total !== null ? <p role="status" className="text-sm text-[var(--text-muted)]">Showing {items.length} of {total} matching clients</p> : null}
+      <Panel>
         {loading ? <KoiSectionLoader label="Loading Clients" /> : null}
         {!loading && error ? <div className="p-4"><EmptyState actionLabel="Retry" body={error} onAction={() => setLoadRevision((current) => current + 1)} title="Client directory unavailable" /></div> : null}
-        {!loading && !error && items.length ? (
-          <div className="divide-y divide-[var(--border)]">
-            {items.map((client) => (
-              <Link
-                className="grid gap-3 px-4 py-4 transition hover:bg-[var(--surface-muted)] md:grid-cols-[minmax(0,1.2fr)_160px_120px]"
-                href={"/clients/" + client.id}
-                key={client.id}
-              >
-                <div>
-                  <div className="font-medium text-[var(--foreground)]">{client.name}</div>
-                  <div className="mt-1 text-sm text-[var(--text-muted)]">{client.clientCode ?? "Code pending"} · {client.phone}</div>
-                </div>
-                <div className="text-sm text-[var(--text-muted)]"><b className="text-[var(--foreground)]">Last activity</b><div className="mt-1">{date(client.lastVisitIso)}</div></div>
-                <div className="text-sm text-[var(--text-muted)]"><b className="text-[var(--foreground)]">Risk</b><div className="mt-1">{client.risk}</div></div>
-              </Link>
-            ))}
-          </div>
-        ) : null}
+        {!loading && !error ? <ClientDirectoryTable items={items} dueOnly={dueOnly} sort={sort} onSort={setSort} /> : null}
         {!loading && !error && !items.length ? (
           <div className="p-4">
             <EmptyState
-              actionLabel={canCreateClient ? "Create Client" : undefined}
-              body="No active Client matches that search. Shared household contacts are allowed."
+              actionLabel={!dueOnly && canCreateClient ? "Create Client" : undefined}
+              body={dueOnly ? "No clients with due follow-ups match these filters." : "No active Client matches these filters. Try another search or reset filters."}
               onAction={
                 canCreateClient ? () => setCreating(true) : undefined
               }
-              title="No Clients found"
+              title={dueOnly ? "No follow-ups due" : "No Clients found"}
             />
           </div>
         ) : null}
@@ -167,7 +160,7 @@ export function ClientDirectoryPage() {
           moreRequest.current = controller;
           setLoadingMore(true);
           void request<Directory>(directoryPath + "&cursor=" + encodeURIComponent(nextCursor), { signal: controller.signal })
-            .then((result) => { if (!controller.signal.aborted) { setItems((current) => [...current, ...result.items]); setNextCursor(result.page?.nextCursor ?? null); } })
+            .then((result) => { if (!controller.signal.aborted) { setItems((current) => [...current, ...result.items.filter(item => !current.some(existing => existing.id === item.id))]); setTotal(result.total ?? null); setNextCursor(result.page?.nextCursor ?? null); } })
             .catch((cause: unknown) => { if (!isAbortedRequest(cause)) setError(requestErrorMessage(cause, "Unable to load more Clients.")); })
             .finally(() => { if (!controller.signal.aborted) setLoadingMore(false); });
         }} variant="secondary">Load more Clients</Button></div> : null}
@@ -182,9 +175,38 @@ export function ClientDirectoryPage() {
   );
 }
 
+export function ClientDirectoryTable({ items, dueOnly, sort, onSort }: { items: Client[]; dueOnly: boolean; sort?: TableSort; onSort?: (value: TableSort) => void }) {
+  const cell = "px-3 py-4 align-top break-words sm:px-4";
+  const visitDate = (client: Client) => client.lastRecordedVisitIso === undefined ? date(client.lastVisitIso) : client.lastRecordedVisitIso ? date(client.lastRecordedVisitIso) : "Not recorded";
+  const columns: TableColumn[] = [
+    { key: "name", label: "Client", sortable: true }, { key: "phone", label: "Contact", sortable: true, className: "hidden sm:table-cell" },
+    ...(dueOnly ? [{ key: "reason", label: "Follow-up / reason", className: "hidden sm:table-cell" }, { key: "due", label: "Due date", className: "hidden sm:table-cell" }, { key: "next", label: "Next action", className: "hidden sm:table-cell" }]
+      : [{ key: "visit", label: "Last visit", sortable: true, className: "hidden sm:table-cell" }, { key: "risk", label: "Risk", sortable: true, className: "hidden sm:table-cell" }]),
+    { key: "actions", label: "Actions" },
+  ];
+  return <DataTable caption={dueOnly ? "Clients with due follow-ups" : "Client directory"} columns={columns} sort={sort} onSort={onSort}>
+        {items.flatMap((client) => {
+          const tasks = dueOnly && client.dueFollowUps?.length ? client.dueFollowUps : [null];
+          const remaining = (client.dueFollowUpCount ?? 0) - (client.dueFollowUps?.length ?? 0);
+          const href = "/clients/" + encodeURIComponent(client.id);
+          return tasks.map((task, index) => <tr className="hover:bg-[var(--surface-muted)]" key={client.id + ":" + (task?.id ?? "client")}>
+            {index === 0 ? <>
+              <td className={cell} rowSpan={tasks.length}><Link className="font-medium text-[var(--accent)] hover:underline" href={href}>{client.name}</Link><div className="mt-1 text-xs text-[var(--text-muted)]">{client.clientCode ?? "Code pending"}</div><div className="mt-3 space-y-2 text-xs sm:hidden"><p>{client.phone || "No phone recorded"}</p>{client.email ? <p>{client.email}</p> : null}{dueOnly ? tasks.map(item => item ? <div key={item.id} className="space-y-1"><p>{item.summary}</p><p>Due: {date(item.dueAtIso)}</p><p>{item.nextAction}</p></div> : <p key="review">Historical recall review · Not scheduled</p>) : <><p>Last visit: {visitDate(client)}</p><p>Risk: {client.risk}</p></>}</div></td>
+              <td className={cell + " hidden sm:table-cell"} rowSpan={tasks.length}><div>{client.phone || "Not recorded"}</div>{client.email ? <div className="mt-1 text-xs text-[var(--text-muted)]">{client.email}</div> : null}</td>
+            </> : null}
+            {dueOnly ? <>
+              <td className={cell + " hidden sm:table-cell"}><div className="font-medium">{task ? task.type === "TreatmentContinuation" ? "Procedure follow-up" : task.type === "Recall" ? "Routine recall" : "Follow-up" : "Historical recall review"}</div><div className="mt-1 text-[var(--text-muted)]">{task?.summary ?? "Review the last completed visit"}</div></td>
+              <td className={cell + " hidden sm:table-cell"}>{task ? date(task.dueAtIso) : "Not scheduled"}</td>
+              <td className={cell + " hidden sm:table-cell"}>{task?.nextAction ?? "Open the profile to review and schedule the recall"}</td>
+            </> : <><td className={cell + " hidden sm:table-cell"}>{visitDate(client)}</td><td className={cell + " hidden sm:table-cell"}>{client.risk}</td></>}
+            {index === 0 ? <td className={cell} rowSpan={tasks.length}><Link className="font-medium text-[var(--accent)] hover:underline" href={href}>{dueOnly ? "Review follow-ups" : "Open profile"}</Link>{remaining > 0 ? <div className="mt-2 text-xs text-[var(--text-muted)]">+{remaining} more due tasks</div> : null}</td> : null}
+          </tr>);
+        })}
+  </DataTable>;
+}
+
 export function FollowUpCard({ task, onSaved }: { task: FollowUp; onSaved: () => void }) {
   const [dueDate, setDueDate] = useState(() => toDateKey(task.dueAtIso));
-  const [nextRecallDate, setNextRecallDate] = useState("");
   const [outcome, setOutcome] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -193,7 +215,7 @@ export function FollowUpCard({ task, onSaved }: { task: FollowUp; onSaved: () =>
     try {
       await apiFetchJson("/followups/" + task.id, {
         method: "PATCH", headers: { "content-type": "application/json" },
-        body: JSON.stringify(buildFollowupUpdate(status, outcome, status === "Open" ? dueDate : nextRecallDate)),
+        body: JSON.stringify(buildFollowupUpdate(status, outcome, status === "Open" ? dueDate : "")),
       });
       onSaved();
     } catch (cause) { setError(requestErrorMessage(cause, "Unable to update this follow-up.")); }
@@ -204,8 +226,7 @@ export function FollowUpCard({ task, onSaved }: { task: FollowUp; onSaved: () =>
     <div className="text-sm text-[var(--text-muted)]">Due {date(task.dueAtIso)} · {task.nextAction}</div>
     {task.status !== "Done" && task.canManage ? <>
       <Field label="Next follow-up date"><input className={inputClassName} disabled={saving} onChange={(event) => setDueDate(event.target.value)} type="date" value={dueDate} /></Field>
-      <Field label="Call outcome / next action"><textarea className={textareaClassName} disabled={saving} maxLength={2000} onChange={(event) => setOutcome(event.target.value)} placeholder="For example: client asked to call next week" value={outcome} /></Field>
-      {task.type === "Recall" ? <Field label="Next routine recall after done (optional)"><input className={inputClassName} disabled={saving} onChange={(event) => setNextRecallDate(event.target.value)} type="date" value={nextRecallDate} /><p className="mt-1 text-xs text-[var(--text-muted)]">Leave blank for six calendar months from today.</p></Field> : null}
+      <Field label="Outcome / next action"><textarea className={textareaClassName} disabled={saving} maxLength={2000} onChange={(event) => setOutcome(event.target.value)} placeholder="For example: client asked to follow up next week" value={outcome} /></Field>
       <div className="flex flex-wrap gap-2"><Button disabled={saving} onClick={() => void save("Open")} variant="secondary">Save next date</Button><Button disabled={saving} onClick={() => void save("Done")}>Mark done</Button></div>
     </> : null}
     {error ? <p className="text-sm text-[var(--danger)]" role="alert">{error}</p> : null}
@@ -221,8 +242,6 @@ export function ClientProfilePage({ clientId }: { clientId: string }) {
   const [archiveReason, setArchiveReason] = useState("");
   const [archiving, setArchiving] = useState(false);
   const [loadRevision, setLoadRevision] = useState(0);
-  const [creatingRecall, setCreatingRecall] = useState(false);
-  const [recallError, setRecallError] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -255,8 +274,11 @@ export function ClientProfilePage({ clientId }: { clientId: string }) {
       }
     };
     window.addEventListener("clinicflow:client-changed", handleBookingCompleted);
-    return () =>
+    window.addEventListener("clinicflow:followup-changed", handleBookingCompleted);
+    return () => {
       window.removeEventListener("clinicflow:client-changed", handleBookingCompleted);
+      window.removeEventListener("clinicflow:followup-changed", handleBookingCompleted);
+    };
   }, [clientId]);
 
   if (loading) return <KoiSectionLoader label="Loading Client profile" />;
@@ -270,9 +292,11 @@ export function ClientProfilePage({ clientId }: { clientId: string }) {
         subtitle={(client.clientCode ?? "Client record") + " · " + client.phone}
         action={<Button onClick={() => setMergeOpen(true)} variant="secondary"><GitMerge size={16} />Merge duplicate</Button>}
       />
-      <div className="grid gap-5 xl:grid-cols-2">
+      <div className="space-y-5">
         <Panel title="Client details">
           <div className="grid gap-4 p-4 sm:grid-cols-2">
+            <Detail label="Phone" value={client.phone || "Not recorded"} />
+            <Detail label="Client code" value={client.clientCode ?? "Not recorded"} />
             <Detail label="Email" value={client.email ?? "Not recorded"} />
             <Detail label="Risk" value={client.risk} />
             <Detail label="Date of birth" value={client.dateOfBirthIso ? date(client.dateOfBirthIso) : "Not recorded"} />
@@ -280,6 +304,19 @@ export function ClientProfilePage({ clientId }: { clientId: string }) {
             <Detail label="Medical notes" value={client.medicalNotes ?? "None recorded"} />
           </div>
         </Panel>
+
+      </div>
+      <Panel title="Follow-ups"><div className="p-4"><FollowupClientSuggestions customerId={client.id} /></div></Panel>
+      <Panel title="Payment history"><div className="p-4"><ClientPaymentHistory clientId={client.id} /></div></Panel>
+      <Panel title="Visit history">
+        {profile.timeline.some(item => !item.kind || item.kind === "appointment") ? <div className="divide-y divide-[var(--border)]">
+          {profile.timeline.filter(item => !item.kind || item.kind === "appointment").map((item) => <div className="flex gap-4 px-4 py-3" key={item.id}>
+            <div className="w-24 shrink-0 text-xs text-[var(--text-muted)]">{date(item.atIso)}</div>
+            <div><div className="text-sm font-medium text-[var(--foreground)]">{item.title}</div><div className="mt-1 text-sm text-[var(--text-muted)]">{item.detail}</div></div>
+          </div>)}
+        </div> : <div className="p-4"><EmptyState body="This Client has no operational history yet." title="No timeline activity" /></div>}
+      </Panel>
+      <details className="rounded-lg border border-[var(--border)] p-4"><summary className="cursor-pointer text-sm font-medium">Manage client</summary>
         <Panel title="Archive Client">
           <div className="space-y-3 p-4">
             <p className="text-sm text-[var(--text-muted)]">Archiving removes this Client from normal search. It never deletes the Client, its code, or history.</p>
@@ -301,32 +338,7 @@ export function ClientProfilePage({ clientId }: { clientId: string }) {
             {error ? <p className="text-sm text-[var(--danger)]">{error}</p> : null}
           </div>
         </Panel>
-      </div>
-      <Panel title="Follow-ups and recalls">
-        <div className="space-y-4 p-4">
-          <p className="text-sm text-[var(--text-muted)]">Completed visits create a recall six calendar months after the visit. Change the date for a specific care plan and record every call outcome.</p>
-          {profile.recallReview?.needsReview ? <div className="space-y-2 rounded-lg border border-[var(--border)] p-3">
-            <p className="text-sm">Recall review needed{profile.recallReview.lastCompletedVisitIso ? " for the completed visit on " + date(profile.recallReview.lastCompletedVisitIso) : ""}. Create the routine recall, then adjust its date for the care plan.</p>
-            {profile.recallReview.canCreate ? <Button loading={creatingRecall} onClick={() => {
-              setCreatingRecall(true); setRecallError(null);
-              void apiFetchJson("/followups/clients/" + encodeURIComponent(client.id) + "/recall", { method: "POST" })
-                .then(() => setLoadRevision((current) => current + 1))
-                .catch((cause: unknown) => setRecallError(requestErrorMessage(cause, "Unable to create the recall.")))
-                .finally(() => setCreatingRecall(false));
-            }} variant="secondary">Create recall from last completed visit</Button> : <p className="text-sm text-[var(--text-muted)]">Ask staff authorized for that visit to review the recall.</p>}
-            {recallError ? <p className="text-sm text-[var(--danger)]" role="alert">{recallError}</p> : null}
-          </div> : null}
-          {profile.followUps?.length ? profile.followUps.map((task) => <FollowUpCard key={task.id + task.dueAtIso + task.status} task={task} onSaved={() => setLoadRevision((current) => current + 1)} />) : <p className="text-sm text-[var(--text-muted)]">No follow-up tasks recorded.</p>}
-        </div>
-      </Panel>
-      <Panel title="Timeline">
-        {profile.timeline.length ? <div className="divide-y divide-[var(--border)]">
-          {profile.timeline.map((item) => <div className="flex gap-4 px-4 py-3" key={item.id}>
-            <div className="w-24 shrink-0 text-xs text-[var(--text-muted)]">{date(item.atIso)}</div>
-            <div><div className="text-sm font-medium text-[var(--foreground)]">{item.title}</div><div className="mt-1 text-sm text-[var(--text-muted)]">{item.detail}</div></div>
-          </div>)}
-        </div> : <div className="p-4"><EmptyState body="This Client has no operational history yet." title="No timeline activity" /></div>}
-      </Panel>
+      </details>
       {profile.mergeHistory.length ? <Panel title="Merge history"><div className="divide-y divide-[var(--border)]">
         {profile.mergeHistory.map((item) => <div className="px-4 py-3" key={item.id}>
           <div className="text-sm font-medium text-[var(--foreground)]">{item.secondaryClient.name} merged into this Client</div>

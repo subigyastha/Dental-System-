@@ -1,27 +1,26 @@
 # Current progress
 
-Updated: 2026-10-09. Branch: `main`. [PR #6](https://github.com/subigyastha/Dental-System-/pull/6) approved and merged as `138c1a9`. Further workflow acceptance will use production, as requested.
+Updated: 2026-10-16. Release branch: codex/production-followups-performance. User authorized release of pending work on existing free hosting plans. Production rollout is pending CI and migration checks.
 
-## Completed
-- Full-duration occupancy/buffers and self-overlapping reschedules; custom procedure snapshots and 15-minute duration choices throughout booking/holds/confirmation/edit/reschedule.
-- Reception: Confirm → Check in → Complete; client-profile links and clinical signing permissions preserved.
-- Six-calendar-month recalls, staff adjustments/outcomes, due call list and explicit historical recall review.
-- Wider sticky Week columns, weekday labels, shared responsive Month and continuous Day blocks.
-- Completed/no-show/cancelled Day records retained; replacement cards show cancellation reasons. Desktop overlap lanes/mobile entries preserve history without reserving capacity.
-- Defensive fixes: cross-location summary leakage, stale controls after failed Day loading, historical availability candidates and duplicate mobile keys. Retry uses existing cache invalidation. [DD-2026-10-09](36-defensive-schedule-review.md).
+## Current slice
 
-## Verified release evidence
-- [PR CI](https://github.com/subigyastha/Dental-System-/actions/runs/37960532386) passed migrations, tests, PostgreSQL transactions, types/lint/builds, data boundary, route inventory, secrets and dependency audit. Local suite: 388 passed, 0 failed, 1 HTTP database check skipped; separate isolated database run passed all 4 integration checks and 27 migrations.
-- Live local Edge: 1440/390/320px, no overflow, history details and failed-load Retry recovery verified. [Local walkthrough](35-clinic-eye-test.md).
-- Production Supabase migration `20261008_000027_custom_booking_procedures` applied before merge, exit 0; migration ledger confirms completion. Evidence: `.codex-temp/release-production-migration.log`, `release-production-db-status.log`.
-- Vercel reports successful production deployment of merge `138c1a9`. Login/manifest return 200; anonymous Reservations returns 307 to `/login`. [Production web](https://dental-system-web.vercel.app).
-- Render live/ready retry returned 200; database is reachable. First checks timed out, then recovered. Exact deployed API revision still needs hosting-dashboard verification. Evidence: `.codex-temp/release-api-health-retry.log`.
-- Main merge CI passed: [merge run](https://github.com/subigyastha/Dental-System-/actions/runs/37961448420). Consult GitHub for its latest result; documentation commits trigger their own run.
+Release includes staff-directed follow-up logging/scheduling, Table/Status board, shared client table, calendar AD/BS navigation and booking date limits, client histories and visit payments. Existing tenant/auth, booking idempotency and billing permissions remain. [Workflow](41-staff-directed-followups.md), [model](43-followup-data-model.md), [UI/payment evidence](44-followup-ui-and-visit-payments.md), [follow-up table](47-followup-table-and-status-board.md), [client table](48-client-directory-shared-table.md).
 
-## Next session
-1. Verify Render deployed the merged API revision. Health/readiness pass, but they expose no commit identifier; check hosting logs/version before treating the full rollout as verified.
-2. Signed-in production acceptance: Schedule time/duration/continuations, custom booking, hold recovery, 15-minute self-overlap reschedule, Confirm → Check in → Complete, retained completed/cancelled history, cancellation reason after replacement, recall overrides and permissions. Do not copy the local synthetic fixture into production.
-3. Physical iOS/Android: PWA installation, keyboard/safe areas, tapping/scrolling, AD/BS date alignment and Day/Week/Month layouts.
-4. Reconcile historical recalls through staff review; agree a clinic rule for clients without completed visits.
+Free-plan performance changes: single coalesced sign-in API wake request; 60-second sign-in/initial bootstrap deadlines; one grouped status count replacing five database statements; validated API revision metadata. No recurring keep-alive or paid plan changes. [Release details](50-free-plan-performance-release.md).
 
-Messaging, broadcasts, Google/procedure reviews remain later work; phone contacts are deferred. Local API/web and isolated `workflow_eye_test_20261009` remain available. Production database is separate. Requirements: [weekly feedback](33-weekly-client-feedback-2026-10-08.md); [booking rules](32-schedule-occupancy-and-duration.md).
+## Verified
+
+- Node 24 local suite: 432 passed, zero failures, one database HTTP test skipped. Isolated HTTP attempt failed because local PostgreSQL is stopped (P1001); CI disposable PostgreSQL must pass before rollout.
+- API/web types, lint, formatting, boundary, routes, secrets, Prisma validation and whitespace passed, exit 0. Production dependency audit: zero vulnerabilities.
+- API build and web webpack production build passed. Windows Turbopack child-process startup failed inside/outside sandbox; Linux CI uses the standard build. Logs: `.codex-temp/release-20261016-*.log`.
+- Prior UI acceptance: 42 client-table, 39 follow-up and 117 calendar assertions across desktop/narrow widths. Physical-device acceptance remains open.
+- Oct 16 production baseline: 12 public probes returned 200. First API liveness 42.6s, warm 101–112ms; SELECT 1 readiness spends approximately 366ms inside Nest. Remote main/local starting HEAD and Vercel deployment match 4d243bc. Configured Supabase ends at migration 27, with migration 28/nine follow-up columns absent. Render SHA/plan/region unverified. [Assessment](49-production-status-and-latency.md).
+
+## Remaining
+
+1. CI fresh migration rehearsal, HTTP and booking/client/finance transaction gates; apply migration 28, deploy matched API/web, verify production revision/readiness and authenticated scope.
+2. Inspect hosting region/effective pool settings and benchmark authenticated page latency. Free sleep and database network latency remain infrastructure limits.
+3. Clinic/physical iOS/Android acceptance; review historical recalls and clients without completed visits.
+4. Optional contact method/client-feedback inputs, messaging, broadcasts, Google reviews and provider notifications.
+
+Local eye-test database: workflow_eye_test_20261009, API 4102/web 3102. PostgreSQL currently stopped. Launcher `.codex-temp/eye-test-servers.cjs api|web`. No production schema push; pre-existing index naming/provider-slot-default drift remains separate.

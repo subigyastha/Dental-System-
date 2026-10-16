@@ -80,7 +80,7 @@ async function bootstrap() {
   // The web rewrite targets this exact configured port. Falling forward to a
   // different port leaves Next proxying to an older API process, which is much
   // harder to diagnose than a clear EADDRINUSE startup failure.
-  await app.listen(port, "0.0.0.0");
+  await app.listen(port, process.env.API_HOST ?? "0.0.0.0");
   logger.log({ event: "api_started", port, allowedOrigins: origins.length });
   console.log(`Nest API listening on http://localhost:${port}/api`);
 }

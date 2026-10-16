@@ -18,7 +18,8 @@ export class HealthController {
   @Get("live")
   @PublicRoute()
   live() {
-    return { status: "ok" };
+    const revision = process.env.RENDER_GIT_COMMIT ?? process.env.VERCEL_GIT_COMMIT_SHA;
+    return { status: "ok", ...(/^[a-f0-9]{40}$/i.test(revision ?? "") ? { revision } : {}) };
   }
 
   @Get("ready")

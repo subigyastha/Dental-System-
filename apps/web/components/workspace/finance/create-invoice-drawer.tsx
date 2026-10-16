@@ -22,16 +22,18 @@ export function CreateInvoiceDrawer({
   locations,
   onClose,
   onCreated,
+  preset,
 }: {
   locations: Array<{ id: string; name: string }>;
   onClose: () => void;
   onCreated: (invoiceId: string) => void;
+  preset?: { clientId: string; clientName: string; appointmentId: string; locationId: string; description: string };
 }) {
-  const [query, setQuery] = useState("");
-  const [clients, setClients] = useState<FinanceClientOption[]>([]);
-  const [clientId, setClientId] = useState("");
-  const [locationId, setLocationId] = useState(locations[0]?.id ?? "");
-  const [description, setDescription] = useState("");
+  const [query, setQuery] = useState(preset?.clientName ?? "");
+  const [clients, setClients] = useState<FinanceClientOption[]>(preset ? [{ id: preset.clientId, name: preset.clientName, phone: "" }] : []);
+  const [clientId, setClientId] = useState(preset?.clientId ?? "");
+  const [locationId, setLocationId] = useState(preset?.locationId ?? locations[0]?.id ?? "");
+  const [description, setDescription] = useState(preset?.description ?? "");
   const [quantity, setQuantity] = useState("1");
   const [unitPrice, setUnitPrice] = useState("");
   const [dueDate, setDueDate] = useState("");
@@ -42,6 +44,7 @@ export function CreateInvoiceDrawer({
   const attemptRef = useRef<{ fingerprint: string; key: string } | null>(null);
 
   useEffect(() => {
+    if (preset) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       setSearching(true);
@@ -62,7 +65,7 @@ export function CreateInvoiceDrawer({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [query]);
+  }, [query, preset]);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -89,6 +92,7 @@ export function CreateInvoiceDrawer({
       const input = {
         locationId,
         clientId,
+        appointmentId: preset?.appointmentId,
         dueAtIso: dueDate ? `${dueDate}T09:00:00+05:45` : undefined,
         notes: notes.trim() || undefined,
         lineItems: [
@@ -122,7 +126,7 @@ export function CreateInvoiceDrawer({
   return (
     <Drawer
       closeDisabled={saving}
-      context="Select an existing Client and add the initial immutable line-item input."
+      context={preset ? "Confirm the visit charge before recording payment." : "Select a client and enter the invoice items."}
       onClose={onClose}
       title="New draft invoice"
     >
@@ -136,6 +140,7 @@ export function CreateInvoiceDrawer({
             />
             <input
               autoComplete="off"
+              disabled={Boolean(preset)}
               className={`${inputClassName} pl-9`}
               onChange={(event) => {
                 setQuery(event.target.value);
@@ -195,6 +200,7 @@ export function CreateInvoiceDrawer({
         <Field label="Clinic location">
           <select
             className={inputClassName}
+            disabled={Boolean(preset)}
             onChange={(event) => setLocationId(event.target.value)}
             required
             value={locationId}

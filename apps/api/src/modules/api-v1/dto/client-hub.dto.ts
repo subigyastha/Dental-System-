@@ -39,6 +39,22 @@ export class ClientDirectoryQueryDto {
   @IsOptional()
   @IsIn(["name", "recent"])
   order?: "name" | "recent";
+
+  @IsOptional()
+  @IsIn(["name", "code", "phone", "visit", "risk"])
+  sort?: "name" | "code" | "phone" | "visit" | "risk";
+
+  @IsOptional()
+  @IsIn(["asc", "desc"])
+  direction?: "asc" | "desc";
+
+  @IsOptional()
+  @IsIn(["Routine", "Needs attention", "High priority"])
+  risk?: "Routine" | "Needs attention" | "High priority";
+
+  @IsOptional()
+  @IsIn(["true"])
+  includeTotal?: "true";
 }
 
 export class ClientIdentityDto {

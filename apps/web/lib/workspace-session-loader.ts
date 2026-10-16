@@ -1,4 +1,4 @@
-import { apiFetchJson } from "@/lib/api-client";
+import { API_WAKE_TIMEOUT_MS, apiFetchJson } from "@/lib/api-client";
 import type { SessionUser } from "@/lib/domain";
 import {
   unwrapWorkspaceBootstrap,
@@ -47,7 +47,7 @@ export function createWorkspaceSessionLoader(
 const workspaceSessionLoader = createWorkspaceSessionLoader(async () => {
   const workspaceResponse = await apiFetchJson<V1Envelope<WorkspaceBootstrap>>(
     "/v1/workspace/bootstrap",
-    { cache: "no-store" },
+    { cache: "no-store", timeoutMs: API_WAKE_TIMEOUT_MS },
   );
   const bootstrap = unwrapWorkspaceBootstrap(workspaceResponse);
   return {

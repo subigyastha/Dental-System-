@@ -308,6 +308,7 @@ model User {
   grantedRoleAssignments              RoleAssignment[]              @relation("RoleAssignmentGrantedBy")
   revokedRoleAssignments              RoleAssignment[]              @relation("RoleAssignmentRevokedBy")
   auditLogs                           AuditLog[]
+  recordedCommunications              CommunicationLog[]            @relation("CommunicationRecordedBy")
   updatedPlatformFeatureFlags         PlatformFeatureFlag[]         @relation("PlatformFeatureFlagUpdatedBy")
   updatedOrganizationFeatureOverrides OrganizationFeatureOverride[] @relation("OrganizationFeatureOverrideUpdatedBy")
   requestedSupportAccessGrants        SupportAccessGrant[]          @relation("SupportAccessRequestedBy")
@@ -1011,23 +1012,25 @@ model DentalChartRevision {
 }
 
 model FollowUpTask {
-  id             String         @id @default(cuid())
+  id             String             @id @default(cuid())
   organizationId String
-  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   customerId     String
-  customer       Customer       @relation(fields: [customerId], references: [id])
+  customer       Customer           @relation(fields: [customerId], references: [id])
   appointmentId  String?
-  appointment    Appointment?   @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  appointment    Appointment?       @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
   ownerId        String?
-  owner          Provider?      @relation("FollowUpOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  owner          Provider?          @relation("FollowUpOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   type           FollowUpType
-  status         FollowUpStatus @default(Open)
-  priority       Priority       @default(Normal)
+  status         FollowUpStatus     @default(Open)
+  priority       Priority           @default(Normal)
   dueAt          DateTime
   summary        String
   nextAction     String
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  dateOnly       Boolean?
+  communications CommunicationLog[]
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
 
   @@index([organizationId, status, dueAt])
   @@index([organizationId, customerId, dueAt])
@@ -1208,21 +1211,32 @@ model Payment {
 }
 
 model CommunicationLog {
-  id             String       @id @default(cuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  customerId     String
-  customer       Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  appointmentId  String?
-  appointment    Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
-  channel        String
-  direction      String
-  summary        String
-  occurredAt     DateTime     @default(now())
-  metadata       Json?
+  id               String        @id @default(cuid())
+  organizationId   String
+  organization     Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customerId       String
+  customer         Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  appointmentId    String?
+  appointment      Appointment?  @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  channel          String
+  direction        String
+  summary          String
+  occurredAt       DateTime      @default(now())
+  metadata         Json?
+  purpose          String?
+  source           String?
+  result           String?
+  responseText     String?
+  followUpTaskId   String?
+  followUpTask     FollowUpTask? @relation(fields: [followUpTaskId], references: [id], onDelete: SetNull)
+  recordedByUserId String?
+  recordedBy       User?         @relation("CommunicationRecordedBy", fields: [recordedByUserId], references: [id], onDelete: SetNull)
+  recordedAt       DateTime      @default(now())
+  requestId        String?
 
   @@index([organizationId, customerId, occurredAt])
   @@index([appointmentId, occurredAt])
+  @@index([followUpTaskId, occurredAt])
 }
 
 model InventorySupplier {

@@ -1,12 +1,12 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui";
 import { InstallAppButton } from "@/components/pwa-provider";
-import { apiFetchJson, rememberCsrfToken } from "@/lib/api-client";
+import { API_WAKE_TIMEOUT_MS, apiFetchJson, rememberCsrfToken, warmApi } from "@/lib/api-client";
 import type { SessionUser } from "@/lib/domain";
 import { signedInRoute } from "@/lib/session-routing";
 
@@ -17,6 +17,8 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  useEffect(() => { void warmApi(); }, []);
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSubmitting(true);
@@ -25,6 +27,7 @@ export default function LoginPage() {
     try {
       const result = await apiFetchJson<{ user: SessionUser; csrfToken: string }>("/auth/login", {
         method: "POST",
+        timeoutMs: API_WAKE_TIMEOUT_MS,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
@@ -105,7 +108,7 @@ export default function LoginPage() {
                 </div>
               ) : null}
 
-              <Button className="w-full" type="submit">
+              <Button className="w-full" type="submit" disabled={isSubmitting}>
                 {isSubmitting ? "Signing in..." : "Sign in"}
               </Button>
             </form>

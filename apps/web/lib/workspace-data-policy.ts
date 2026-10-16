@@ -7,6 +7,7 @@ const minimalBootstrapRouteRoots = [
   "/billing",
   "/clients",
   "/dashboard",
+  "/followups",
   "/inventory",
   "/patients",
   "/staff",

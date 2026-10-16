@@ -23,6 +23,7 @@ import {
   type RankedBookingSlot,
 } from "@/lib/booking-availability";
 import { ApiRequestError } from "@/lib/api-client";
+import { dateKeyInTimeZone, NEPAL_TIME_ZONE } from "@/lib/calendar";
 import {
   bookingContactNameForPhone,
   isBookingContactPickerSupported,
@@ -37,6 +38,7 @@ import {
 import { isUncertainBookingWriteError } from "@/lib/booking-error";
 import {
   loadNumberMatches,
+  loadBookingClientIdentity,
   loadRecentBookingClients,
   primaryPhone,
   type BookingClientIdentity,
@@ -65,8 +67,10 @@ const selectedChoiceClass =
 
 export function GuidedQuickBookFlow({
   onBack,
+  defaultCustomerId,
 }: {
   onBack?: () => void;
+  defaultCustomerId?: string;
   [key: string]: unknown;
 }) {
   const app = useWorkspaceApp();
@@ -78,6 +82,10 @@ export function GuidedQuickBookFlow({
   const [searchResult, setSearchResult] = useState<NumberMatchResult | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [recentError, setRecentError] = useState<string | null>(null);
+  const [prefillLoading, setPrefillLoading] = useState(false);
+  const [prefillError, setPrefillError] = useState<string | null>(null);
+  const [prefillRevision, setPrefillRevision] = useState(0);
+  const handledPrefill = useRef<string | null>(null);
   const [matchError, setMatchError] = useState<string | null>(null);
   const [contactPickerSupported, setContactPickerSupported] = useState(false);
   const [isPickingContact, setIsPickingContact] = useState(false);
@@ -121,6 +129,25 @@ export function GuidedQuickBookFlow({
   fetchProviderSlotsForBookingRef.current = app.fetchProviderSlotsForBooking;
   const selectedLocationId = quickBook.selectedLocationId;
   const setQuickBookDraft = quickBook.setDraft;
+  const setQuickBookStep = quickBook.setStep;
+
+  useEffect(() => {
+    if (!defaultCustomerId || handledPrefill.current === draft.draftId || draftRef.current.selectedClient || draftRef.current.newClient) return;
+    const controller = new AbortController();
+    setPrefillLoading(true); setPrefillError(null);
+    void loadBookingClientIdentity(defaultCustomerId, controller.signal).then(client => {
+      if (controller.signal.aborted) return;
+      handledPrefill.current = draft.draftId; setPrefillLoading(false);
+      // A late load must not overwrite a client staff selected in the meantime.
+      if (draftRef.current.draftId !== draft.draftId || draftRef.current.selectedClient || draftRef.current.newClient) return;
+      setQuickBookDraft(current => current.draftId === draft.draftId && !current.selectedClient && !current.newClient
+        ? { ...current, selectedClient: client, phone: primaryPhone(client), newClient: null } : current);
+      if (stepRef.current === "client") setQuickBookStep("details", { replace: true });
+    }).catch(error => {
+      if (!controller.signal.aborted) { setPrefillLoading(false); setPrefillError(error instanceof Error ? error.message : "Unable to load the selected client."); }
+    });
+    return () => controller.abort();
+  }, [defaultCustomerId, draft.draftId, prefillRevision, setQuickBookDraft, setQuickBookStep]);
 
   // Consume the server-issued capability instead of duplicating the role
   // matrix in the browser. This keeps Provider create-only authority aligned
@@ -470,6 +497,8 @@ export function GuidedQuickBookFlow({
   }
 
   function chooseClient(client: BookingClientIdentity) {
+    handledPrefill.current = draft.draftId;
+    setPrefillError(null);
     updateDraft({
       selectedClient: client,
       newClient: null,
@@ -930,6 +959,8 @@ export function GuidedQuickBookFlow({
     title: "Book appointment",
   };
 
+  if (prefillLoading && step === "client") return <Drawer {...commonDrawer} context="Loading the client selected for this appointment."><p className="text-sm" role="status">Loading selected client…</p></Drawer>;
+
   if (step === "new-client") {
     const intake = draft.newClient ?? {
       name: "",
@@ -1084,6 +1115,7 @@ export function GuidedQuickBookFlow({
           </Field>
           <DualCalendarDatePicker
             disabled={isCreatingHold || Boolean(draft.pendingHold)}
+            min={dateKeyInTimeZone(NEPAL_TIME_ZONE)}
             mode={app.calendarMode}
             onChange={(date) =>
               void updateScheduleSelection({ date })
@@ -1460,6 +1492,7 @@ export function GuidedQuickBookFlow({
     >
       <div className="space-y-5">
         {onBack ? <BackButton onClick={onBack} /> : null}
+        {prefillError ? <div className="space-y-2 text-sm" role="alert"><p>{prefillError}</p><Button onClick={() => setPrefillRevision(value => value + 1)} variant="secondary">Retry selected client</Button></div> : null}
         <HoldStatus
           announcement={holdAnnouncement}
           draft={draft}

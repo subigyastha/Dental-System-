@@ -5,7 +5,7 @@ const eslintConfig = [
   ...nextVitals,
   ...nextTypeScript,
   {
-    ignores: [".next/**", ".next-dev/**", "node_modules/**", "next-env.d.ts"],
+    ignores: [".next/**", ".next-dev/**", ".next-eye-test/**", "node_modules/**", "next-env.d.ts"],
   },
   {
     // React 19's new compiler-oriented rules require broad state-lifecycle

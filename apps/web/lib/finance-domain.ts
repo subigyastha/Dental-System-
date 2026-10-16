@@ -47,6 +47,8 @@ export type FinanceWorkspaceData = {
     pendingApprovalCount: number;
   };
   invoices: FinanceInvoiceRow[];
+  visitContext?: { id: string; locationId: string | null } | null;
+  paymentHistory?: Array<{ id: string; invoiceId: string; invoiceNumber: string; paidAtIso: string; amountNpr: string; method: string; status: string }>;
 };
 
 export type FinanceLedgerEntryType =
