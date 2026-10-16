@@ -13,6 +13,7 @@ import {
 import { useRouter } from "next/navigation";
 
 import { apiFetchJson, withSessionRequest as withAuthHeaders } from "@/lib/api-client";
+import { loadScheduleDay } from "@/lib/schedule-day";
 import {
   createBookingBootstrapLoader,
   type BookingBootstrap,
@@ -1209,7 +1210,7 @@ export function WorkspaceProvider({
         return request;
       },
       fetchScheduleDay: async ({ providerIds, date, locationId, signal }) => {
-        const token = requireToken();
+        requireToken();
         const normalizedProviderIds = [...(providerIds ?? [])].sort();
         const cacheKey = [
           data.organization.id,
@@ -1232,11 +1233,7 @@ export function WorkspaceProvider({
         }
         if (locationId) query.set("locationId", locationId);
 
-        const request = apiFetchJson<V1Envelope<ScheduleDaySnapshot>>(
-          `/v1/schedule/day?${query.toString()}`,
-          withAuthHeaders(token, { cache: "no-store" }),
-        ).then((envelope) => {
-          const response = envelope.data;
+        const request = loadScheduleDay<ScheduleDaySnapshot>(query).then((response) => {
           if (planningCacheRevision.current === requestRevision) {
             writePlanningCache(scheduleDayCache, cacheKey, response);
           }
