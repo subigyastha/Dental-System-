@@ -1,6 +1,6 @@
 "use client";
 
-import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getPrimaryAppointmentAction } from "@/lib/appointment-workflow";
@@ -833,7 +833,7 @@ export function ReservationsPage({
   );
 }
 
-function MobileReservationsView({
+export function MobileReservationsView({
   appointmentById,
   appointments,
   appointmentsByDate,
@@ -922,7 +922,7 @@ function MobileReservationsView({
 
   return (
     <div className="mobile-schedule space-y-4">
-      <div className="sticky top-[57px] z-10 -mx-4 border-b border-[var(--border)] bg-[var(--surface)]/95 px-4 pb-3 pt-3 backdrop-blur">
+      <div className="mobile-schedule-controls -mx-4 border-b border-[var(--border)] bg-[var(--surface)] px-4 pb-3 pt-3">
         <div className="flex flex-col gap-3">
           <div>
             <div className="text-lg font-semibold text-[var(--foreground)]">{title}</div>
@@ -966,7 +966,7 @@ function MobileReservationsView({
           >
             <ChevronRight size={16} />
           </button>
-          {!visibleProviderScope ? (
+          {!visibleProviderScope && calendarView !== "day" ? (
             <select
               className={`${inputClassName} min-w-0 w-full`}
               onChange={(event) => setSelectedProviderId(event.target.value)}
@@ -993,10 +993,13 @@ function MobileReservationsView({
 
       {calendarView === "day" ? (
         <div className="space-y-4">
+          <div className="mobile-day-context" aria-label="Day schedule context">
+            <div className="px-4 pt-2 text-xs font-medium text-[var(--text-muted)]">{formatShortWeekday(selectedDate)}</div>
           {!visibleProviderScope ? (
-            <Panel title="Providers">
-              <div className="flex gap-2 overflow-x-auto p-4 scrollbar-quiet">
+            <div role="group" aria-label="Choose provider">
+              <div className="flex gap-2 overflow-x-auto px-4 py-2 scrollbar-quiet">
                 <button
+                  aria-pressed={selectedProviderId === "all"}
                   className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium ${
                     selectedProviderId === "all"
                       ? "bg-[var(--accent)] text-white"
@@ -1009,6 +1012,7 @@ function MobileReservationsView({
                 </button>
                 {providerOptions.map((provider) => (
                   <button
+                    aria-pressed={selectedProviderId === provider.id}
                     className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium ${
                       selectedProviderId === provider.id
                         ? "bg-[var(--accent)] text-white"
@@ -1022,8 +1026,9 @@ function MobileReservationsView({
                   </button>
                 ))}
               </div>
-            </Panel>
-          ) : null}
+            </div>
+          ) : <div className="px-4 py-3 font-semibold">{providerOptions.find(provider => provider.id === visibleProviderScope)?.name ?? title}</div>}
+          </div>
           <Panel title="Day schedule">
             <div className="border-b border-[var(--border)] px-4 py-3 text-sm font-semibold">{formatShortWeekday(selectedDate)} · {selectedDate}</div>
             {dayGridLoading ? (
@@ -1354,12 +1359,30 @@ export function WeekPanel({
   weekDateKeys: string[];
   weekSummaryByDate: Map<string, AppointmentWeekSummary>;
 }) {
+  const headerScroll = useRef<HTMLDivElement>(null);
+  const bodyScroll = useRef<HTMLDivElement>(null);
+  function syncHorizontalScroll(source: HTMLDivElement, target: HTMLDivElement | null) {
+    if (target && Math.abs(target.scrollLeft - source.scrollLeft) > 1) target.scrollLeft = source.scrollLeft;
+  }
   return (
-    <Panel className="min-w-0" title="Week view">
+    <Panel className="schedule-week-panel min-w-0" title="Week view">
       {isLoading ? (
         <KoiSectionLoader className="min-h-[520px]" label="Loading weekly board" />
       ) : (
-        <div className="max-h-[70vh] overflow-auto" data-testid="week-scroll-container">
+        <>
+        <div className="mobile-week-context md:hidden" role="group" aria-label="Week schedule days">
+          <div className="overflow-x-auto scrollbar-quiet" ref={headerScroll} onScroll={event => syncHorizontalScroll(event.currentTarget, bodyScroll.current)}>
+            <div className="grid w-[700%] grid-cols-7 divide-x divide-[var(--border)] sm:w-auto sm:min-w-[1960px]">
+              {weekDateKeys.map(dateKey => (
+                <button className="flex min-h-14 items-center justify-between gap-3 px-4 py-2 text-left" key={dateKey} onClick={() => onOpenDay(dateKey)} type="button">
+                  <span className="font-semibold">{formatShortWeekday(dateKey)}</span>
+                  <span className="text-xs text-[var(--text-muted)]">{weekSummaryByDate.get(dateKey)?.totalAppointments ?? appointmentsByDate.get(dateKey)?.length ?? 0} appointments</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="schedule-week-scroll overflow-x-auto md:max-h-[70vh] md:overflow-auto" data-testid="week-scroll-container" role="region" aria-label="Weekly appointments" tabIndex={0} ref={bodyScroll} onScroll={event => syncHorizontalScroll(event.currentTarget, headerScroll.current)}>
           <div className="grid w-[700%] grid-cols-7 divide-x divide-[var(--border)] sm:w-auto sm:min-w-[1960px]">
             {weekDateKeys.map((dateKey) => {
               const summary = weekSummaryByDate.get(dateKey);
@@ -1367,7 +1390,7 @@ export function WeekPanel({
               return (
                 <div className="flex min-h-[640px] flex-col bg-white" key={dateKey}>
                   <button
-                    className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--surface-muted)] px-4 py-4 text-left transition hover:bg-white"
+                    className="sticky top-0 z-10 hidden border-b border-[var(--border)] bg-[var(--surface-muted)] px-4 py-4 text-left transition hover:bg-white md:block"
                     onClick={() => onOpenDay(dateKey)}
                     type="button"
                   >
@@ -1462,6 +1485,7 @@ export function WeekPanel({
             })}
           </div>
         </div>
+        </>
       )}
     </Panel>
   );
@@ -1557,8 +1581,10 @@ export function MonthPanel({
 }) {
   const today = todayDateKey();
   return (
-    <Panel className="min-w-0" title="Month view">
-      <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-3 py-4 sm:px-5">
+    <Panel className="schedule-month-panel min-w-0" title="Month view">
+      <div data-testid="month-calendar">
+      <div className="mobile-month-context">
+      <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-3 py-2 sm:px-5 sm:py-4">
         <div className="min-w-0">
           <div className="text-lg font-semibold text-[var(--foreground)]">
             {grid.primaryMonthLabel}
@@ -1586,7 +1612,6 @@ export function MonthPanel({
           </button>
         </div>
       </div>
-      <div data-testid="month-calendar">
         <div
           aria-label="Calendar weekdays"
           className="grid grid-cols-7 border-b border-[var(--border)] bg-[var(--surface-muted)] text-center text-xs font-semibold"
@@ -1611,6 +1636,7 @@ export function MonthPanel({
             </div>
           ))}
         </div>
+      </div>
         {summaryLoading ? (
           <KoiSectionLoader
             className="min-h-[420px]"

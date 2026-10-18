@@ -171,14 +171,16 @@ test("desktop and mobile retain completed/cancelled records alongside their repl
   }
 });
 
-test("week dates stay sticky inside the bounded Schedule scroll region", async () => {
+test("week keeps a mobile day strip and bounds the desktop schedule scroll region", async () => {
   const { WeekPanel } = await import("./reservations-page");
   const html = renderToStaticMarkup(createElement(WeekPanel, {
     appointmentsByDate: new Map(), isLoading: false, onBookedSlotClick: () => undefined,
     onOpenBooking: () => undefined, onOpenDay: () => undefined, providerDetailsById: new Map(),
     visibleProviders: [], weekDateKeys: ["2030-01-01"], weekSummaryByDate: new Map(),
   }));
-  assert.match(html, /max-h-\[70vh\] overflow-auto/);
+  assert.match(html, /md:max-h-\[70vh\] md:overflow-auto/);
+  assert.match(html, /mobile-week-context md:hidden/);
+  assert.match(html, /aria-label="Week schedule days"/);
   assert.match(html, /sticky top-0 z-10/);
   assert.match(html, /Tue/);
   assert.match(html, /sm:min-w-\[1960px\]/);

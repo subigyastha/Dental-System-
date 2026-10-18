@@ -22,7 +22,7 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { CalendarModeToggle } from "@/components/calendar-ui";
 import { WorkspaceShellSkeleton } from "@/components/workspace/workspace-shell-skeleton";
@@ -101,6 +101,7 @@ function isCurrentPath(pathname: string, href: string) {
 }
 
 export function WorkspaceShell({ children }: { children: ReactNode }) {
+  const headerRef = useRef<HTMLElement>(null);
   const pathname = usePathname();
   const router = useRouter();
   const {
@@ -118,6 +119,16 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   const [activePopover, setActivePopover] = useState<"notifications" | "profile" | null>(null);
   const [isAttentionHovered, setIsAttentionHovered] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+
+  useEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+    const measure = () => header.parentElement?.style.setProperty("--workspace-header-height", `${header.getBoundingClientRect().height}px`);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, [isAuthenticating, sessionUser?.id]);
 
   useEffect(() => {
     if (!toast) {
@@ -316,7 +327,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
         </aside>
 
         <div className="flex min-w-0 flex-col">
-          <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-[var(--surface)]/95 backdrop-blur">
+          <header ref={headerRef} className="sticky top-[env(safe-area-inset-top)] z-20 border-b border-[var(--border)] bg-[var(--surface)]/95 backdrop-blur">
             <div className="flex min-h-14 items-center justify-between gap-3 px-4 py-2 lg:px-6">
               <div className="min-w-0">
                 <h1 className="sr-only">{pageTitle}</h1>
