@@ -129,6 +129,43 @@ html {
   }
 }
 
+@media (max-width: 767px) {
+  /* Page controls scroll away; only the active calendar context stays in view. */
+  .mobile-day-context,
+  .mobile-week-context,
+  .mobile-month-context {
+    position: sticky;
+    top: calc(var(--workspace-header-height, 69px) + env(safe-area-inset-top));
+    z-index: 10;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 2px 4px rgb(16 61 58 / 5%);
+  }
+
+  .schedule-week-panel,
+  .schedule-month-panel {
+    overflow: visible;
+  }
+
+  .schedule-week-scroll {
+    max-height: none;
+    overflow-y: hidden;
+  }
+
+  .mobile-week-context > div {
+    scrollbar-width: none;
+  }
+
+  .mobile-week-context > div::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-day-context {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+}
+
 h1,
 h2,
 h3,
